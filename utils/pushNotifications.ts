@@ -36,36 +36,26 @@ export async function registerForPushNotificationsAsync(userId: string) {
   if (Device.isDevice) {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
-
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
-
     if (finalStatus !== 'granted') {
-      console.log('Permiso denegado para notificaciones push');
+      console.log('Fallo al obtener el push token para las notificaciones');
       return;
     }
-
-    // Obtener projectId del app.json/app.config.js
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-
-    token = (await Notifications.getExpoPushTokenAsync({
-      projectId: projectId || '95912a92-2f39-4e4d-a7c7-abab0dd8bc80',
-    })).data;
-    console.log("Tu Push Token es:", token);
-
-    // Guardar token en Firebase con merge para no sobrescribir otros campos
-    if (token && userId) {
-      try {
-        await setDoc(doc(db, 'users', userId), {
-          expoPushToken: token
-        }, { merge: true });
-      } catch (error) {
-        console.error("Error guardando el Push Token en Firebase:", error);
+    try {
+      const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
+      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+      
+      // Guardar el token en Firebase
+      if (token && userId) {
+        await setDoc(doc(db, 'users', userId), { pushToken: token }, { merge: true });
+        console.log("Push Token guardado:", token);
       }
+    } catch (error) {
+      console.error("Error guardando el Push Token en Firebase:", error);
     }
-
   } else {
     console.log('Debes usar un dispositivo físico para las Notificaciones Push');
   }

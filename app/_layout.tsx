@@ -1,6 +1,5 @@
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
-import { Stack } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import Toast from 'react-native-toast-message';
 import { ThemeProvider } from '../src/context/ThemeContext';

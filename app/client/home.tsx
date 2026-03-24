@@ -176,30 +176,29 @@ export default function ClientMapHome() {
 
   const sendRequest = async () => {
     if (requestLoading) return;
-    if (!acceptedTerms) { Alert.alert("Atención", "Debes aceptar los términos."); return; }
-    if (!selectedProvider || !location) return;
     setRequestLoading(true);
     try {
-      await addDoc(collection(db, 'service_requests'), {
-        clientId: user?.uid, clientName: user?.email,
-        providerId: selectedProvider.id, providerName: selectedProvider.full_name,
-        status: 'PENDING', location: new GeoPoint(location.latitude, location.longitude),
-        createdAt: serverTimestamp(), price_agreed: selectedProvider.price_range
-      });
-
-      // Notificar al proveedor via Expo Push Service → FCM → dispositivo
-      if (selectedProvider.expoPushToken) {
-        await sendPushNotification(
-          selectedProvider.expoPushToken,
-          '¡NUEVA SOLICITUD! 🚨',
-          `${user?.displayName || user?.email?.split('@')[0] || 'Un cliente'} necesita tus servicios. Abre la app para aceptar.`,
-          { screen: 'provider_home', type: 'NEW_REQUEST' }
-        );
+      if (!location) {
+        Alert.alert('Error', 'Necesitamos tu ubicación.');
+        return;
       }
+      
+      await addDoc(collection(db, 'service_requests'), {
+        clientId: user?.uid,
+        clientName: user?.displayName || 'Cliente',
+        providerId: selectedProvider.id,
+        providerName: selectedProvider.full_name || 'Técnico',
+        serviceType: selectedProvider.specialty || 'General',
+        status: 'PENDING',
+        location: {
+           latitude: location.latitude,
+           longitude: location.longitude
+        },
+        createdAt: serverTimestamp(),
+      });
 
       Toast.show({ type: 'success', text1: '¡Buscando Técnico! 📡', text2: 'Avisando dispositivos cercanos...' });
       setSelectedProvider(null);
-      // El estado pasará a PENDING gracias al onSnapshot (No tiempos muertos)
     } catch (error) { Alert.alert('Error', 'No se pudo enviar'); } finally { setRequestLoading(false); }
   };
 
