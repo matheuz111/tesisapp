@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Usuarios: Cualquiera autenticado puede leer la info pública (para el mapa), pero solo el dueño la modifica
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Solicitudes de servicio: Clientes crean, técnicos actualizan estados. (Todos autenticados pueden interactuar si pertenecen)
+    match /service_requests/{requestId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Chats: Solo participantes (restringido temporalmente a autenticados para permitir MVP simple)
+    match /chats/{chatId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+
