@@ -36,11 +36,11 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
 import {
   ActivityIndicator,
   Alert,
   Animated,
-  Clipboard,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -157,27 +157,6 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const isDark = theme === 'dark';
 
-  // ══════ GUARD: id inválido (#9) ══════
-  if (!id) {
-    return (
-      <View style={[styles.fill, styles.center, { backgroundColor: isDark ? '#0B141A' : '#ECE5DD' }]}>
-        <Ionicons name="alert-circle-outline" size={60} color={isDark ? '#8696A0' : '#999'} />
-        <Text style={[styles.errorTitle, { color: isDark ? '#E9EDEF' : '#111B21' }]}>
-          Chat no encontrado
-        </Text>
-        <Text style={[styles.errorSubtitle, { color: isDark ? '#8696A0' : '#667781' }]}>
-          El enlace es inválido o la conversación fue eliminada.
-        </Text>
-        <TouchableOpacity
-          style={[styles.errorBtn, { backgroundColor: colors.primary }]}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.errorBtnText}>Volver</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   // Auth reactiva
   const [user, setUser] = useState<User | null>(auth.currentUser);
   useEffect(() => {
@@ -205,7 +184,7 @@ export default function ChatScreen() {
 
   const inputRef = useRef<TextInput>(null);
   const flatListRef = useRef<FlatList>(null);
-  const scrollBtnOpacity = useRef(new Animated.Value(0)).current;
+  const [scrollBtnOpacity] = useState(() => new Animated.Value(0));
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDocRef = useRef<any>(null);
 
@@ -319,9 +298,8 @@ export default function ChatScreen() {
       setMessages((prev) => [...prev, ...olderMessages]);
     } catch (error) {
       console.error('Error cargando mensajes anteriores:', error);
-    } finally {
-      setLoadingMore(false);
     }
+    setLoadingMore(false);
   }, [hasMoreMessages, loadingMore, id]);
 
   // ── Scroll-to-bottom button animation ──────
@@ -366,6 +344,32 @@ export default function ChatScreen() {
     };
   }, [setTypingStatus]);
 
+  // ══════ #7: Push notification helper ══════
+  const sendPushToOtherUser = useCallback(async (msgText: string) => {
+    if (!jobDetails || !user) return;
+    try {
+      const otherUserId = user.uid === jobDetails.clientId
+        ? jobDetails.providerId
+        : jobDetails.clientId;
+      if (!otherUserId) return;
+
+      const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
+      if (otherUserDoc.exists() && otherUserDoc.data().expoPushToken) {
+        const senderName = user.uid === jobDetails.clientId
+          ? (jobDetails.clientName || user.email?.split('@')[0] || 'Cliente')
+          : (jobDetails.providerName || user.email?.split('@')[0] || 'Técnico');
+
+        await sendPushNotification(
+          otherUserDoc.data().expoPushToken,
+          `💬 ${senderName}`,
+          msgText.length > 80 ? msgText.substring(0, 80) + '...' : msgText
+        );
+      }
+    } catch {
+      // Silencioso: no bloquear UX por fallo de push
+    }
+  }, [jobDetails, user]);
+
   // ══════ #1: Enviar texto con UI optimista ══════
   const sendMessage = useCallback(async () => {
     const text = inputText.trim();
@@ -401,33 +405,7 @@ export default function ChatScreen() {
       setInputText(text);
       Alert.alert('Error', 'No se pudo enviar el mensaje.');
     }
-  }, [inputText, user, id, setTypingStatus]);
-
-  // ══════ #7: Push notification helper ══════
-  const sendPushToOtherUser = useCallback(async (msgText: string) => {
-    if (!jobDetails || !user) return;
-    try {
-      const otherUserId = user.uid === jobDetails.clientId
-        ? jobDetails.providerId
-        : jobDetails.clientId;
-      if (!otherUserId) return;
-
-      const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
-      if (otherUserDoc.exists() && otherUserDoc.data().expoPushToken) {
-        const senderName = user.uid === jobDetails.clientId
-          ? (jobDetails.clientName || user.email?.split('@')[0] || 'Cliente')
-          : (jobDetails.providerName || user.email?.split('@')[0] || 'Técnico');
-
-        await sendPushNotification(
-          otherUserDoc.data().expoPushToken,
-          `💬 ${senderName}`,
-          msgText.length > 80 ? msgText.substring(0, 80) + '...' : msgText
-        );
-      }
-    } catch {
-      // Silencioso: no bloquear UX por fallo de push
-    }
-  }, [jobDetails, user]);
+  }, [inputText, user, id, setTypingStatus, sendPushToOtherUser]);
 
   // ══════ #5: Enviar imagen con preview ══════
   const pickImage = useCallback(async (useCamera: boolean) => {
@@ -467,10 +445,9 @@ export default function ChatScreen() {
       sendPushToOtherUser('📷 Imagen');
     } catch {
       Alert.alert('Error', 'La imagen es demasiado grande o hubo un fallo de red.');
-    } finally {
-      setSending(false);
-      setImagePreviewBase64(null);
     }
+    setSending(false);
+    setImagePreviewBase64(null);
   }, [imagePreviewBase64, user, id, sendPushToOtherUser]);
 
   const cancelImagePreview = useCallback(() => {
@@ -482,7 +459,7 @@ export default function ChatScreen() {
   const handleLongPress = useCallback(async (item: Message) => {
     if (item.type !== 'text' || !item.text) return;
     try {
-      Clipboard.setString(item.text);
+      await Clipboard.setStringAsync(item.text);
       Toast.show({
         type: 'success',
         text1: 'Copiado',
@@ -622,6 +599,27 @@ export default function ChatScreen() {
             Cargando mensajes…
           </Text>
         </View>
+      </View>
+    );
+  }
+
+  // ══════ GUARD: id inválido (#9) ══════
+  if (!id) {
+    return (
+      <View style={[styles.fill, styles.center, { backgroundColor: isDark ? '#0B141A' : '#ECE5DD' }]}>
+        <Ionicons name="alert-circle-outline" size={60} color={isDark ? '#8696A0' : '#999'} />
+        <Text style={[styles.errorTitle, { color: isDark ? '#E9EDEF' : '#111B21' }]}>
+          Chat no encontrado
+        </Text>
+        <Text style={[styles.errorSubtitle, { color: isDark ? '#8696A0' : '#667781' }]}>
+          El enlace es inválido o la conversación fue eliminada.
+        </Text>
+        <TouchableOpacity
+          style={[styles.errorBtn, { backgroundColor: colors.primary }]}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.errorBtnText}>Volver</Text>
+        </TouchableOpacity>
       </View>
     );
   }

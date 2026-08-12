@@ -48,16 +48,19 @@ export default function RegisterScreen() {
       return;
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
     setLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
       const user = userCredential.user;
 
       const userData: any = {
         uid: user.uid,
-        full_name: name,
-        name: name,
-        email: email,
+        full_name: name.trim(),
+        name: name.trim(),
+        email: cleanEmail,
         role: selectedRole.toUpperCase(),
         created_at: serverTimestamp(),
       };
@@ -83,13 +86,15 @@ export default function RegisterScreen() {
       Alert.alert('¡Éxito!', 'Cuenta creada correctamente. Inicia sesión para continuar.');
       router.replace('/auth/login');
     } catch (error: any) {
-      console.error(error);
+      console.error('Error en registro:', error);
       if (error.code === 'auth/email-already-in-use') {
-        Alert.alert('Error', 'Ese correo ya está registrado.');
+        Alert.alert('Error', 'Ese correo ya está registrado en Firebase Auth. Si no puedes entrar, elimina el usuario en la consola de Firebase o usa otro correo.');
       } else if (error.code === 'auth/invalid-email') {
         Alert.alert('Error', 'El formato del correo no es válido.');
+      } else if (error.code === 'permission-denied' || error.message?.includes('permission') || error.toString().includes('permissions')) {
+        Alert.alert('Error de Permisos en Firestore', 'La cuenta se creó en Auth pero Firestore rechazó guardar el perfil por falta de permisos. Revisa las reglas en la consola Firebase.');
       } else {
-        Alert.alert('Error', error.message || 'Error desconocido');
+        Alert.alert('Error de registro', error.message || 'Error desconocido');
       }
     } finally {
       setLoading(false);

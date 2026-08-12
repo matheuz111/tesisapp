@@ -23,8 +23,10 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
 
-    if (!email || !password) {
+    if (!cleanEmail || !cleanPassword) {
       Toast.show({
         type: 'error',
         text1: 'Campos vacíos',
@@ -33,7 +35,7 @@ export default function LoginScreen() {
       return;
     }
 
-    if (!isValidEmail(email)) {
+    if (!isValidEmail(cleanEmail)) {
       Toast.show({
         type: 'error',
         text1: 'Correo inválido',
@@ -44,7 +46,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
       const user = userCredential.user;
 
       const userDocRef = doc(db, 'users', user.uid);
@@ -71,17 +73,22 @@ export default function LoginScreen() {
         }, 1000);
 
       } else {
-        Toast.show({ type: 'error', text1: 'Usuario no encontrado', text2: 'No existe registro en la base de datos.' });
+        Toast.show({ 
+          type: 'error', 
+          text1: 'Usuario sin perfil', 
+          text2: 'Credenciales correctas en Auth, pero falta crear el perfil en la base de datos. Por favor regístrate.' 
+        });
       }
 
     } catch (error: any) {
-      console.error(error);
+      console.error('Error en login:', error);
       let msg = 'Ocurrió un error inesperado';
-      // Mapeo de errores comunes de Firebase
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        msg = 'Correo o contraseña incorrectos';
+        msg = 'Correo o contraseña incorrectos en Firebase.';
       } else if (error.code === 'auth/too-many-requests') {
         msg = 'Demasiados intentos. Intenta más tarde.';
+      } else if (error.message) {
+        msg = error.message;
       }
 
       Toast.show({

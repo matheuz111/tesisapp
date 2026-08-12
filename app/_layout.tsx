@@ -3,36 +3,46 @@ import * as Notifications from 'expo-notifications';
 import { useEffect, useRef } from 'react';
 import Toast from 'react-native-toast-message';
 import { ThemeProvider } from '../src/context/ThemeContext';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 export default function Layout() {
   const router = useRouter();
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
+  const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
   useEffect(() => {
-    // Listener: notificación recibida mientras la app está ABIERTA (foreground)
-    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      const data = notification.request.content.data as any;
-      console.log('Notificación recibida en foreground:', data);
-    });
+    if (isExpoGo) {
+      console.log('Notificaciones push remotas deshabilitadas en Expo Go (SDK 54).');
+      return;
+    }
 
-    // Listener: usuario TAP sobre la notificación (app cerrada o background)
-    // Este es el handler que abre la pantalla correcta al tocar la notificación
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
-      const data = response.notification.request.content.data as any;
-      console.log('Notificación tocada, data:', data);
+    try {
+      // Listener: notificación recibida mientras la app está ABIERTA (foreground)
+      notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+        const data = notification.request.content.data as any;
+        console.log('Notificación recibida en foreground:', data);
+      });
 
-      if (!data?.screen) return;
+      // Listener: usuario TAP sobre la notificación (app cerrada o background)
+      responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+        const data = response.notification.request.content.data as any;
+        console.log('Notificación tocada, data:', data);
 
-      // Pequeño delay para asegurar que el router esté listo
-      setTimeout(() => {
-        if (data.screen === 'provider_home') {
-          router.replace('/provider/home');
-        } else if (data.screen === 'client_home') {
-          router.replace('/client/home');
-        }
-      }, 300);
-    });
+        if (!data?.screen) return;
+
+        setTimeout(() => {
+          if (data.screen === 'provider_home') {
+            router.replace('/provider/home');
+          } else if (data.screen === 'client_home') {
+            router.replace('/client/home');
+          }
+        }, 300);
+      });
+    } catch (e) {
+      console.warn('Error al inicializar notificaciones en Expo Go:', e);
+    }
 
     return () => {
       notificationListener.current?.remove();
