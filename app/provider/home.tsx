@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Keyboard,
   Linking,
   Platform,
   ScrollView,
@@ -15,6 +16,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Vibration,
   View,
 } from 'react-native';
@@ -90,7 +92,28 @@ export default function ProviderHome() {
   const [accepting, setAccepting] = useState(false);
   const [inputPin, setInputPin] = useState('');
   const [verifyingPin, setVerifyingPin] = useState(false);
+  const [providerKeyboardOffset, setProviderKeyboardOffset] = useState(0);
   const isAcceptingRef = useRef(false);
+
+  // Escuchar teclado para evitar que tape el PIN de validación
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setProviderKeyboardOffset(e.endCoordinates.height);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setProviderKeyboardOffset(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Animación del toggle
   const [toggleScale] = useState(new Animated.Value(1));
@@ -357,6 +380,7 @@ export default function ProviderHome() {
 
   // ── Validar PIN de Inicio Presencial ──
   const validatePin = async () => {
+    Keyboard.dismiss();
     if (!currentJob) return;
     const cleanPin = inputPin.trim();
     if (!cleanPin) {
@@ -541,58 +565,73 @@ export default function ProviderHome() {
         )
         : null;
 
-    return (
-      <View style={[styles.containerFull, { backgroundColor: colors.background }]}>
-        {location && currentJob.location ? (
-          <MapView
-            style={styles.mapAbsolute}
-            initialRegion={{
-              latitude: (location.latitude + currentJob.location.latitude) / 2,
-              longitude: (location.longitude + currentJob.location.longitude) / 2,
-              latitudeDelta: Math.abs(location.latitude - currentJob.location.latitude) * 2 + 0.01,
-              longitudeDelta: Math.abs(location.longitude - currentJob.location.longitude) * 2 + 0.01,
-            }}
-          >
-            <UrlTile urlTemplate={mapStyle} maximumZ={19} flipY={false} />
-            <Marker coordinate={location} title="Tu ubicación" description="Estás aquí" pinColor="blue" />
-            <Marker
-              coordinate={{ latitude: currentJob.location.latitude, longitude: currentJob.location.longitude }}
-              title={currentJob.clientName || 'Cliente'}
-              description="Destino del servicio"
-              pinColor="red"
-            />
-          </MapView>
-        ) : (
-          <View style={[styles.mapAbsolute, styles.center, { backgroundColor: colors.background }]}>
-            <ActivityIndicator color={colors.primary} size="large" />
-          </View>
-        )}
+    const clientDisplayName = currentJob.clientName
+      ? (currentJob.clientName.includes('@') ? currentJob.clientName.split('@')[0] : currentJob.clientName)
+      : 'Cliente';
 
-        {/* PANEL FLOTANTE EN-RUTA / EN-EJECUCIÓN */}
-        <View style={[styles.floatingActionCard, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-          <View style={styles.routeHeaderRow}>
-            <View style={styles.routeHeaderLeft}>
-              <Text style={[styles.routeLabel, { color: currentJob.serviceStarted ? colors.success : colors.primary }]}>
-                {currentJob.serviceStarted ? '🟢 TRABAJO EN EJECUCIÓN' : '📌 EN RUTA HACIA EL CLIENTE'}
-              </Text>
-              <Text style={[styles.routeClientName, { color: colors.text }]} numberOfLines={1}>
-                {currentJob.clientName || 'Cliente'}
-              </Text>
-              {currentJob.specialty && (
-                <Text style={[styles.routeServiceType, { color: colors.subtext }]}>
-                  {currentJob.specialty}
+    return (
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={[styles.containerFull, { backgroundColor: colors.background }]}>
+          {location && currentJob.location ? (
+            <MapView
+              style={styles.mapAbsolute}
+              initialRegion={{
+                latitude: (location.latitude + currentJob.location.latitude) / 2,
+                longitude: (location.longitude + currentJob.location.longitude) / 2,
+                latitudeDelta: Math.abs(location.latitude - currentJob.location.latitude) * 2 + 0.01,
+                longitudeDelta: Math.abs(location.longitude - currentJob.location.longitude) * 2 + 0.01,
+              }}
+              onPress={Keyboard.dismiss}
+            >
+              <UrlTile urlTemplate={mapStyle} maximumZ={19} flipY={false} />
+              <Marker coordinate={location} title="Tu ubicación" description="Estás aquí" pinColor="blue" />
+              <Marker
+                coordinate={{ latitude: currentJob.location.latitude, longitude: currentJob.location.longitude }}
+                title={clientDisplayName}
+                description="Destino del servicio"
+                pinColor="red"
+              />
+            </MapView>
+          ) : (
+            <View style={[styles.mapAbsolute, styles.center, { backgroundColor: colors.background }]}>
+              <ActivityIndicator color={colors.primary} size="large" />
+            </View>
+          )}
+
+          {/* PANEL FLOTANTE EN-RUTA / EN-EJECUCIÓN */}
+          <View
+            style={[
+              styles.floatingActionCard,
+              {
+                backgroundColor: colors.card,
+                shadowColor: colors.shadow,
+                bottom: providerKeyboardOffset > 0 ? providerKeyboardOffset + 10 : 20,
+              },
+            ]}
+          >
+            <View style={styles.routeHeaderRow}>
+              <View style={styles.routeHeaderLeft}>
+                <Text style={[styles.routeLabel, { color: currentJob.serviceStarted ? colors.success : colors.primary }]}>
+                  {currentJob.serviceStarted ? '🟢 TRABAJO EN EJECUCIÓN' : '📌 EN RUTA HACIA EL CLIENTE'}
                 </Text>
+                <Text style={[styles.routeClientName, { color: colors.text }]} numberOfLines={1}>
+                  {clientDisplayName}
+                </Text>
+                {currentJob.specialty && (
+                  <Text style={[styles.routeServiceType, { color: colors.subtext }]}>
+                    {currentJob.specialty}
+                  </Text>
+                )}
+              </View>
+              {jobDistance !== null && (
+                <View style={[styles.distanceBadge, { backgroundColor: isDark ? '#1a3a2a' : '#E8F5E9' }]}>
+                  <Ionicons name="navigate-outline" size={14} color={colors.success} />
+                  <Text style={[styles.distanceBadgeText, { color: colors.success }]}>
+                    {formatDistance(jobDistance)}
+                  </Text>
+                </View>
               )}
             </View>
-            {jobDistance !== null && (
-              <View style={[styles.distanceBadge, { backgroundColor: isDark ? '#1a3a2a' : '#E8F5E9' }]}>
-                <Ionicons name="navigate-outline" size={14} color={colors.success} />
-                <Text style={[styles.distanceBadgeText, { color: colors.success }]}>
-                  {formatDistance(jobDistance)}
-                </Text>
-              </View>
-            )}
-          </View>
 
           {/* ACCIONES DE RUTA */}
           <View style={styles.routeActionsContainer}>
@@ -699,8 +738,9 @@ export default function ProviderHome() {
           )}
         </View>
       </View>
-    );
-  }
+    </TouchableWithoutFeedback>
+  );
+}
 
   // ═══════════════════════════════════════
   // DASHBOARD PRINCIPAL

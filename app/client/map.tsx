@@ -179,8 +179,9 @@ export default function MapScreen() {
     // Generar código OTP de 4 dígitos de seguridad
     const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     try {
+      const formattedClientName = user?.displayName || (user?.email ? user.email.split('@')[0] : 'Cliente');
       await addDoc(collection(db, 'service_requests'), {
-        clientId: user?.uid, clientName: user?.email,
+        clientId: user?.uid, clientName: formattedClientName,
         providerId: selectedProvider.id, providerName: selectedProvider.full_name,
         status: 'PENDING', location: new GeoPoint(location.latitude, location.longitude),
         createdAt: serverTimestamp(), price_agreed: selectedProvider.price_range,

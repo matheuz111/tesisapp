@@ -185,9 +185,10 @@ export default function ClientMapHome() {
         return;
       }
       
+      const formattedClientName = user?.displayName || (user?.email ? user.email.split('@')[0] : 'Cliente');
       await addDoc(collection(db, 'service_requests'), {
         clientId: user?.uid,
-        clientName: user?.email,
+        clientName: formattedClientName,
         providerId: selectedProvider.id,
         providerName: selectedProvider.full_name,
         status: 'PENDING',
