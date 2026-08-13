@@ -40,6 +40,7 @@ export default {
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE"
       ],
+      softwareKeyboardLayoutMode: "resize",
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false
     },

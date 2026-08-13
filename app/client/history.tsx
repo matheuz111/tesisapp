@@ -20,11 +20,7 @@ export default function ClientHistory() {
     const [requests, setRequests] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        if (user) loadHistory();
-    }, [user]);
-
-    const loadHistory = async () => {
+    const loadHistory = React.useCallback(async () => {
         if (!user) return;
         try {
             const q = query(
@@ -43,7 +39,11 @@ export default function ClientHistory() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [user]);
+
+    useEffect(() => {
+        if (user) loadHistory();
+    }, [user, loadHistory]);
 
     const getStatusColor = (status: string) => {
         switch (status) {

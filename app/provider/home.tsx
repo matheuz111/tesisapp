@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -88,6 +88,9 @@ export default function ProviderHome() {
   const [uploading, setUploading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [inputPin, setInputPin] = useState('');
+  const [verifyingPin, setVerifyingPin] = useState(false);
+  const isAcceptingRef = useRef(false);
 
   // Animación del toggle
   const [toggleScale] = useState(new Animated.Value(1));
@@ -207,9 +210,10 @@ export default function ProviderHome() {
         });
       } else {
         setIncomingRequest((prev: any) => {
-          if (prev) {
+          if (prev && !isAcceptingRef.current) {
             Alert.alert('Aviso', 'El cliente ha cancelado la solicitud o ya no está disponible.');
           }
+          isAcceptingRef.current = false;
           return null;
         });
       }
@@ -241,21 +245,26 @@ export default function ProviderHome() {
   // ── Aceptar trabajo ─────────────────────
   const acceptJob = async () => {
     if (!incomingRequest || accepting) return;
+    isAcceptingRef.current = true;
     setAccepting(true);
+    const targetRequest = incomingRequest;
+    setIncomingRequest(null);
     try {
-      await updateDoc(doc(db, 'service_requests', incomingRequest.id), { status: 'ACCEPTED' });
+      await updateDoc(doc(db, 'service_requests', targetRequest.id), { status: 'ACCEPTED' });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: '¡Trabajo Aceptado!', text2: 'Iniciando navegación...' });
 
-      const clientDoc = await getDoc(doc(db, 'users', incomingRequest.clientId));
-      if (clientDoc.exists() && clientDoc.data().expoPushToken) {
-        await sendPushNotification(
-          clientDoc.data().expoPushToken,
-          '¡TÉCNICO EN CAMINO! 🚀',
-          `${providerName || 'El técnico'} ha aceptado tu solicitud.`
-        );
+      const clientDoc = await getDoc(doc(db, 'users', targetRequest.clientId));
+      if (clientDoc.exists()) {
+        const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
+        if (token) {
+          await sendPushNotification(
+            token,
+            '¡TÉCNICO EN CAMINO! 🚀',
+            `${providerName || 'El técnico'} ha aceptado tu solicitud.`
+          );
+        }
       }
-      setIncomingRequest(null);
     } catch {
       Alert.alert('Error', 'No se pudo aceptar');
     } finally {
@@ -282,12 +291,15 @@ export default function ProviderHome() {
               });
 
               const clientDoc = await getDoc(doc(db, 'users', incomingRequest.clientId));
-              if (clientDoc.exists() && clientDoc.data().expoPushToken) {
-                await sendPushNotification(
-                  clientDoc.data().expoPushToken,
-                  'Solicitud Rechazada',
-                  'El técnico no está disponible en este momento. Intenta con otro profesional.'
-                );
+              if (clientDoc.exists()) {
+                const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
+                if (token) {
+                  await sendPushNotification(
+                    token,
+                    'Solicitud Rechazada',
+                    'El técnico no está disponible en este momento. Intenta con otro profesional.'
+                  );
+                }
               }
               setIncomingRequest(null);
               Toast.show({ type: 'info', text1: 'Solicitud rechazada' });
@@ -320,12 +332,15 @@ export default function ProviderHome() {
               });
 
               const clientDoc = await getDoc(doc(db, 'users', currentJob.clientId));
-              if (clientDoc.exists() && clientDoc.data().expoPushToken) {
-                await sendPushNotification(
-                  clientDoc.data().expoPushToken,
-                  'Servicio Abortado ⚠️',
-                  'El técnico tuvo un inconveniente. Por favor, solicita a otro profesional.'
-                );
+              if (clientDoc.exists()) {
+                const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
+                if (token) {
+                  await sendPushNotification(
+                    token,
+                    'Servicio Abortado ⚠️',
+                    'El técnico tuvo un inconveniente. Por favor, solicita a otro profesional.'
+                  );
+                }
               }
               Alert.alert('Servicio Abortado', 'Se ha notificado al cliente.');
               setCurrentJob(null);
@@ -340,6 +355,39 @@ export default function ProviderHome() {
     );
   };
 
+  // ── Validar PIN de Inicio Presencial ──
+  const validatePin = async () => {
+    if (!currentJob) return;
+    const cleanPin = inputPin.trim();
+    if (!cleanPin) {
+      Alert.alert('PIN Requerido', 'Ingresa el código de 4 dígitos que aparece en la pantalla del cliente.');
+      return;
+    }
+    if (cleanPin !== currentJob.securityPin) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        'PIN Incorrecto ❌',
+        'El código ingresado no coincide con el del cliente. Por favor solicítale que revise su pantalla e inténtalo de nuevo.'
+      );
+      return;
+    }
+    setVerifyingPin(true);
+    try {
+      await updateDoc(doc(db, 'service_requests', currentJob.id), {
+        serviceStarted: true,
+        startedAt: serverTimestamp(),
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Toast.show({ type: 'success', text1: '¡PIN VALIDADO! 🚀', text2: 'Inicio presencial verificado.' });
+      setInputPin('');
+    } catch (err) {
+      console.error('Error validando PIN:', err);
+      Alert.alert('Error', 'No se pudo iniciar el servicio.');
+    } finally {
+      setVerifyingPin(false);
+    }
+  };
+
   // ── Finalizar job ───────────────────────
   const finishJob = async () => {
     const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
@@ -349,16 +397,23 @@ export default function ProviderHome() {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.2,
+      mediaTypes: ['images'],
+      quality: 0.25,
       base64: true,
-      allowsEditing: false,
+      allowsEditing: true,
+      aspect: [4, 3],
     });
 
     if (!result.canceled && result.assets?.length) {
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert('Error', 'No se pudo procesar la imagen capturada.');
+        return;
+      }
+
       setUploading(true);
       try {
-        const base64Img = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        const base64Img = `data:image/jpeg;base64,${asset.base64}`;
         await updateDoc(doc(db, 'service_requests', currentJob.id), {
           status: 'COMPLETED',
           evidence_photo: base64Img,
@@ -367,16 +422,20 @@ export default function ProviderHome() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
         const clientDoc = await getDoc(doc(db, 'users', currentJob.clientId));
-        if (clientDoc.exists() && clientDoc.data().expoPushToken) {
-          await sendPushNotification(
-            clientDoc.data().expoPushToken,
-            '¡Trabajo Culminado! 🎉',
-            'El técnico ha completado el trabajo. Entra a calificar.'
-          );
+        if (clientDoc.exists()) {
+          const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
+          if (token) {
+            await sendPushNotification(
+              token,
+              '¡Trabajo Culminado! 🎉',
+              'El técnico ha completado el trabajo. Entra a calificar.'
+            );
+          }
         }
         Toast.show({ type: 'success', text1: '¡Misión Cumplida! 🎉', text2: 'Evidencia guardada.' });
         setCurrentJob(null);
-      } catch {
+      } catch (err: any) {
+        console.error('Error guardando evidencia:', err);
         Alert.alert('Error', 'Problema guardando la evidencia.');
       } finally {
         setUploading(false);
@@ -509,17 +568,19 @@ export default function ProviderHome() {
           </View>
         )}
 
-        {/* PANEL FLOTANTE EN-RUTA */}
+        {/* PANEL FLOTANTE EN-RUTA / EN-EJECUCIÓN */}
         <View style={[styles.floatingActionCard, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
           <View style={styles.routeHeaderRow}>
             <View style={styles.routeHeaderLeft}>
-              <Text style={[styles.routeLabel, { color: colors.primary }]}>📌 EN RUTA</Text>
+              <Text style={[styles.routeLabel, { color: currentJob.serviceStarted ? colors.success : colors.primary }]}>
+                {currentJob.serviceStarted ? '🟢 TRABAJO EN EJECUCIÓN' : '📌 EN RUTA HACIA EL CLIENTE'}
+              </Text>
               <Text style={[styles.routeClientName, { color: colors.text }]} numberOfLines={1}>
                 {currentJob.clientName || 'Cliente'}
               </Text>
-              {currentJob.serviceType && (
+              {currentJob.specialty && (
                 <Text style={[styles.routeServiceType, { color: colors.subtext }]}>
-                  {currentJob.serviceType}
+                  {currentJob.specialty}
                 </Text>
               )}
             </View>
@@ -533,6 +594,7 @@ export default function ProviderHome() {
             )}
           </View>
 
+          {/* ACCIONES DE RUTA */}
           <View style={styles.routeActionsContainer}>
             <TouchableOpacity
               style={[styles.circleBtn, { backgroundColor: '#111' }]}
@@ -576,20 +638,65 @@ export default function ProviderHome() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={[styles.finishBtn, { backgroundColor: colors.primary }, uploading && styles.disabledButton]}
-            onPress={finishJob}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="camera" size={22} color="#fff" style={{ marginRight: 10 }} />
-                <Text style={styles.finishBtnText}>CAPTURAR EVIDENCIA Y COMPLETAR</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          {/* PASO 1: VALIDACIÓN DE PIN PRESENCIAL */}
+          {!currentJob.serviceStarted ? (
+            <View style={[styles.pinValidateBox, { backgroundColor: isDark ? '#1A2C36' : '#F0F9FF', borderColor: colors.primary }]}>
+              <View style={styles.pinBoxHeader}>
+                <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
+                <Text style={[styles.pinBoxTitle, { color: colors.primary }]}>PASO 1: VALIDAR INICIO PRESENCIAL</Text>
+              </View>
+              <Text style={[styles.pinBoxHint, { color: colors.subtext }]}>
+                Solicita al cliente el PIN de 4 dígitos que aparece en su pantalla al llegar a su puerta:
+              </Text>
+              
+              <View style={styles.pinInputRow}>
+                <TextInput
+                  style={[
+                    styles.pinTextInput,
+                    {
+                      backgroundColor: colors.input,
+                      color: colors.text,
+                      borderColor: colors.border,
+                    }
+                  ]}
+                  placeholder="PIN (4 dígitos)"
+                  placeholderTextColor={colors.subtext}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  value={inputPin}
+                  onChangeText={setInputPin}
+                />
+                
+                <TouchableOpacity
+                  style={[styles.validatePinBtn, { backgroundColor: colors.primary }]}
+                  onPress={validatePin}
+                  disabled={verifyingPin || inputPin.length !== 4}
+                >
+                  {verifyingPin ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.validatePinBtnText}>VALIDAR PIN</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            /* PASO 2: TRABAJO EN EJECUCIÓN Y FOTO DE EVIDENCIA */
+            <TouchableOpacity
+              style={[styles.finishBtn, { backgroundColor: colors.primary }, uploading && styles.disabledButton]}
+              onPress={finishJob}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="camera" size={22} color="#fff" style={{ marginRight: 10 }} />
+                  <Text style={styles.finishBtnText}>CAPTURAR EVIDENCIA Y FINALIZAR</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -991,6 +1098,36 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   circleBtnLabel: { color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 3 },
+  // ── Validación de PIN Presencial ──
+  pinValidateBox: {
+    borderWidth: 1.5,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 8,
+  },
+  pinBoxHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  pinBoxTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  pinBoxHint: { fontSize: 12, lineHeight: 16, marginBottom: 12 },
+  pinInputRow: { flexDirection: 'row', gap: 10 },
+  pinTextInput: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 4,
+  },
+  validatePinBtn: {
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  validatePinBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+
   finishBtn: {
     flexDirection: 'row',
     paddingVertical: 16,

@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as geofire from 'geofire-common';
 import { getDistance } from 'geolib';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
 import MapView, { Marker, UrlTile } from 'react-native-maps';
 import Toast from 'react-native-toast-message';
 
@@ -176,16 +176,26 @@ export default function MapScreen() {
     if (!acceptedTerms) { Alert.alert("Atención", "Debes aceptar los términos."); return; }
     if (!selectedProvider || !location) return;
     setRequestLoading(true);
+    // Generar código OTP de 4 dígitos de seguridad
+    const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     try {
       await addDoc(collection(db, 'service_requests'), {
         clientId: user?.uid, clientName: user?.email,
         providerId: selectedProvider.id, providerName: selectedProvider.full_name,
         status: 'PENDING', location: new GeoPoint(location.latitude, location.longitude),
-        createdAt: serverTimestamp(), price_agreed: selectedProvider.price_range
+        createdAt: serverTimestamp(), price_agreed: selectedProvider.price_range,
+        securityPin: generatedPin,
+        serviceStarted: false,
+        specialty: selectedProvider.specialty || category || 'Servicio Técnico'
       });
-      Toast.show({ type: 'success', text1: '¡Enviado!', text2: 'Esperando respuesta...' });
+      Toast.show({ type: 'success', text1: '¡Enviado!', text2: 'Esperando respuesta del técnico...' });
       setSelectedProvider(null);
-    } catch (error) { Alert.alert('Error', 'No se pudo enviar'); } finally { setRequestLoading(false); }
+    } catch (error) { 
+      console.error("Error al enviar solicitud en mapa:", error);
+      Alert.alert('Error', 'No se pudo enviar la solicitud.'); 
+    } finally { 
+      setRequestLoading(false); 
+    }
   };
 
 
@@ -219,6 +229,26 @@ export default function MapScreen() {
     );
   };
 
+  const shareServiceDetails = () => {
+    if (!activeRequest) return;
+    const msg = `🚨 *MONITOREO DE SERVICIO - TESISAPP LIMA*\n\nHola, estoy recibiendo un servicio en mi domicilio:\n👨‍🔧 *Técnico:* ${activeRequest.providerName}\n🛠️ *Especialidad:* ${activeRequest.specialty || 'Técnico'}\n🔐 *PIN de Seguridad:* ${activeRequest.securityPin || '----'}\n📍 *Estado:* ${activeRequest.serviceStarted ? '🟢 Trabajo en Ejecución' : '🟡 Técnico en Camino'}\n\n_Por seguridad comparto estos datos monitoreados en tiempo real._`;
+    const url = `whatsapp://send?text=${encodeURIComponent(msg)}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Aviso', 'No se pudo abrir WhatsApp. Asegúrate de tener la app instalada.');
+    });
+  };
+
+  const callEmergency = () => {
+    Alert.alert(
+      'Central de Emergencias PNP 105',
+      '¿Deseas realizar una llamada directa al 105?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Llamar 105', style: 'destructive', onPress: () => Linking.openURL('tel:105') }
+      ]
+    );
+  };
+
   // 6. LÓGICA DE EVALUACIÓN
   const openRatingModal = () => {
     setRating(5);
@@ -229,24 +259,28 @@ export default function MapScreen() {
     if (!activeRequest) return;
     setRatingLoading(true);
     try {
+      // 1. Actualizar el estado de la solicitud
       await updateDoc(doc(db, 'service_requests', activeRequest.id), {
         status: 'ARCHIVED',
-        rating_given: rating
+        rating: rating,
+        reviewedAt: serverTimestamp()
       });
 
-      const providerRef = doc(db, 'users', activeRequest.providerId);
-      await updateDoc(providerRef, {
-        total_rating: increment(rating),
-        review_count: increment(1),
-        jobs_completed: increment(1)
-      });
+      // 2. Actualizar las estadísticas del técnico
+      if (activeRequest.providerId) {
+        await updateDoc(doc(db, 'users', activeRequest.providerId), {
+          total_rating: increment(rating),
+          review_count: increment(1),
+          jobs_completed: increment(1)
+        });
+      }
 
-      Toast.show({ type: 'success', text1: '¡Gracias!', text2: 'Evaluación enviada con éxito.' });
+      Toast.show({ type: 'success', text1: '¡Gracias!', text2: 'Tu calificación nos ayuda a mantener servicios seguros.' });
       setRatingModalVisible(false);
       setActiveRequest(null);
     } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "No se pudo enviar la evaluación.");
+      console.error("Error al calificar:", error);
+      Alert.alert("Error", "No se pudo enviar la calificación.");
     } finally {
       setRatingLoading(false);
     }
@@ -280,27 +314,88 @@ export default function MapScreen() {
         {activeRequest.status === 'ACCEPTED' && (
           <View style={[styles.activeJobCard, { backgroundColor: colors.card }]}>
             <View style={styles.activeHeader}>
-              <Ionicons name="checkmark-circle" size={50} color={colors.success} />
-              <Text style={[styles.activeTitle, { color: colors.success }]}>¡Técnico en camino!</Text>
+              <Ionicons 
+                name={activeRequest.serviceStarted ? "construct" : "shield-checkmark"} 
+                size={44} 
+                color={activeRequest.serviceStarted ? colors.primary : colors.success} 
+              />
+              <Text style={[styles.activeTitle, { color: activeRequest.serviceStarted ? colors.primary : colors.success }]}>
+                {activeRequest.serviceStarted ? '¡Servicio en Ejecución! 🛠️' : '¡Técnico en camino! 🚀'}
+              </Text>
+              <Text style={[styles.activeSubtitle, { color: colors.subtext }]}>
+                {activeRequest.serviceStarted
+                  ? 'El técnico está realizando el trabajo en tu domicilio.'
+                  : 'Verifica la identidad y entrega tu PIN de seguridad.'}
+              </Text>
             </View>
+
+            {/* 🔐 TARJETA DE PIN DE SEGURIDAD */}
+            <View style={[styles.pinSecurityCard, { backgroundColor: theme === 'dark' ? '#1A2C36' : '#E8F5E9', borderColor: colors.success }]}>
+              <View style={styles.pinHeader}>
+                <Ionicons name="key" size={20} color={colors.success} />
+                <Text style={[styles.pinLabel, { color: colors.success }]}>PIN DE SEGURIDAD (ENTRADA)</Text>
+              </View>
+              <Text style={[styles.pinValue, { color: colors.text }]}>{activeRequest.securityPin || '----'}</Text>
+              <Text style={[styles.pinInstructions, { color: colors.subtext }]}>
+                {activeRequest.serviceStarted
+                  ? '✓ PIN validado con éxito. Inicio presencial verificado.'
+                  : 'Muestra este código al técnico cuando llegue a tu puerta para iniciar el trabajo.'}
+              </Text>
+            </View>
+
+            {/* INFORMACIÓN DEL TÉCNICO */}
             <View style={[styles.technicianInfo, { backgroundColor: colors.input }]}>
-              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.primary }]}><Ionicons name="person" size={40} color="#fff" /></View>
-              <View>
-                <Text style={[styles.techName, { color: colors.text }]}>{activeRequest.providerName}</Text>
-                <Text style={[styles.techRole, { color: colors.subtext }]}>Técnico Especialista</Text>
+              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.primary }]}>
+                <Ionicons name="person" size={32} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.techName, { color: colors.text }]}>{activeRequest.providerName}</Text>
+                  <View style={[styles.verifiedBadge, { backgroundColor: colors.success }]}>
+                    <Text style={styles.verifiedBadgeText}>DNI ✓</Text>
+                  </View>
+                </View>
+                <Text style={[styles.techRole, { color: colors.subtext }]}>{activeRequest.specialty || 'Técnico Especialista'}</Text>
               </View>
             </View>
-            <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-              <TouchableOpacity style={[styles.whatsappButton, { backgroundColor: colors.primary, flex: 1 }]} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}>
-                <Ionicons name="chatbubbles" size={24} color="#fff" style={{ marginRight: 5 }} />
-                <Text style={styles.whatsappText}>CHAT</Text>
+            {/* BOTONES DE SEGURIDAD (COMPARTIR Y SOS) */}
+            <View style={styles.safetyRow}>
+              <TouchableOpacity
+                style={[styles.safetyBtn, { backgroundColor: '#25D366' }]}
+                onPress={shareServiceDetails}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                <Text style={styles.safetyBtnText}>Compartir</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.whatsappButton, { backgroundColor: colors.danger, flex: 1 }]} onPress={cancelRequest}>
-                <Ionicons name="close-circle" size={24} color="#fff" style={{ marginRight: 5 }} />
-                <Text style={styles.whatsappText}>CANCELAR</Text>
+              <TouchableOpacity
+                style={[styles.safetyBtn, { backgroundColor: colors.danger }]}
+                onPress={callEmergency}
+              >
+                <Ionicons name="call" size={18} color="#fff" />
+                <Text style={styles.safetyBtnText}>SOS 105</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+            {/* CHAT Y CANCELAR */}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: colors.primary, flex: 1 }]}
+                onPress={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}
+              >
+                <Ionicons name="chatbubbles" size={20} color="#fff" />
+                <Text style={styles.actionBtnText}>CHAT</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.danger, borderWidth: 1, flex: 1 }]}
+                onPress={cancelRequest}
+              >
+                <Ionicons name="close-circle-outline" size={20} color={colors.danger} />
+                <Text style={[styles.actionBtnText, { color: colors.danger }]}>CANCELAR</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -472,14 +567,50 @@ const styles = StyleSheet.create({
   waitingText: { fontSize: 16, textAlign: 'center' },
 
   activeJobCard: { width: '100%', borderRadius: 20, padding: 20, elevation: 5 },
-  activeHeader: { alignItems: 'center', marginBottom: 20 },
-  activeTitle: { fontSize: 22, fontWeight: 'bold', marginTop: 10 },
-  technicianInfo: { flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 12 },
-  avatarPlaceholder: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  techName: { fontSize: 18, fontWeight: 'bold' },
-  techRole: { fontSize: 14 },
-  whatsappButton: { flexDirection: 'row', padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
-  whatsappText: { color: '#fff', fontWeight: 'bold' },
+  activeHeader: { alignItems: 'center', marginBottom: 16 },
+  activeTitle: { fontSize: 20, fontWeight: 'bold', marginTop: 8 },
+  activeSubtitle: { fontSize: 13, textAlign: 'center', marginTop: 4 },
+
+  pinSecurityCard: {
+    borderWidth: 1.5,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  pinHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  pinLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  pinValue: { fontSize: 32, fontWeight: '900', letterSpacing: 8, marginVertical: 4 },
+  pinInstructions: { fontSize: 12, textAlign: 'center', lineHeight: 16 },
+
+  technicianInfo: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, marginBottom: 12 },
+  avatarPlaceholder: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  techName: { fontSize: 16, fontWeight: 'bold' },
+  techRole: { fontSize: 13 },
+  verifiedBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  verifiedBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+
+  safetyRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  safetyBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  safetyBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  actionBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   completedCard: { padding: 25, borderRadius: 20, alignItems: 'center', elevation: 5, width: '100%' },
   completedTitle: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 10 },

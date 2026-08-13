@@ -32,11 +32,7 @@ export default function ProviderHistoryScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    useEffect(() => {
-        if (user) loadDashboard();
-    }, [user]);
-
-    const loadDashboard = async () => {
+    const loadDashboard = useCallback(async () => {
         if (!user) return;
         try {
             const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -72,13 +68,17 @@ export default function ProviderHistoryScreen() {
             setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, [user]);
+
+    useEffect(() => {
+        if (user) loadDashboard();
+    }, [user, loadDashboard]);
 
     // Pull-to-refresh
     const onRefresh = useCallback(() => {
         setRefreshing(true);
         loadDashboard();
-    }, [user]);
+    }, [loadDashboard]);
 
     // Calcular ingresos totales
     const totalEarnings = history.reduce((sum, item) => {

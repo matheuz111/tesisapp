@@ -4,14 +4,14 @@ import { FirebaseApp, getApp, getApps, initializeApp } from 'firebase/app';
 import { Auth, getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { Firestore, getFirestore } from 'firebase/firestore';
 
-// REEMPLAZA ESTO CON TUS CREDENCIALES DE LA CONSOLA FIREBASE
+// Configuración de Firebase (soporta variables de entorno y fallback)
 const firebaseConfig = {
-    apiKey: "AIzaSyA-SNgfj5gYjujQV0woDj7DOkOU8z2P5o4",
-    authDomain: "tesis-servicios.firebaseapp.com",
-    projectId: "tesis-servicios",
-    storageBucket: "tesis-servicios.firebasestorage.app",
-    messagingSenderId: "656189561118",
-    appId: "1:656189561118:web:f52a2652645d4aead6910f"
+    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "AIzaSyA-SNgfj5gYjujQV0woDj7DOkOU8z2P5o4",
+    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "tesis-servicios.firebaseapp.com",
+    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "tesis-servicios",
+    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "tesis-servicios.firebasestorage.app",
+    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "656189561118",
+    appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "1:656189561118:web:f52a2652645d4aead6910f"
 };
 
 let app: FirebaseApp;

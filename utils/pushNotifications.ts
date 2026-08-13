@@ -8,7 +8,6 @@ import { db } from '../src/config/firebase';
 // Configuración de cómo se comporta la notificación cuando la app está abierta
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
     shouldShowBanner: true,
@@ -34,13 +33,13 @@ export async function registerForPushNotificationsAsync(userId: string) {
   }
 
   if (Device.isDevice) {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+    const permResult: any = await Notifications.getPermissionsAsync();
+    let isGranted = permResult?.granted || permResult?.status === 'granted';
+    if (!isGranted) {
+      const requestResult: any = await Notifications.requestPermissionsAsync();
+      isGranted = requestResult?.granted || requestResult?.status === 'granted';
     }
-    if (finalStatus !== 'granted') {
+    if (!isGranted) {
       console.log('Fallo al obtener el push token para las notificaciones');
       return;
     }
@@ -48,9 +47,12 @@ export async function registerForPushNotificationsAsync(userId: string) {
       const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
       token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
       
-      // Guardar el token en Firebase
+      // Guardar el token en Firebase (expoPushToken para Cloud Functions y pushToken para compatibilidad)
       if (token && userId) {
-        await setDoc(doc(db, 'users', userId), { pushToken: token }, { merge: true });
+        await setDoc(doc(db, 'users', userId), { 
+          expoPushToken: token,
+          pushToken: token 
+        }, { merge: true });
         console.log("Push Token guardado:", token);
       }
     } catch (error) {

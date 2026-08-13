@@ -48,7 +48,7 @@ export default function Layout() {
       notificationListener.current?.remove();
       responseListener.current?.remove();
     };
-  }, []);
+  }, [isExpoGo, router]);
 
   return (
     <ThemeProvider>

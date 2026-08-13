@@ -3,7 +3,7 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { getDistance } from 'geolib';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
 import MapView, { Marker, UrlTile } from 'react-native-maps';
 import Toast from 'react-native-toast-message';
 
@@ -11,7 +11,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { GeoPoint, addDoc, collection, doc, getDocs, increment, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { auth, db } from '../../src/config/firebase';
 import { useTheme } from '../../src/context/ThemeContext';
-import { registerForPushNotificationsAsync, sendPushNotification } from '../../utils/pushNotifications';
+import { registerForPushNotificationsAsync } from '../../utils/pushNotifications';
 
 const SERVICES = [
   { id: 'Gasfitero', name: 'Gasfitería', icon: 'water', colorKey: 'blue' },
@@ -177,6 +177,8 @@ export default function ClientMapHome() {
   const sendRequest = async () => {
     if (requestLoading) return;
     setRequestLoading(true);
+    // Generar código OTP de seguridad de 4 dígitos
+    const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
     try {
       if (!location) {
         Alert.alert('Error', 'Necesitamos tu ubicación.');
@@ -185,21 +187,26 @@ export default function ClientMapHome() {
       
       await addDoc(collection(db, 'service_requests'), {
         clientId: user?.uid,
-        clientName: user?.displayName || 'Cliente',
+        clientName: user?.email,
         providerId: selectedProvider.id,
-        providerName: selectedProvider.full_name || 'Técnico',
-        serviceType: selectedProvider.specialty || 'General',
+        providerName: selectedProvider.full_name,
         status: 'PENDING',
-        location: {
-           latitude: location.latitude,
-           longitude: location.longitude
-        },
+        location: new GeoPoint(location.latitude, location.longitude),
         createdAt: serverTimestamp(),
+        price_agreed: selectedProvider.price_range,
+        securityPin: generatedPin,
+        serviceStarted: false,
+        specialty: selectedProvider.specialty || activeFilter || 'Servicio Técnico'
       });
 
       Toast.show({ type: 'success', text1: '¡Buscando Técnico! 📡', text2: 'Avisando dispositivos cercanos...' });
       setSelectedProvider(null);
-    } catch (error) { Alert.alert('Error', 'No se pudo enviar'); } finally { setRequestLoading(false); }
+    } catch (error) { 
+      console.error("Error al enviar solicitud:", error);
+      Alert.alert('Error', 'No se pudo enviar la solicitud.'); 
+    } finally { 
+      setRequestLoading(false); 
+    }
   };
 
   const cancelRequest = async () => {
@@ -232,27 +239,50 @@ export default function ClientMapHome() {
     );
   };
 
+  const shareServiceDetails = () => {
+    if (!activeRequest) return;
+    const msg = `🚨 *MONITOREO DE SERVICIO - TESISAPP LIMA*\n\nHola, estoy recibiendo un servicio en mi domicilio:\n👨‍🔧 *Técnico:* ${activeRequest.providerName}\n🛠️ *Especialidad:* ${activeRequest.specialty || 'Técnico'}\n🔐 *PIN de Seguridad:* ${activeRequest.securityPin || '----'}\n📍 *Estado:* ${activeRequest.serviceStarted ? '🟢 Trabajo en Ejecución' : '🟡 Técnico en Camino'}\n\n_Por seguridad comparto estos datos monitoreados en tiempo real._`;
+    const url = `whatsapp://send?text=${encodeURIComponent(msg)}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Aviso', 'No se pudo abrir WhatsApp. Asegúrate de tener la app instalada.');
+    });
+  };
+
+  const callEmergency = () => {
+    Alert.alert(
+      'Central de Emergencias PNP 105',
+      '¿Deseas realizar una llamada directa al 105?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Llamar 105', style: 'destructive', onPress: () => Linking.openURL('tel:105') }
+      ]
+    );
+  };
+
   const submitRating = async () => {
     if (!activeRequest) return;
     setRatingLoading(true);
     try {
       await updateDoc(doc(db, 'service_requests', activeRequest.id), {
         status: 'ARCHIVED',
-        rating_given: rating
+        rating: rating,
+        reviewedAt: serverTimestamp()
       });
 
-      const providerRef = doc(db, 'users', activeRequest.providerId);
-      await updateDoc(providerRef, {
-        total_rating: increment(rating),
-        review_count: increment(1),
-        jobs_completed: increment(1)
-      });
+      if (activeRequest.providerId) {
+        const providerRef = doc(db, 'users', activeRequest.providerId);
+        await updateDoc(providerRef, {
+          total_rating: increment(rating),
+          review_count: increment(1),
+          jobs_completed: increment(1)
+        });
+      }
 
-      Toast.show({ type: 'success', text1: '¡Gracias!', text2: 'Evaluación enviada con éxito.' });
+      Toast.show({ type: 'success', text1: '¡Gracias!', text2: 'Tu calificación nos ayuda a mantener servicios seguros.' });
       setRatingModalVisible(false);
       setActiveRequest(null);
     } catch (error) {
-      console.error(error);
+      console.error("Error al calificar:", error);
       Alert.alert("Error", "No se pudo enviar la evaluación.");
     } finally {
       setRatingLoading(false);
@@ -313,6 +343,7 @@ export default function ClientMapHome() {
             <Ionicons name="person" size={20} color={colors.primary} />
           </TouchableOpacity>
           <Text style={[styles.navTitle, { color: colors.text }]}>Service Marketplace</Text>
+          {loading && <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 6 }} />}
           <TouchableOpacity onPress={() => router.push('/client/history')} style={styles.navIcon}>
             <Ionicons name="time" size={20} color={colors.icon || colors.primary} />
           </TouchableOpacity>
@@ -415,26 +446,77 @@ export default function ClientMapHome() {
 
       {/* ESTADO C: TÉCNICO ACEPTA Y VA EN CAMINO */}
       {activeRequest?.status === 'ACCEPTED' && (
-        <View style={[styles.bottomSheet, { backgroundColor: colors.card, paddingBottom: 40 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-            <Ionicons name="checkmark-circle" size={40} color={colors.success} />
-            <View style={{ marginLeft: 15 }}>
-              <Text style={[styles.activeTitle, { color: colors.text }]}>¡Tu Técnico ya viene!</Text>
-              <Text style={[styles.activeSubtitle, { color: colors.subtext }]}>{activeRequest.providerName} ha aceptado</Text>
+        <View style={[styles.bottomSheet, { backgroundColor: colors.card, paddingBottom: 25 }]}>
+          <View style={styles.sheetHandle} />
+          
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <Ionicons 
+              name={activeRequest.serviceStarted ? "construct" : "shield-checkmark"} 
+              size={36} 
+              color={activeRequest.serviceStarted ? colors.primary : colors.success} 
+            />
+            <View style={{ marginLeft: 12, flex: 1 }}>
+              <Text style={[styles.activeTitle, { color: colors.text }]}>
+                {activeRequest.serviceStarted ? '¡Servicio en Ejecución!' : '¡Técnico en camino!'}
+              </Text>
+              <Text style={[styles.activeSubtitle, { color: colors.subtext }]}>
+                {activeRequest.providerName} • {activeRequest.specialty || 'Técnico Especialista'}
+              </Text>
             </View>
           </View>
 
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: colors.primary, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', height: 60 }]}
-            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}
-          >
-            <Ionicons name="chatbubble-ellipses" size={24} color="#fff" style={{ marginRight: 10 }} />
-            <Text style={styles.actionBtnText}>ABRIR CHAT PRIVADO</Text>
-          </TouchableOpacity>
+          {/* 🔐 TARJETA DE PIN DE SEGURIDAD */}
+          <View style={[styles.pinSecurityCard, { backgroundColor: theme === 'dark' ? '#1A2C36' : '#E8F5E9', borderColor: colors.success }]}>
+            <View style={styles.pinHeader}>
+              <Ionicons name="key" size={18} color={colors.success} />
+              <Text style={[styles.pinLabel, { color: colors.success }]}>PIN DE SEGURIDAD (ENTRADA)</Text>
+            </View>
+            <Text style={[styles.pinValue, { color: colors.text }]}>{activeRequest.securityPin || '----'}</Text>
+            <Text style={[styles.pinInstructions, { color: colors.subtext }]}>
+              {activeRequest.serviceStarted
+                ? '✓ PIN validado. Inicio presencial verificado.'
+                : 'Muestra este código al técnico al llegar a tu puerta para iniciar el trabajo.'}
+            </Text>
+          </View>
 
-          <TouchableOpacity style={{ alignSelf: 'center', marginTop: 20, opacity: requestLoading ? 0.5 : 1 }} onPress={cancelRequest} disabled={requestLoading}>
-            <Text style={{ color: colors.danger, fontWeight: 'bold' }}>Abortar Servicio</Text>
-          </TouchableOpacity>
+          {/* BOTONES DE SEGURIDAD (COMPARTIR Y SOS) */}
+          <View style={styles.safetyRow}>
+            <TouchableOpacity
+              style={[styles.safetyBtn, { backgroundColor: '#25D366' }]}
+              onPress={shareServiceDetails}
+            >
+              <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+              <Text style={styles.safetyBtnText}>Compartir</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.safetyBtn, { backgroundColor: colors.danger }]}
+              onPress={callEmergency}
+            >
+              <Ionicons name="call" size={18} color="#fff" />
+              <Text style={styles.safetyBtnText}>SOS 105</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* CHAT Y CANCELAR */}
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.primary, flex: 1, height: 48 }]}
+              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}
+            >
+              <Ionicons name="chatbubble-ellipses" size={20} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.actionBtnText}>CHAT</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.danger, borderWidth: 1, flex: 1, height: 48 }]}
+              onPress={cancelRequest}
+              disabled={requestLoading}
+            >
+              <Ionicons name="close-circle-outline" size={20} color={colors.danger} style={{ marginRight: 6 }} />
+              <Text style={[styles.actionBtnText, { color: colors.danger }]}>CANCELAR</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -512,8 +594,33 @@ const styles = StyleSheet.create({
   cancelMiniBtn: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 10, elevation: 3 },
   cancelMiniBtnText: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
 
-  activeTitle: { fontSize: 22, fontWeight: 'bold' },
-  activeSubtitle: { fontSize: 14, marginTop: 2 },
+  activeTitle: { fontSize: 20, fontWeight: 'bold' },
+  activeSubtitle: { fontSize: 13, marginTop: 2 },
+
+  pinSecurityCard: {
+    borderWidth: 1.5,
+    borderRadius: 16,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+    marginTop: 6,
+  },
+  pinHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  pinLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  pinValue: { fontSize: 28, fontWeight: '900', letterSpacing: 6, marginVertical: 2 },
+  pinInstructions: { fontSize: 11, textAlign: 'center', lineHeight: 15 },
+
+  safetyRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
+  safetyBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  safetyBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   markerContainer: { alignItems: 'center' },
   markerBubble: { padding: 8, borderRadius: 20, borderWidth: 2, borderColor: '#fff', elevation: 5 },

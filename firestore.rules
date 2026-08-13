@@ -1,21 +1,31 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Usuarios: Cualquiera autenticado puede leer la info pública (para el mapa), pero solo el dueño la modifica
+    // Usuarios: Lectura y actualización para usuarios autenticados (permite que clientes califiquen técnicos)
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if request.auth != null;
     }
     
-    // Solicitudes de servicio: Clientes crean, técnicos actualizan estados. (Todos autenticados pueden interactuar si pertenecen)
+    // Solicitudes de servicio: Permitir a usuarios autenticados interactuar con sus solicitudes
     match /service_requests/{requestId} {
       allow read, write: if request.auth != null;
+
+      // Subcolección de mensajes del chat en tiempo real del servicio
+      match /messages/{messageId} {
+        allow read, write: if request.auth != null;
+      }
     }
 
-    // Chats: Solo participantes (restringido temporalmente a autenticados para permitir MVP simple)
+    // Colección de chats adicional
     match /chats/{chatId} {
       allow read, write: if request.auth != null;
+      
+      match /messages/{messageId} {
+        allow read, write: if request.auth != null;
+      }
     }
   }
 }
+
+
 

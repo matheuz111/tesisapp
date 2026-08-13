@@ -1,25 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../src/config/firebase';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { role } = useLocalSearchParams();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
-  // Función auxiliar para validar email
-  const isValidEmail = (email: string) => {
-    return /\S+@\S+\.\S+/.test(email);
+  // Validación estricta de correo RFC 5322
+  const isValidEmail = (val: string) => {
+    return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(val);
   };
 
   const handleLogin = async () => {
@@ -29,7 +29,7 @@ export default function LoginScreen() {
     if (!cleanEmail || !cleanPassword) {
       Toast.show({
         type: 'error',
-        text1: 'Campos vacíos',
+        text1: 'Campos requeridos',
         text2: 'Por favor ingresa tu correo y contraseña 👋'
       });
       return;
@@ -39,7 +39,16 @@ export default function LoginScreen() {
       Toast.show({
         type: 'error',
         text1: 'Correo inválido',
-        text2: 'El formato debe ser ejemplo@correo.com'
+        text2: 'Ingresa un formato válido (ejemplo: nombre@dominio.com)'
+      });
+      return;
+    }
+
+    if (cleanPassword.length < 6) {
+      Toast.show({
+        type: 'error',
+        text1: 'Contraseña muy corta',
+        text2: 'La contraseña debe tener al menos 6 caracteres'
       });
       return;
     }
@@ -68,27 +77,34 @@ export default function LoginScreen() {
           } else if (userRole === 'PROVIDER') {
             router.replace('/provider/home');
           } else {
-            Toast.show({ type: 'error', text1: 'Error', text2: 'Usuario sin rol válido' });
+            Toast.show({ type: 'error', text1: 'Error', text2: 'Usuario sin rol válido asignado' });
           }
-        }, 1000);
+        }, 800);
 
       } else {
         Toast.show({ 
           type: 'error', 
-          text1: 'Usuario sin perfil', 
-          text2: 'Credenciales correctas en Auth, pero falta crear el perfil en la base de datos. Por favor regístrate.' 
+          text1: 'Perfil no encontrado', 
+          text2: 'Credenciales válidas pero falta el perfil en base de datos. Regístrate de nuevo.' 
         });
       }
 
     } catch (error: any) {
       console.error('Error en login:', error);
-      let msg = 'Ocurrió un error inesperado';
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        msg = 'Correo o contraseña incorrectos en Firebase.';
+      let msg = 'Ocurrió un error inesperado al iniciar sesión';
+      if (
+        error.code === 'auth/invalid-credential' || 
+        error.code === 'auth/user-not-found' || 
+        error.code === 'auth/wrong-password' ||
+        error.code === 'auth/invalid-email'
+      ) {
+        msg = 'Correo o contraseña incorrectos.';
+      } else if (error.code === 'auth/user-disabled') {
+        msg = 'Esta cuenta ha sido inhabilitada por seguridad.';
       } else if (error.code === 'auth/too-many-requests') {
-        msg = 'Demasiados intentos. Intenta más tarde.';
-      } else if (error.message) {
-        msg = error.message;
+        msg = 'Demasiados intentos fallidos. Intenta más tarde.';
+      } else if (error.code === 'auth/network-request-failed') {
+        msg = 'Error de conexión. Verifica tu acceso a internet.';
       }
 
       Toast.show({
@@ -98,6 +114,32 @@ export default function LoginScreen() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !isValidEmail(cleanEmail)) {
+      Alert.alert('Recuperar Contraseña', 'Ingresa tu correo en el campo superior para enviarte el enlace de restablecimiento.');
+      return;
+    }
+
+    setResettingPassword(true);
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      Alert.alert(
+        'Correo Enviado ✉️',
+        `Hemos enviado las instrucciones para restablecer tu contraseña a:\n${cleanEmail}\n\nRevisa tu bandeja de entrada o spam.`
+      );
+    } catch (error: any) {
+      console.error('Error recuperando contraseña:', error);
+      if (error.code === 'auth/user-not-found') {
+        Alert.alert('Aviso', 'No existe una cuenta registrada con ese correo.');
+      } else {
+        Alert.alert('Error', 'No se pudo enviar el correo de recuperación. Inténtalo más tarde.');
+      }
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -147,6 +189,17 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* OLVIDÉ MI CONTRASEÑA */}
+        <TouchableOpacity
+          onPress={handleForgotPassword}
+          disabled={resettingPassword}
+          style={{ alignSelf: 'flex-end', marginBottom: 16 }}
+        >
+          <Text style={{ color: '#007bff', fontSize: 13, fontWeight: '600' }}>
+            {resettingPassword ? 'Enviando correo...' : '¿Olvidaste tu contraseña?'}
+          </Text>
+        </TouchableOpacity>
+
         {/* BOTÓN LOGIN */}
         <TouchableOpacity
           style={[styles.buttonPrimary, loading && styles.buttonDisabled]}
@@ -166,7 +219,7 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         {/* LINK ONBOARDING (TUTORIAL) */}
-        <TouchableOpacity onPress={() => router.push('./onboarding')} style={{ marginTop: 30 }}>
+        <TouchableOpacity onPress={() => router.push('/onboarding')} style={{ marginTop: 30 }}>
           <Text style={{ color: '#007bff', textAlign: 'center' }}>
             ¿Nuevo aquí? <Text style={{ fontWeight: 'bold' }}>Ver Tutorial de la App</Text>
           </Text>

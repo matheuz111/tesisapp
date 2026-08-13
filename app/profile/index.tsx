@@ -29,15 +29,14 @@ export default function UserProfile() {
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [district, setDistrict] = useState('');
+  const [yapeNumber, setYapeNumber] = useState('');
   const [role, setRole] = useState('');
+  const [isVerified, setIsVerified] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  useEffect(() => {
-    loadUserData();
-  }, []);
-
-  const loadUserData = async () => {
+  const loadUserData = React.useCallback(async () => {
     if (!user) return;
     try {
       const docRef = doc(db, 'users', user.uid);
@@ -47,7 +46,10 @@ export default function UserProfile() {
         setFullName(data.full_name || data.name || '');
         // Leer phone de ambos campos para compatibilidad
         setPhoneNumber(data.phone || data.phone_number || '');
+        setDistrict(data.district || 'Lima Metropolitana');
+        setYapeNumber(data.yape_number || data.phone || '');
         setRole(data.role || 'USUARIO');
+        setIsVerified(data.is_verified || false);
         setProfilePhoto(data.profile_photo || null);
       }
     } catch (error) {
@@ -55,7 +57,11 @@ export default function UserProfile() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    loadUserData();
+  }, [loadUserData]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -66,8 +72,10 @@ export default function UserProfile() {
         name: fullName,
         phone: phoneNumber,
         phone_number: phoneNumber,
+        district: district,
+        yape_number: yapeNumber,
       });
-      Toast.show({ type: 'success', text1: '¡Guardado!', text2: 'Perfil actualizado.' });
+      Toast.show({ type: 'success', text1: '¡Guardado!', text2: 'Perfil actualizado correctamente.' });
     } catch {
       Toast.show({ type: 'error', text1: 'Error', text2: 'No se pudo guardar.' });
     } finally {
@@ -86,7 +94,7 @@ export default function UserProfile() {
             return;
           }
           const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             quality: 0.3,
             base64: true,
             allowsEditing: true,
@@ -106,7 +114,7 @@ export default function UserProfile() {
             return;
           }
           const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             quality: 0.3,
             base64: true,
             allowsEditing: true,
@@ -247,10 +255,35 @@ export default function UserProfile() {
           />
         </View>
 
+        <Text style={[styles.label, { color: colors.subtext }]}>Distrito (Lima / Callao)</Text>
+        <View style={[styles.inputContainer, { backgroundColor: colors.input, borderColor: colors.border }]}>
+          <Ionicons name="location-outline" size={20} color={colors.subtext} style={{ marginRight: 10 }} />
+          <TextInput
+            style={[styles.input, { color: colors.text }]}
+            value={district}
+            onChangeText={setDistrict}
+            placeholder="Ej: San Juan de Lurigancho, Comas, Los Olivos..."
+            placeholderTextColor={colors.subtext}
+          />
+        </View>
+
+        <Text style={[styles.label, { color: colors.subtext }]}>Número para Yape / Plin</Text>
+        <View style={[styles.inputContainer, { backgroundColor: colors.input, borderColor: colors.border }]}>
+          <Ionicons name="cash-outline" size={20} color={colors.success} style={{ marginRight: 10 }} />
+          <TextInput
+            style={[styles.input, { color: colors.text }]}
+            value={yapeNumber}
+            onChangeText={setYapeNumber}
+            placeholder="Ej: 999 999 999 (Para cobros y pagos)"
+            placeholderTextColor={colors.subtext}
+            keyboardType="phone-pad"
+          />
+        </View>
+
         <View style={[styles.phoneNote, { backgroundColor: isDark ? '#1a2e2e' : '#E3F2FD' }]}>
           <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
           <Text style={[styles.phoneNoteText, { color: colors.subtext }]}>
-            Este número se usa para que clientes o técnicos puedan llamarte desde el chat.
+            {isVerified ? '✅ Cuenta Verificada con DNI' : 'ℹ️ Tus datos facilitan la coordinación rápida y pagos directos por Yape o Plin en Lima.'}
           </Text>
         </View>
 

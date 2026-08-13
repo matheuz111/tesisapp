@@ -41,8 +41,10 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -53,7 +55,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
@@ -188,56 +190,91 @@ export default function ChatScreen() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDocRef = useRef<any>(null);
 
-  // ══════ #2: useMemo para paleta de colores ══════
+  // Elevación instantánea y sin lag de teclado para Android
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      keyboardOffset.stopAnimation();
+      keyboardOffset.setValue(e.endCoordinates.height);
+    });
+
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardOffset.stopAnimation();
+      keyboardOffset.setValue(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardOffset]);
+
+  // ══════ #2: useMemo para paleta de colores (Estilo WhatsApp) ══════
   const chatColors = useMemo(() => ({
-    chatBg: isDark ? '#0B141A' : '#ECE5DD',
-    bubbleOutBg: isDark ? '#005C4B' : colors.primary,
+    chatBg: isDark ? '#0B141A' : '#EFEAE2',
+    bubbleOutBg: isDark ? '#005C4B' : '#008069',
     bubbleInBg: isDark ? '#1F2C34' : '#FFFFFF',
     bubbleInText: isDark ? '#E9EDEF' : '#111827',
     bubbleOutText: '#FFFFFF',
     tsOut: 'rgba(255,255,255,0.70)',
     tsIn: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)',
-    toolbarBg: isDark ? '#1F2C34' : '#F0F0F0',
-    inputBg: isDark ? '#2A3942' : '#FFFFFF',
+    toolbarBg: 'transparent',
+    inputBg: isDark ? '#1F2C34' : '#FFFFFF',
     inputText: isDark ? '#E9EDEF' : '#111111',
-    inputBorder: isDark ? '#374045' : '#D0D0D0',
-    headerBg: isDark ? '#1F2C34' : colors.primary,
+    inputBorder: 'transparent',
+    headerBg: isDark ? '#1F2C34' : '#008069',
     mutedText: isDark ? '#8696A0' : '#667781',
     dateChipBg: isDark ? '#233138' : '#E1F0DA',
     dateChipText: isDark ? '#8696A0' : '#54656F',
     emptyCircleBg: isDark ? '#233138' : '#DCF8C6',
     scrollFabBg: isDark ? '#2A3942' : '#fff',
-  }), [isDark, colors.primary]);
+  }), [isDark]);
 
-  // ══════ Cargar detalles del servicio (real-time) ══════
+  // ══════ Cargar detalles del servicio (real-time + guard) ══════
   useEffect(() => {
     if (!id || !user) return;
 
-    const unsub = onSnapshot(doc(db, 'service_requests', id), async (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as JobDetails;
-        setJobDetails(data);
+    const unsub = onSnapshot(
+      doc(db, 'service_requests', id),
+      async (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as JobDetails;
+          
+          // Guard de seguridad: verificar que el usuario pertenece a esta solicitud
+          if (data.clientId !== user.uid && data.providerId !== user.uid) {
+            Alert.alert('Acceso no autorizado', 'No tienes permiso para ver esta conversación.');
+            router.replace('/');
+            return;
+          }
 
-        // #4: Detectar si el OTRO usuario está escribiendo
-        const isClient = user.uid === data.clientId;
-        setOtherTyping(isClient ? !!data.providerTyping : !!data.clientTyping);
+          setJobDetails(data);
 
-        // Cargar foto del otro usuario
-        const otherUserId = isClient ? data.providerId : data.clientId;
-        if (otherUserId) {
-          try {
-            const otherDoc = await getDoc(doc(db, 'users', otherUserId));
-            if (otherDoc.exists()) {
-              const otherData = otherDoc.data();
-              setOtherAvatar(otherData.profile_photo || null);
-              setOtherUserData(otherData);
-            }
-          } catch { /* silencioso */ }
+          // #4: Detectar si el OTRO usuario está escribiendo
+          const isClient = user.uid === data.clientId;
+          setOtherTyping(isClient ? !!data.providerTyping : !!data.clientTyping);
+
+          // Cargar foto y datos del otro usuario
+          const otherUserId = isClient ? data.providerId : data.clientId;
+          if (otherUserId) {
+            try {
+              const otherDoc = await getDoc(doc(db, 'users', otherUserId));
+              if (otherDoc.exists()) {
+                const otherData = otherDoc.data();
+                setOtherAvatar(otherData.profile_photo || null);
+                setOtherUserData(otherData);
+              }
+            } catch { /* silencioso */ }
+          }
         }
+      },
+      (error) => {
+        console.warn('Advertencia en snapshot de servicio:', error.message);
       }
-    });
+    );
     return () => unsub();
-  }, [id, user]);
+  }, [id, user, router]);
 
   // ══════ #3: Escuchar mensajes con paginación ══════
   useEffect(() => {
@@ -247,30 +284,36 @@ export default function ChatScreen() {
       orderBy('createdAt', 'desc'),
       limit(PAGE_SIZE)
     );
-    const unsub = onSnapshot(q, (snap) => {
-      const newMessages = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Message, 'id'>),
-      }));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const newMessages = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<Message, 'id'>),
+        }));
 
-      // Guardar último documento para paginación
-      if (snap.docs.length > 0) {
-        lastDocRef.current = snap.docs[snap.docs.length - 1];
+        // Guardar último documento para paginación
+        if (snap.docs.length > 0) {
+          lastDocRef.current = snap.docs[snap.docs.length - 1];
+        }
+        setHasMoreMessages(snap.docs.length >= PAGE_SIZE);
+
+        // Merge con mensajes optimistas (remover los confirmados)
+        setMessages((prev) => {
+          const optimistic = prev.filter((m) => m._optimistic);
+          const remainingOptimistic = optimistic.filter(
+            (m) => !newMessages.some((nm) => nm.text === m.text && nm.senderId === m.senderId)
+          );
+          return [...remainingOptimistic, ...newMessages];
+        });
+
+        setLoading(false);
+      },
+      (error) => {
+        console.warn('Advertencia en snapshot de mensajes:', error.message);
+        setLoading(false);
       }
-      setHasMoreMessages(snap.docs.length >= PAGE_SIZE);
-
-      // Merge con mensajes optimistas (remover los confirmados)
-      setMessages((prev) => {
-        const optimistic = prev.filter((m) => m._optimistic);
-        const confirmedIds = new Set(newMessages.map((m) => m.id));
-        const remainingOptimistic = optimistic.filter(
-          (m) => !newMessages.some((nm) => nm.text === m.text && nm.senderId === m.senderId)
-        );
-        return [...remainingOptimistic, ...newMessages];
-      });
-
-      setLoading(false);
-    });
+    );
     return () => unsub();
   }, [id, user]);
 
@@ -309,7 +352,7 @@ export default function ChatScreen() {
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [showScrollBtn]);
+  }, [showScrollBtn, scrollBtnOpacity]);
 
   // ══════ #4: Typing indicator — escribir al Firestore ══════
   const setTypingStatus = useCallback(async (isTyping: boolean) => {
@@ -407,7 +450,7 @@ export default function ChatScreen() {
     }
   }, [inputText, user, id, setTypingStatus, sendPushToOtherUser]);
 
-  // ══════ #5: Enviar imagen con preview ══════
+  // ══════ #5: Enviar imagen con preview y compresión óptima ══════
   const pickImage = useCallback(async (useCamera: boolean) => {
     setAttachMenuVisible(false);
     const perm = useCamera
@@ -418,8 +461,8 @@ export default function ChatScreen() {
       return;
     }
     const result = useCamera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, base64: true, allowsEditing: true, aspect: [4, 3] })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, base64: true, allowsEditing: true, aspect: [4, 3] });
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.35, base64: true, allowsEditing: true, aspect: [4, 3] })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.35, base64: true, allowsEditing: true, aspect: [4, 3] });
 
     if (result.canceled || !result.assets?.length) return;
 
@@ -430,6 +473,13 @@ export default function ChatScreen() {
 
   const confirmSendImage = useCallback(async () => {
     if (!imagePreviewBase64 || !user || !id) return;
+    
+    // Validación estricta de tamaño de imagen para no sobrepasar límite de 1MB de Firestore
+    if (imagePreviewBase64.length > 800000) {
+      Alert.alert('Imagen muy pesada', 'Por favor selecciona una foto de menor resolución.');
+      return;
+    }
+
     setSending(true);
     setImagePreview(null);
 
@@ -444,7 +494,7 @@ export default function ChatScreen() {
       // Push para imagen
       sendPushToOtherUser('📷 Imagen');
     } catch {
-      Alert.alert('Error', 'La imagen es demasiado grande o hubo un fallo de red.');
+      Alert.alert('Error', 'La imagen no pudo enviarse. Revisa tu conexión a internet.');
     }
     setSending(false);
     setImagePreviewBase64(null);
@@ -499,6 +549,35 @@ export default function ChatScreen() {
       Alert.alert('Error', 'No se pudo obtener la información de contacto.');
     }
   }, [jobDetails, user]);
+
+  // ══════ #11: Copiar Yape / Plin ══════
+  const handleCopyYape = useCallback(async () => {
+    const yapeNum = otherUserData?.yape_number || otherUserData?.phone || otherUserData?.phone_number;
+    if (!yapeNum) {
+      Alert.alert('Sin número de Yape', 'El usuario aún no ha configurado su número de Yape/Plin.');
+      return;
+    }
+    await Clipboard.setStringAsync(yapeNum);
+    Toast.show({
+      type: 'success',
+      text1: 'Yape / Plin copiado',
+      text2: `Número ${yapeNum} copiado al portapapeles 📲`,
+      visibilityTime: 2500,
+    });
+  }, [otherUserData]);
+
+  // ══════ #12: WhatsApp directo ══════
+  const handleOpenWhatsApp = useCallback(() => {
+    const phone = otherUserData?.phone || otherUserData?.phone_number;
+    if (!phone) {
+      Alert.alert('Sin número', 'No hay número de WhatsApp registrado.');
+      return;
+    }
+    const cleanPhone = phone.replace(/[^\d]/g, '');
+    const fullPhone = cleanPhone.startsWith('51') ? cleanPhone : `51${cleanPhone}`;
+    const url = `https://wa.me/${fullPhone}?text=Hola,%20te%20contacto%20desde%20TesisApp`;
+    Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
+  }, [otherUserData]);
 
   // ── Detectar si necesita separador de fecha ─
   const needsDateSeparator = useCallback((index: number): string | null => {
@@ -584,9 +663,6 @@ export default function ChatScreen() {
   const statusConfig = getStatusConfig(jobDetails?.status);
   const chatClosed = isChatClosed(jobDetails?.status);
 
-  // ── Offset teclado ─────────────────────────
-  const KAV_OFFSET = Platform.OS === 'ios' ? insets.top + 56 : 0;
-
   // ── Loading state ──────────────────────────
   if (loading) {
     return (
@@ -629,7 +705,7 @@ export default function ChatScreen() {
       <StatusBar barStyle="light-content" backgroundColor={chatColors.headerBg} translucent />
 
       {/* ═══════════ HEADER ═══════════ */}
-      <View style={[styles.header, { backgroundColor: chatColors.headerBg, paddingTop: insets.top }]}>
+      <View style={[styles.header, { backgroundColor: chatColors.headerBg, paddingTop: insets.top + (Platform.OS === 'android' ? 10 : 0) }]}>
         <TouchableOpacity
           onPress={() => router.back()}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -669,6 +745,19 @@ export default function ChatScreen() {
           </View>
         </TouchableOpacity>
 
+        {/* Acceso Rápido: Yape / Plin */}
+        {(otherUserData?.yape_number || otherUserData?.phone) && (
+          <TouchableOpacity
+            onPress={handleCopyYape}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel="Copiar número de Yape/Plin"
+            style={[styles.headerQuickAction, { backgroundColor: 'rgba(255,255,255,0.2)' }]}
+          >
+            <Ionicons name="cash" size={18} color="#fff" />
+            <Text style={styles.headerQuickText}>Yape</Text>
+          </TouchableOpacity>
+        )}
+
         {/* #10: Botón de llamada funcional */}
         <TouchableOpacity
           onPress={handleCall}
@@ -684,8 +773,8 @@ export default function ChatScreen() {
       {/* ═══════════ CUERPO + TECLADO ═══════════ */}
       <KeyboardAvoidingView
         style={styles.fill}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={KAV_OFFSET}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 45 : 0}
       >
         <View style={styles.fill}>
           <FlatList<Message>
@@ -697,7 +786,8 @@ export default function ChatScreen() {
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            onScrollBeginDrag={Keyboard.dismiss}
             onScroll={(e) => {
               const offset = e.nativeEvent.contentOffset.y;
               setShowScrollBtn(offset > 300);
@@ -761,60 +851,82 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {/* ═══════════ INPUT BAR ═══════════ */}
+        {/* ═══════════ INPUT BAR (ESTILO WHATSAPP) ═══════════ */}
         {!chatClosed ? (
-          <View style={[styles.toolbar, { backgroundColor: chatColors.toolbarBg, paddingBottom: Math.max(insets.bottom, 8), borderTopColor: chatColors.inputBorder }]}>
-            <Pressable
-              onPress={() => setAttachMenuVisible(true)}
-              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-              accessibilityLabel="Adjuntar archivo"
-              accessibilityRole="button"
-            >
-              <Ionicons name="add-circle-outline" size={26} color={chatColors.mutedText} />
-            </Pressable>
+          <Animated.View style={[
+            styles.toolbar, 
+            { 
+              paddingBottom: Math.max(insets.bottom, 8), 
+              marginBottom: Platform.OS === 'android' ? keyboardOffset : 0,
+            }
+          ]}>
+            {/* Cápsula flotante con adjunto + input + cámara */}
+            <View style={[styles.inputCapsule, { backgroundColor: chatColors.inputBg }]}>
+              <Pressable
+                onPress={() => setAttachMenuVisible(true)}
+                style={({ pressed }) => [styles.capsuleIconBtn, pressed && { opacity: 0.6 }]}
+                accessibilityLabel="Adjuntar archivo"
+                accessibilityRole="button"
+              >
+                <Ionicons name="attach" size={24} color={chatColors.mutedText} style={{ transform: [{ rotate: '-45deg' }] }} />
+              </Pressable>
 
-            <TextInput
-              ref={inputRef}
-              style={[styles.textInput, {
-                backgroundColor: chatColors.inputBg,
-                color: chatColors.inputText,
-                borderColor: chatColors.inputBorder,
-              }]}
-              placeholder="Escribe un mensaje..."
-              placeholderTextColor={chatColors.mutedText}
-              value={inputText}
-              onChangeText={handleTextChange}
-              multiline
-              maxLength={2000}
-              blurOnSubmit={false}
-              accessibilityLabel="Campo de mensaje"
-            />
+              <TextInput
+                ref={inputRef}
+                style={[styles.textInput, { color: chatColors.inputText }]}
+                placeholder="Mensaje"
+                placeholderTextColor={chatColors.mutedText}
+                value={inputText}
+                onChangeText={handleTextChange}
+                multiline
+                maxLength={2000}
+                blurOnSubmit={false}
+                accessibilityLabel="Campo de mensaje"
+              />
 
+              <Pressable
+                onPress={() => pickImage(true)}
+                style={({ pressed }) => [styles.capsuleIconBtn, pressed && { opacity: 0.6 }]}
+                accessibilityLabel="Tomar foto con cámara"
+              >
+                <Ionicons name="camera" size={22} color={chatColors.mutedText} />
+              </Pressable>
+            </View>
+
+            {/* Botón flotante circular de enviar */}
             <Pressable
               onPress={sendMessage}
               disabled={sending || !inputText.trim()}
               style={({ pressed }) => [
                 styles.sendBtn,
-                { backgroundColor: colors.primary },
+                { backgroundColor: isDark ? '#00A884' : '#008069' },
                 (!inputText.trim() || sending) && styles.sendBtnDisabled,
-                pressed && { opacity: 0.75 },
+                pressed && { opacity: 0.8 },
               ]}
               accessibilityLabel="Enviar mensaje"
               accessibilityRole="button"
             >
-              {sending
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Ionicons name="send" size={18} color="#fff" style={{ marginLeft: 2 }} />
-              }
+              {sending ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Ionicons name="send" size={19} color="#fff" style={{ marginLeft: 2 }} />
+              )}
             </Pressable>
-          </View>
+          </Animated.View>
         ) : (
-          <View style={[styles.closedToolbar, { backgroundColor: chatColors.toolbarBg, paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <Animated.View style={[
+            styles.closedToolbar, 
+            { 
+              backgroundColor: isDark ? '#1F2C34' : '#E1F0DA', 
+              paddingBottom: Math.max(insets.bottom, 12),
+              marginBottom: Platform.OS === 'android' ? keyboardOffset : 0
+            }
+          ]}>
             <Ionicons name="lock-closed-outline" size={16} color={chatColors.mutedText} />
             <Text style={[styles.closedToolbarText, { color: chatColors.mutedText }]}>
               No puedes enviar mensajes en este chat
             </Text>
-          </View>
+          </Animated.View>
         )}
       </KeyboardAvoidingView>
 
@@ -930,8 +1042,8 @@ export default function ChatScreen() {
             <Image
               source={{ uri: viewImageUrl }}
               style={{
-                width: require('react-native').Dimensions.get('window').width,
-                height: require('react-native').Dimensions.get('window').height * 0.8,
+                width: Dimensions.get('window').width,
+                height: Dimensions.get('window').height * 0.8,
               }}
               resizeMode="contain"
             />
@@ -1016,12 +1128,35 @@ export default function ChatScreen() {
               )}
             </View>
 
+            {/* Botones de acción rápida */}
+            <View style={styles.profileCardActionRow}>
+              {(otherUserData?.yape_number || otherUserData?.phone || otherUserData?.phone_number) && (
+                <TouchableOpacity
+                  style={[styles.profileCardSecondaryBtn, { backgroundColor: '#742284' }]}
+                  onPress={handleCopyYape}
+                >
+                  <Ionicons name="cash" size={18} color="#fff" />
+                  <Text style={styles.profileCardBtnText}>Yape / Plin</Text>
+                </TouchableOpacity>
+              )}
+
+              {(otherUserData?.phone || otherUserData?.phone_number) && (
+                <TouchableOpacity
+                  style={[styles.profileCardSecondaryBtn, { backgroundColor: '#25D366' }]}
+                  onPress={handleOpenWhatsApp}
+                >
+                  <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                  <Text style={styles.profileCardBtnText}>WhatsApp</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             <TouchableOpacity
               style={[styles.profileCardCallBtn, { backgroundColor: colors.primary }]}
               onPress={() => { setShowProfileCard(false); handleCall(); }}
             >
               <Ionicons name="call" size={20} color="#fff" />
-              <Text style={styles.profileCardCallText}>Llamar</Text>
+              <Text style={styles.profileCardCallText}>Llamar por Teléfono</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -1050,7 +1185,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 12,
     paddingBottom: 12,
     elevation: 6,
@@ -1072,8 +1207,17 @@ const styles = StyleSheet.create({
   statusDot: { width: 7, height: 7, borderRadius: 4, marginRight: 5 },
   headerSub: { color: 'rgba(255,255,255,0.82)', fontSize: 12 },
   headerTyping: { color: '#25D366', fontSize: 12, fontWeight: '600', fontStyle: 'italic' },
+  headerQuickAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  headerQuickText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   headerAction: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 38, height: 38, borderRadius: 19,
     justifyContent: 'center', alignItems: 'center',
   },
 
@@ -1165,41 +1309,66 @@ const styles = StyleSheet.create({
   },
   closedBannerText: { fontSize: 12, fontWeight: '500', flex: 1 },
 
-  // ── Toolbar ───────────────────────────
+  // ── Toolbar Estilo WhatsApp ─────────────
   toolbar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    backgroundColor: 'transparent',
   },
+  inputCapsule: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 25,
+    paddingHorizontal: 6,
+    paddingVertical: Platform.OS === 'ios' ? 6 : 2,
+    minHeight: 48,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  capsuleIconBtn: {
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 22,
+    maxHeight: 120,
+    paddingHorizontal: 8,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+  },
+  sendBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  sendBtnDisabled: { opacity: 0.5 },
   closedToolbar: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 14,
+    marginHorizontal: 12,
+    borderRadius: 16,
     gap: 8,
+    elevation: 1,
   },
   closedToolbarText: { fontSize: 14, fontWeight: '500' },
-  iconBtn: { padding: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 4 },
-  textInput: {
-    flex: 1, borderRadius: 22,
-    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10,
-    fontSize: 15.5, maxHeight: 110,
-    marginHorizontal: 6,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  sendBtn: {
-    width: 44, height: 44, borderRadius: 22,
-    justifyContent: 'center', alignItems: 'center',
-    marginBottom: 4,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  sendBtnDisabled: { opacity: 0.45 },
 
   // ── Attach modal ──────────────────────
   attachOverlay: {
@@ -1330,6 +1499,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   profileCardRowText: { fontSize: 15, fontWeight: '500' },
+  profileCardActionRow: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 10,
+    marginBottom: 10,
+  },
+  profileCardSecondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderRadius: 14,
+    gap: 6,
+    elevation: 2,
+  },
+  profileCardBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   profileCardCallBtn: {
     flexDirection: 'row',
     width: '100%',
