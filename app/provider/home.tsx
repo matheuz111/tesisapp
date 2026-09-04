@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import * as Clipboard from 'expo-clipboard';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -27,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { onAuthStateChanged } from 'firebase/auth';
 import {
   GeoPoint,
+  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -40,8 +40,8 @@ import * as geofire from 'geofire-common';
 import { getDistance } from 'geolib';
 import { auth, db } from '../../src/config/firebase';
 import { useTheme } from '../../src/context/ThemeContext';
+import { uploadServiceImage } from '../../src/services/mediaStorage';
 
-import { registerForPushNotificationsAsync, sendPushNotification } from '../../utils/pushNotifications';
 
 // ─────────────────────────────────────────────
 // HELPERS
@@ -78,6 +78,7 @@ export default function ProviderHome() {
   const [price, setPrice] = useState('');
   const [location, setLocation] = useState<any>(null);
   const [providerName, setProviderName] = useState('');
+  const [isVerified, setIsVerified] = useState(false);
 
   // Gamification
   const [totalRating, setTotalRating] = useState('0.0');
@@ -120,52 +121,6 @@ export default function ProviderHome() {
 
   const greeting = useMemo(() => getGreeting(), []);
 
-  // ── Push notifications ──────────────────
-  const [pushToken, setPushToken] = useState<string | null>(null);
-  useEffect(() => {
-    if (user) {
-      registerForPushNotificationsAsync(user.uid).then(t => {
-        if (t) setPushToken(t);
-      });
-    }
-  }, [user]);
-
-  // ── Diagnóstico de push (long press en el emoji) ──────
-  const runPushDiagnostic = async () => {
-    if (!pushToken) {
-      Alert.alert('Sin token', 'No hay Expo Push Token registrado. Revisa los permisos de notificación.');
-      return;
-    }
-    // Copiar token al portapapeles
-    await Clipboard.setStringAsync(pushToken);
-
-    // Hacer una llamada de prueba a la misma API que usa la app
-    try {
-      const res = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          to: pushToken,
-          title: '✅ TEST - Notificación de prueba',
-          body: 'Si ves esto con la app cerrada, ¡está funcionando!',
-          sound: 'default',
-          priority: 'high',
-          channelId: 'default',
-          ttl: 60,
-        }),
-      });
-      const result = await res.json();
-      const status = result?.data?.status || JSON.stringify(result);
-      const details = result?.data?.details ? `\n\nDetalles: ${JSON.stringify(result.data.details)}` : '';
-      Alert.alert(
-        `Expo API: ${status}`,
-        `Token (copiado al portapapeles):\n${pushToken.substring(0, 45)}...${details}\n\n▶ Cierra la app AHORA y espera la notificación de prueba.`
-      );
-    } catch (e: any) {
-      Alert.alert('Error de red', e.message);
-    }
-  };
-
   // ── Cargar perfil ───────────────────────
   useEffect(() => {
     const loadProfile = async () => {
@@ -179,6 +134,7 @@ export default function ProviderHome() {
           setPrice(data.price_range || '');
           setIsActive(data.is_active || false);
           setProviderName(data.name || data.displayName || user.email?.split('@')[0] || '');
+          setIsVerified(data.is_verified !== false);
           if (data.current_location) {
             setLocation({
               latitude: data.current_location.latitude,
@@ -250,7 +206,7 @@ export default function ProviderHome() {
     const q = query(
       collection(db, 'service_requests'),
       where('providerId', '==', user.uid),
-      where('status', '==', 'ACCEPTED')
+      where('status', 'in', ['ACCEPTED', 'IN_PROGRESS'])
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
@@ -277,17 +233,6 @@ export default function ProviderHome() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: '¡Trabajo Aceptado!', text2: 'Iniciando navegación...' });
 
-      const clientDoc = await getDoc(doc(db, 'users', targetRequest.clientId));
-      if (clientDoc.exists()) {
-        const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
-        if (token) {
-          await sendPushNotification(
-            token,
-            '¡TÉCNICO EN CAMINO! 🚀',
-            `${providerName || 'El técnico'} ha aceptado tu solicitud.`
-          );
-        }
-      }
     } catch {
       Alert.alert('Error', 'No se pudo aceptar');
     } finally {
@@ -297,7 +242,7 @@ export default function ProviderHome() {
 
   // ── Rechazar trabajo ────────────────────
   const rejectJob = async () => {
-    if (!incomingRequest) return;
+    if (!incomingRequest || !user) return;
     Alert.alert(
       'Rechazar solicitud',
       '¿Estás seguro de rechazar esta solicitud?',
@@ -309,23 +254,15 @@ export default function ProviderHome() {
           onPress: async () => {
             try {
               await updateDoc(doc(db, 'service_requests', incomingRequest.id), {
-                status: 'CANCELLED_BY_PROVIDER',
-                cancelledAt: serverTimestamp(),
+                status: 'REQUIRES_REASSIGNMENT',
+                rejectedProviderIds: arrayUnion(user.uid),
+                rejectionReason: 'TECHNICIAN_UNAVAILABLE',
+                rejectedAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
               });
 
-              const clientDoc = await getDoc(doc(db, 'users', incomingRequest.clientId));
-              if (clientDoc.exists()) {
-                const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
-                if (token) {
-                  await sendPushNotification(
-                    token,
-                    'Solicitud Rechazada',
-                    'El técnico no está disponible en este momento. Intenta con otro profesional.'
-                  );
-                }
-              }
               setIncomingRequest(null);
-              Toast.show({ type: 'info', text1: 'Solicitud rechazada' });
+              Toast.show({ type: 'info', text1: 'Solicitud devuelta a la central' });
             } catch {
               Alert.alert('Error', 'No se pudo rechazar');
             }
@@ -354,17 +291,6 @@ export default function ProviderHome() {
                 cancelledAt: serverTimestamp(),
               });
 
-              const clientDoc = await getDoc(doc(db, 'users', currentJob.clientId));
-              if (clientDoc.exists()) {
-                const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
-                if (token) {
-                  await sendPushNotification(
-                    token,
-                    'Servicio Abortado ⚠️',
-                    'El técnico tuvo un inconveniente. Por favor, solicita a otro profesional.'
-                  );
-                }
-              }
               Alert.alert('Servicio Abortado', 'Se ha notificado al cliente.');
               setCurrentJob(null);
             } catch {
@@ -399,7 +325,9 @@ export default function ProviderHome() {
     try {
       await updateDoc(doc(db, 'service_requests', currentJob.id), {
         serviceStarted: true,
+        status: 'IN_PROGRESS',
         startedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: '¡PIN VALIDADO! 🚀', text2: 'Inicio presencial verificado.' });
@@ -437,25 +365,14 @@ export default function ProviderHome() {
 
       setUploading(true);
       try {
-        const base64Img = `data:image/jpeg;base64,${asset.base64}`;
+        const evidencePhoto = await uploadServiceImage(currentJob.id, user!.uid, asset.base64, 'completion');
         await updateDoc(doc(db, 'service_requests', currentJob.id), {
           status: 'COMPLETED',
-          evidence_photo: base64Img,
+          evidence_photo: evidencePhoto,
           finished_at: serverTimestamp(),
         });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-        const clientDoc = await getDoc(doc(db, 'users', currentJob.clientId));
-        if (clientDoc.exists()) {
-          const token = clientDoc.data().expoPushToken || clientDoc.data().pushToken;
-          if (token) {
-            await sendPushNotification(
-              token,
-              '¡Trabajo Culminado! 🎉',
-              'El técnico ha completado el trabajo. Entra a calificar.'
-            );
-          }
-        }
         Toast.show({ type: 'success', text1: '¡Misión Cumplida! 🎉', text2: 'Evidencia guardada.' });
         setCurrentJob(null);
       } catch (err: any) {
@@ -470,6 +387,10 @@ export default function ProviderHome() {
   // ── Toggle online/offline ───────────────
   const toggleSwitch = async () => {
     if (!user) return;
+    if (!isVerified) {
+      Alert.alert('Validación pendiente', 'La central debe revisar y aprobar tu perfil antes de habilitarte para recibir servicios.');
+      return;
+    }
     if (!isActive && (!specialty || !price)) {
       Alert.alert('Faltan datos', 'Ingresa tu especialidad y tarifa antes de conectarte.');
       return;
@@ -514,7 +435,7 @@ export default function ProviderHome() {
         });
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Toast.show({ type: 'success', text1: '¡Conectado!', text2: 'Ya eres visible para clientes cercanos.' });
+        Toast.show({ type: 'success', text1: '¡Disponible!', text2: 'La central ya puede asignarte servicios cercanos.' });
       } else {
         await updateDoc(doc(db, 'users', user.uid), { is_active: false });
         Toast.show({ type: 'info', text1: 'Desconectado', text2: 'Ya no recibirás solicitudes.' });
@@ -759,15 +680,13 @@ export default function ProviderHome() {
         {/* ═══ HEADER CON SALUDO ═══ */}
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-          <TouchableOpacity onLongPress={runPushDiagnostic} delayLongPress={800} activeOpacity={1}>
             <Text style={[styles.greetingEmoji]}>{greeting.emoji}</Text>
-          </TouchableOpacity>
             <Text style={[styles.greetingTitle, { color: colors.text }]}>
               {greeting.text},{' '}
               <Text style={{ color: colors.primary }}>{providerName || 'Técnico'}</Text>
             </Text>
             <Text style={[styles.subtitleDash, { color: colors.subtext }]}>
-              {isActive ? 'Estás visible para clientes' : 'Conéctate para recibir solicitudes'}
+              {isActive ? 'Disponible para asignaciones' : 'Activa tu disponibilidad'}
             </Text>
           </View>
         </View>
@@ -819,7 +738,7 @@ export default function ProviderHome() {
               {isActive ? 'ONLINE' : 'OFFLINE'}
             </Text>
             <Text style={[styles.statusSubText, { color: isActive ? 'rgba(255,255,255,0.8)' : colors.subtext }]}>
-              {isActive ? 'Buscando clientes cerca...' : 'Toca para conectarte'}
+              {isActive ? 'La central puede asignarte servicios' : 'Toca para quedar disponible'}
             </Text>
           </TouchableOpacity>
         </Animated.View>
@@ -915,7 +834,7 @@ export default function ProviderHome() {
           <View style={[styles.radiusInfo, { backgroundColor: isDark ? '#0d1418' : '#F0F7FF' }]}>
             <Ionicons name="map-outline" size={16} color={colors.primary} />
             <Text style={[styles.radiusInfoText, { color: colors.subtext }]}>
-              Recibirás solicitudes de clientes dentro de {serviceRadius} km de tu ubicación.
+              La central priorizará servicios dentro de {serviceRadius} km de tu ubicación.
             </Text>
           </View>
         </View>
@@ -971,19 +890,17 @@ export default function ProviderHome() {
                 </Text>
               </View>
 
-              {incomingRequest.serviceType && (
-                <View style={styles.radarDetailRow}>
-                  <Text style={[styles.radarDetailLabel, { color: colors.subtext }]}>Servicio</Text>
-                  <Text style={[styles.radarDetailValue, { color: colors.text }]}>
-                    {incomingRequest.serviceType}
-                  </Text>
-                </View>
-              )}
+              <View style={styles.radarDetailRow}>
+                <Text style={[styles.radarDetailLabel, { color: colors.subtext }]}>Servicio</Text>
+                <Text style={[styles.radarDetailValue, { color: colors.text }]}>
+                  {incomingRequest.serviceLabel || incomingRequest.specialty || incomingRequest.serviceType || 'Servicio general'}
+                </Text>
+              </View>
 
               <View style={styles.radarDetailRow}>
                 <Text style={[styles.radarDetailLabel, { color: colors.subtext }]}>Precio acordado</Text>
                 <Text style={[styles.radarDetailValue, { color: colors.primary, fontWeight: '800' }]}>
-                  {incomingRequest.price_agreed || 'A convenir'}
+                  {incomingRequest.price_agreed || 'Por confirmar por la central'}
                 </Text>
               </View>
 

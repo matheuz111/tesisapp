@@ -1,636 +1,266 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { getDistance } from 'geolib';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
-import MapView, { Marker, UrlTile } from 'react-native-maps';
-import Toast from 'react-native-toast-message';
-
 import { onAuthStateChanged } from 'firebase/auth';
-import { GeoPoint, addDoc, collection, doc, getDocs, increment, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { GeoPoint, collection, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import Toast from 'react-native-toast-message';
+import { MapCoordinate, ServiceMap } from '../../src/components/ServiceMap';
 import { auth, db } from '../../src/config/firebase';
 import { useTheme } from '../../src/context/ThemeContext';
-import { registerForPushNotificationsAsync } from '../../utils/pushNotifications';
+import { uploadServiceImage } from '../../src/services/mediaStorage';
 
+const ORGANIZATION_ID = 'maestro-a-domicilio';
+const ACTIVE_STATUSES = ['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS'];
 const SERVICES = [
-  { id: 'Gasfitero', name: 'Gasfitería', icon: 'water', colorKey: 'blue' },
-  { id: 'Electricista', name: 'Electricidad', icon: 'flash', colorKey: 'yellow' },
-  { id: 'Limpieza', name: 'Limpieza', icon: 'sparkles', colorKey: 'purple' },
-  { id: 'Albañil', name: 'Albañilería', icon: 'construct', colorKey: 'orange' },
-  { id: 'Pintor', name: 'Pintura', icon: 'color-palette', colorKey: 'red' },
-  { id: 'Tecnico', name: 'Técnico PC', icon: 'desktop', colorKey: 'green' },
-];
+  { id: 'Gasfitero', label: 'Gasfitería', icon: 'water-outline' },
+  { id: 'Electricista', label: 'Electricidad', icon: 'flash-outline' },
+  { id: 'Pintor', label: 'Pintura', icon: 'color-palette-outline' },
+  { id: 'Carpintero', label: 'Carpintería', icon: 'hammer-outline' },
+  { id: 'Albañil', label: 'Albañilería', icon: 'construct-outline' },
+  { id: 'Cerrajero', label: 'Cerrajería', icon: 'key-outline' },
+  { id: 'Tecnico', label: 'Línea blanca / TV', icon: 'tv-outline' },
+  { id: 'Otro', label: 'Otro servicio', icon: 'apps-outline' },
+] as const;
 
-export default function ClientMapHome() {
+const STATUS_COPY: Record<string, { label: string; detail: string; step: number }> = {
+  PENDING_ASSIGNMENT: { label: 'Buscando al técnico adecuado', detail: 'La central está revisando tu solicitud.', step: 1 },
+  REQUIRES_REASSIGNMENT: { label: 'Reasignando técnico', detail: 'La central está buscando otra opción disponible.', step: 1 },
+  PENDING: { label: 'Técnico asignado', detail: 'Esperando confirmación del técnico.', step: 2 },
+  ACCEPTED: { label: 'Técnico en camino', detail: 'Tu servicio fue confirmado.', step: 3 },
+  IN_PROGRESS: { label: 'Servicio en ejecución', detail: 'El técnico se encuentra atendiendo la solicitud.', step: 4 },
+};
+
+export default function ClientHome() {
   const router = useRouter();
+  const { colors } = useTheme();
   const [user, setUser] = useState(auth.currentUser);
-  const { theme, colors } = useTheme();
-
-  // Suscripción reactiva al estado de autenticación
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Registrar push token del cliente
-  useEffect(() => {
-    if (user) registerForPushNotificationsAsync(user.uid);
-  }, [user]);
-
-  // STADOS DEL MAPA / FILTROS
-  const [location, setLocation] = useState<any>(null);
-  const [filteredProviders, setFilteredProviders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [searchRadius, setSearchRadius] = useState<number>(5000); // 5km or 50km
-
-
-
-  const [selectedProvider, setSelectedProvider] = useState<any>(null);
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(false);
-  const [requestLoading, setRequestLoading] = useState(false);
-
-
   const [activeRequest, setActiveRequest] = useState<any>(null);
+  const [loadingRequest, setLoadingRequest] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [service, setService] = useState('');
+  const [description, setDescription] = useState('');
+  const [district, setDistrict] = useState('');
+  const [address, setAddress] = useState('');
+  const [urgency, setUrgency] = useState<'NOW' | 'TODAY' | 'SCHEDULED'>('TODAY');
+  const [preferredSchedule, setPreferredSchedule] = useState('');
+  const [photo, setPhoto] = useState<{ uri: string; base64: string } | null>(null);
+  const [serviceLocation, setServiceLocation] = useState<MapCoordinate | null>(null);
+  const [locating, setLocating] = useState(false);
 
-  // EVALUACIÓN (MODAL)
-  const [isRatingModalVisible, setRatingModalVisible] = useState(false);
-  const [rating, setRating] = useState(5);
-  const [ratingLoading, setRatingLoading] = useState(false);
-
-
-  useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permiso denegado', 'Necesitamos tu ubicación.'); setLoading(false); return; }
-      let locationData = await Location.getCurrentPositionAsync({});
-      setLocation({
-        latitude: locationData.coords.latitude,
-        longitude: locationData.coords.longitude,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
-      });
-    })();
-  }, []);
-
+  useEffect(() => onAuthStateChanged(auth, setUser), []);
 
   useEffect(() => {
-    if (!user) return;
-    const q = query(
+    if (!user) {
+      setLoadingRequest(false);
+      return;
+    }
+    const activeQuery = query(
       collection(db, 'service_requests'),
       where('clientId', '==', user.uid),
-      where('status', 'in', ['PENDING', 'ACCEPTED', 'COMPLETED', 'CANCELLED_BY_PROVIDER'])
+      where('status', 'in', ACTIVE_STATUSES)
     );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() as any }));
-        // Ordenar del más nuevo al más antiguo
-        docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        const newData = docs[0];
-
-        setActiveRequest((prev: any) => {
-          // Si el proveedor cancela:
-          if (newData.status === 'CANCELLED_BY_PROVIDER') {
-            if (prev && prev.id === newData.id && prev.status !== 'CANCELLED_BY_PROVIDER') {
-              Toast.show({ type: 'error', text1: 'Servicio Abortado', text2: 'El proveedor canceló la visita.', visibilityTime: 5000 });
-              Vibration.vibrate(1000);
-            }
-            return null; // Reiniciar a modo descubrimiento inmediatamente
-          }
-
-          // Transición de Pendiente a Aceptado
-          if (prev && prev.status === 'PENDING' && newData.status === 'ACCEPTED') {
-            Vibration.vibrate([0, 500, 200, 500]);
-            Toast.show({ type: 'success', text1: '¡TÉCNICO EN CAMINO! 🚀', text2: `${newData.providerName} ha aceptado.`, visibilityTime: 5000 });
-          }
-
-          // Transición al finalizar (Autodisparador del Modal)
-          if (newData.status === 'COMPLETED' && (!prev || prev.status !== 'COMPLETED')) {
-            Vibration.vibrate(1000);
-            setRating(5);
-            setRatingModalVisible(true);
-          }
-
-          return newData;
-        });
-      } else {
-        setActiveRequest(null);
-      }
+    return onSnapshot(activeQuery, (snapshot) => {
+      const requests = snapshot.docs
+        .map((item) => ({ id: item.id, ...item.data() as any }))
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setActiveRequest(requests[0] || null);
+      setLoadingRequest(false);
+    }, (error) => {
+      console.error('No se pudo consultar la solicitud activa:', error);
+      setLoadingRequest(false);
     });
-    return () => unsubscribe();
   }, [user]);
 
+  const selectedService = useMemo(() => SERVICES.find((item) => item.id === service), [service]);
 
-  useEffect(() => {
-    if (!location) return;
-
-    const fetchProviders = async () => {
-      setLoading(true);
-      try {
-        const q = query(collection(db, 'users'), where('role', '==', 'PROVIDER'), where('is_active', '==', true));
-        const snapshot = await getDocs(q);
-        const todos: any[] = [];
-
-        snapshot.forEach(doc => {
-          const data = doc.data();
-          // Aplicar Filtro Horizontal (Chips)
-          if (activeFilter && data.specialty && !data.specialty.toLowerCase().includes(activeFilter.toLowerCase())) return;
-
-          let distancia = 0;
-          if (data.current_location) {
-            distancia = getDistance(
-              { latitude: location.latitude, longitude: location.longitude },
-              { latitude: data.current_location.latitude, longitude: data.current_location.longitude }
-            );
-          }
-
-          // Filtrar por distancia seleccionada por el usuario
-          if (distancia <= searchRadius) {
-            todos.push({
-              id: doc.id,
-              ...data,
-              distancia,
-              rating: data.review_count > 0 ? (data.total_rating / data.review_count).toFixed(1) : "Nuevo",
-              price_range: data.price_range || "S/ 50",
-              jobs: data.jobs_completed || 0
-            });
-          }
-        });
-        setFilteredProviders(todos);
-
-      } catch (error) {
-        console.error("Error buscando técnicos:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProviders();
-  }, [location, activeFilter, searchRadius]);
-
-
-  const sendRequest = async () => {
-    if (requestLoading) return;
-    setRequestLoading(true);
-    // Generar código OTP de seguridad de 4 dígitos
-    const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
-    try {
-      if (!location) {
-        Alert.alert('Error', 'Necesitamos tu ubicación.');
+  const selectPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permiso requerido', 'Permite el acceso a tus fotos para adjuntar evidencia del problema.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.25, base64: true, allowsEditing: true, aspect: [4, 3] });
+    const asset = result.assets?.[0];
+    if (!result.canceled && asset?.base64) {
+      if (asset.base64.length > 700000) {
+        Alert.alert('Imagen muy pesada', 'Selecciona una fotografía de menor tamaño.');
         return;
       }
-      
-      const formattedClientName = user?.displayName || (user?.email ? user.email.split('@')[0] : 'Cliente');
-      await addDoc(collection(db, 'service_requests'), {
-        clientId: user?.uid,
-        clientName: formattedClientName,
-        providerId: selectedProvider.id,
-        providerName: selectedProvider.full_name,
-        status: 'PENDING',
-        location: new GeoPoint(location.latitude, location.longitude),
-        createdAt: serverTimestamp(),
-        price_agreed: selectedProvider.price_range,
-        securityPin: generatedPin,
-        serviceStarted: false,
-        specialty: selectedProvider.specialty || activeFilter || 'Servicio Técnico'
-      });
-
-      Toast.show({ type: 'success', text1: '¡Buscando Técnico! 📡', text2: 'Avisando dispositivos cercanos...' });
-      setSelectedProvider(null);
-    } catch (error) { 
-      console.error("Error al enviar solicitud:", error);
-      Alert.alert('Error', 'No se pudo enviar la solicitud.'); 
-    } finally { 
-      setRequestLoading(false); 
+      setPhoto({ uri: asset.uri, base64: asset.base64 });
     }
   };
 
-  const cancelRequest = async () => {
-    Alert.alert(
-      "Cancelar Servicio",
-      "¿Estás seguro de que deseas cancelar esta solicitud?",
-      [
-        { text: "No, mantener", style: "cancel" },
-        {
-          text: "Sí, cancelar",
-          style: "destructive",
-          onPress: async () => {
-            setRequestLoading(true);
-            try {
-              await updateDoc(doc(db, 'service_requests', activeRequest.id), {
-                status: 'CANCELLED_BY_CLIENT',
-                cancelledAt: serverTimestamp()
-              });
-              Toast.show({ type: 'info', text1: 'Cancelado', text2: 'Solicitud cancelada correctamente.' });
-              setActiveRequest(null); // Liberar máquina de estados manual
-            } catch (error) {
-              console.error(error);
-              Alert.alert("Error", "Hubo un problema al cancelar.");
-            } finally {
-              setRequestLoading(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const shareServiceDetails = () => {
-    if (!activeRequest) return;
-    const msg = `🚨 *MONITOREO DE SERVICIO - TESISAPP LIMA*\n\nHola, estoy recibiendo un servicio en mi domicilio:\n👨‍🔧 *Técnico:* ${activeRequest.providerName}\n🛠️ *Especialidad:* ${activeRequest.specialty || 'Técnico'}\n🔐 *PIN de Seguridad:* ${activeRequest.securityPin || '----'}\n📍 *Estado:* ${activeRequest.serviceStarted ? '🟢 Trabajo en Ejecución' : '🟡 Técnico en Camino'}\n\n_Por seguridad comparto estos datos monitoreados en tiempo real._`;
-    const url = `whatsapp://send?text=${encodeURIComponent(msg)}`;
-    Linking.openURL(url).catch(() => {
-      Alert.alert('Aviso', 'No se pudo abrir WhatsApp. Asegúrate de tener la app instalada.');
-    });
-  };
-
-  const callEmergency = () => {
-    Alert.alert(
-      'Central de Emergencias PNP 105',
-      '¿Deseas realizar una llamada directa al 105?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Llamar 105', style: 'destructive', onPress: () => Linking.openURL('tel:105') }
-      ]
-    );
-  };
-
-  const submitRating = async () => {
-    if (!activeRequest) return;
-    setRatingLoading(true);
+  const useCurrentLocation = async () => {
+    if (locating) return;
+    setLocating(true);
     try {
-      await updateDoc(doc(db, 'service_requests', activeRequest.id), {
-        status: 'ARCHIVED',
-        rating: rating,
-        reviewedAt: serverTimestamp()
-      });
-
-      if (activeRequest.providerId) {
-        const providerRef = doc(db, 'users', activeRequest.providerId);
-        await updateDoc(providerRef, {
-          total_rating: increment(rating),
-          review_count: increment(1),
-          jobs_completed: increment(1)
-        });
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Ubicación no autorizada', 'Puedes marcar manualmente en el mapa el lugar donde se realizará el servicio.');
+        return;
       }
-
-      Toast.show({ type: 'success', text1: '¡Gracias!', text2: 'Tu calificación nos ayuda a mantener servicios seguros.' });
-      setRatingModalVisible(false);
-      setActiveRequest(null);
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setServiceLocation({ latitude: current.coords.latitude, longitude: current.coords.longitude });
     } catch (error) {
-      console.error("Error al calificar:", error);
-      Alert.alert("Error", "No se pudo enviar la evaluación.");
+      console.error('No se pudo obtener la ubicación:', error);
+      Alert.alert('Ubicación no disponible', 'Activa el GPS o marca manualmente el punto en el mapa.');
     } finally {
-      setRatingLoading(false);
+      setLocating(false);
     }
   };
 
-  const mapStyle = theme === 'dark'
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const submitRequest = async () => {
+    if (!user || submitting) return;
+    if (!service || description.trim().length < 10 || !district.trim() || !address.trim() || !serviceLocation || (urgency === 'SCHEDULED' && !preferredSchedule.trim())) {
+      Alert.alert('Completa la solicitud', 'Selecciona un servicio, ingresa la dirección y confirma en el mapa la ubicación exacta.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const location = new GeoPoint(serviceLocation.latitude, serviceLocation.longitude);
+      const requestRef = doc(collection(db, 'service_requests'));
+      await setDoc(requestRef, {
+        organizationId: ORGANIZATION_ID,
+        intakeChannel: 'CUSTOMER_APP',
+        clientId: user.uid,
+        clientName: user.displayName || user.email?.split('@')[0] || 'Cliente',
+        specialty: service,
+        serviceLabel: selectedService?.label || service,
+        description: description.trim(),
+        district: district.trim(),
+        address: address.trim(),
+        urgency,
+        preferredSchedule: urgency === 'SCHEDULED' ? preferredSchedule.trim() : null,
+        issuePhoto: null,
+        location,
+        locationSource: 'CUSTOMER_CONFIRMED',
+        status: 'PENDING_ASSIGNMENT',
+        priority: urgency === 'NOW' ? 'HIGH' : 'NORMAL',
+        securityPin: Math.floor(1000 + Math.random() * 9000).toString(),
+        serviceStarted: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      if (photo) {
+        try {
+          const issuePhoto = await uploadServiceImage(requestRef.id, user.uid, photo.base64, 'issue');
+          await updateDoc(requestRef, { issuePhoto, updatedAt: serverTimestamp() });
+        } catch (uploadError) {
+          console.warn('La solicitud se creó sin fotografía:', uploadError);
+        }
+      }
+      setDescription(''); setDistrict(''); setAddress(''); setService(''); setPreferredSchedule(''); setPhoto(null); setServiceLocation(null);
+      Toast.show({ type: 'success', text1: 'Solicitud recibida', text2: 'La central seleccionará al técnico más adecuado.' });
+    } catch (error) {
+      console.error('Error creando solicitud:', error);
+      Alert.alert('No se pudo enviar', 'Revisa tu conexión e inténtalo nuevamente.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const cancelRequest = () => {
+    if (!activeRequest) return;
+    Alert.alert('Cancelar solicitud', '¿Deseas cancelar esta atención?', [
+      { text: 'Volver', style: 'cancel' },
+      { text: 'Cancelar solicitud', style: 'destructive', onPress: async () => {
+        await updateDoc(doc(db, 'service_requests', activeRequest.id), { status: 'CANCELLED_BY_CLIENT', cancelledAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      } },
+    ]);
+  };
+
+  if (loadingRequest) {
+    return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.primary} /></View>;
+  }
+  const status = activeRequest ? STATUS_COPY[activeRequest.status] || STATUS_COPY.PENDING_ASSIGNMENT : null;
 
   return (
-    <View style={styles.container}>
-      {/* 1. MAPA DE FONDO (SIEMPRE PRESENTE) */}
-      {location ? (
-        <MapView
-          style={styles.map}
-          region={location}
-          showsUserLocation={true}
-          showsMyLocationButton={false}
-          onPress={() => setSelectedProvider(null)}
-        >
-          <UrlTile urlTemplate={mapStyle} maximumZ={19} flipY={false} />
-          {filteredProviders.map((prov) => (
-            <Marker
-              key={prov.id}
-              coordinate={{ latitude: prov.current_location.latitude, longitude: prov.current_location.longitude }}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (activeRequest) {
-                  Toast.show({ type: 'info', text1: 'Solicitud en curso', text2: 'Cancela la actual si deseas contactar a otro técnico.' });
-                  return;
-                }
-                setSelectedProvider(prov);
-                setAcceptedTerms(false);
-                setIsFavorite(false);
-              }}
-            >
-              <View style={styles.markerContainer}>
-                <View style={[styles.markerBubble, selectedProvider?.id === prov.id ? { backgroundColor: colors.primary } : { backgroundColor: '#ff4444' }]}>
-                  <Ionicons name="construct" size={20} color="#fff" />
-                </View>
-                <View style={[styles.markerArrow, selectedProvider?.id === prov.id ? { backgroundColor: colors.primary } : { backgroundColor: '#ff4444' }]} />
-              </View>
-            </Marker>
-          ))}
-        </MapView>
-      ) : (
-        <View style={[styles.center, { backgroundColor: colors.background, flex: 1 }]}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={{ marginTop: 15, color: colors.text, fontWeight: 'bold' }}>Buscando tu ubicación...</Text>
-        </View>
-      )}
-
-      {/* 2. BARRA DE NAVEGACIÓN PRINCIPAL (SIEMPRE VISIBLE) */}
-      <View style={styles.mainNav}>
-        <View style={[styles.navPill, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-          <TouchableOpacity onPress={() => router.push('/profile')} style={styles.navIcon}>
-            <Ionicons name="person" size={20} color={colors.primary} />
-          </TouchableOpacity>
-          <Text style={[styles.navTitle, { color: colors.text }]}>Service Marketplace</Text>
-          {loading && <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 6 }} />}
-          <TouchableOpacity onPress={() => router.push('/client/history')} style={styles.navIcon}>
-            <Ionicons name="time" size={20} color={colors.icon || colors.primary} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* 3. CHIPS DE FILTRO HORIZONTAL SUPERIOR (Solo si no hay solicitudes activas) */}
-      {!activeRequest && (
-        <View style={styles.headerFilters}>
-          {/* RADIUS TOGGLE */}
-          <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 10, gap: 10 }}>
-            <TouchableOpacity
-              style={[styles.chip, { elevation: 2, marginRight: 0 }, searchRadius === 5000 ? { backgroundColor: colors.success } : { backgroundColor: colors.card }]}
-              onPress={() => { setSearchRadius(5000); setSelectedProvider(null); }}
-            >
-              <Text style={[{ fontSize: 13, fontWeight: 'bold' }, searchRadius === 5000 ? { color: '#fff' } : { color: colors.text }]}>📍 Cerca (5km)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.chip, { elevation: 2, marginRight: 0 }, searchRadius === 50000 ? { backgroundColor: colors.success } : { backgroundColor: colors.card }]}
-              onPress={() => { setSearchRadius(50000); setSelectedProvider(null); }}
-            >
-              <Text style={[{ fontSize: 13, fontWeight: 'bold' }, searchRadius === 50000 ? { color: '#fff' } : { color: colors.text }]}>🌆 Todo Lima</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScroll}>
-            <TouchableOpacity
-              style={[styles.chip, activeFilter === null ? { backgroundColor: colors.primary } : { backgroundColor: colors.input }]}
-              onPress={() => { setActiveFilter(null); setSelectedProvider(null); }}
-            >
-              <Text style={[styles.chipText, { color: activeFilter === null ? '#fff' : colors.text }]}>Todos</Text>
-            </TouchableOpacity>
-            {SERVICES.map((srv) => (
-              <TouchableOpacity
-                key={srv.id}
-                style={[styles.chip, activeFilter === srv.id ? { backgroundColor: colors.primary } : { backgroundColor: colors.input }]}
-                onPress={() => { setActiveFilter(srv.id); setSelectedProvider(null); }}
-              >
-                <Ionicons name={srv.icon as any} size={14} color={activeFilter === srv.id ? '#fff' : colors.text} style={{ marginRight: 5 }} />
-                <Text style={[styles.chipText, { color: activeFilter === srv.id ? '#fff' : colors.text }]}>{srv.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* 4. CAPAS DINÁMICAS INFERIORES (STATE MACHINE) */}
-
-      {/* ESTADO A: DESCUBRIMIENTO (Panel de Perfil Técnico Desplegado) */}
-      {!activeRequest && selectedProvider && (
-        <View style={[styles.bottomSheet, { backgroundColor: colors.card }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.providerHeader}>
-            <View style={[styles.providerIcon, { backgroundColor: colors.input }]}><Ionicons name="person" size={24} color={colors.primary} /></View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.panelTitle, { color: colors.text }]}>{selectedProvider.full_name}</Text>
-              <Text style={[styles.specialtyText, { color: colors.subtext }]}>{selectedProvider.specialty} • a {(selectedProvider.distancia / 1000).toFixed(1)} km</Text>
-            </View>
-            <TouchableOpacity onPress={() => setIsFavorite(!isFavorite)}>
-              <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={28} color={isFavorite ? colors.danger : colors.subtext} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={[styles.statsRow, { backgroundColor: colors.input }]}>
-            <View style={styles.statItem}><Ionicons name="star" size={16} color="#f1c40f" /><Text style={[styles.statText, { color: colors.text }]}>{selectedProvider.rating}</Text></View>
-            <View style={styles.statItem}><Ionicons name="briefcase" size={16} color={colors.primary} /><Text style={[styles.statText, { color: colors.text }]}>{selectedProvider.jobs} reqs</Text></View>
-            <View style={styles.statItem}><Ionicons name="cash" size={16} color={colors.success} /><Text style={[styles.statText, { color: colors.text }]}>{selectedProvider.price_range}</Text></View>
-          </View>
-
-          <TouchableOpacity style={styles.termsContainer} onPress={() => setAcceptedTerms(!acceptedTerms)}>
-            <Ionicons name={acceptedTerms ? "checkbox" : "square-outline"} size={24} color={acceptedTerms ? colors.primary : colors.subtext} />
-            <Text style={[styles.termsText, { color: colors.subtext }]}>
-              Acepto que el técnico acuda a mi dirección y los <Text style={{ fontWeight: 'bold', color: colors.primary }}>Términos</Text>.
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: acceptedTerms ? colors.primary : colors.border }]}
-            onPress={sendRequest}
-            disabled={requestLoading || !acceptedTerms}
-          >
-            {requestLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionBtnText}>SOLICITAR TÉCNICO AHORA</Text>}
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ESTADO B: ESPERANDO CONFIRMACIÓN DEL TÉCNICO (MINI-BANNER PERSISTENTE) */}
-      {activeRequest?.status === 'PENDING' && (
-        <View style={[styles.pendingBanner, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-          <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 15 }} />
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <View style={styles.brandRow}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.pendingTitle, { color: colors.text }]}>Esperando a {activeRequest.providerName}...</Text>
-            <Text style={[styles.pendingSubtitle, { color: colors.subtext }]}>Puedes navegar por el mapa libremente.</Text>
+            <Text style={[styles.eyebrow, { color: colors.primary }]}>MAESTRO A DOMICILIO</Text>
+            <Text style={[styles.title, { color: colors.text }]}>¿Qué necesitas resolver?</Text>
           </View>
-          <TouchableOpacity style={[styles.cancelMiniBtn, { backgroundColor: colors.danger }]} onPress={cancelRequest} disabled={requestLoading}>
-            <Text style={styles.cancelMiniBtnText}>Cancelar</Text>
-          </TouchableOpacity>
+          <TouchableOpacity style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={() => router.push('/client/history')}><Ionicons name="receipt-outline" size={23} color={colors.primary} /></TouchableOpacity>
+          <TouchableOpacity style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={() => router.push('/profile')}><Ionicons name="person-outline" size={23} color={colors.primary} /></TouchableOpacity>
         </View>
-      )}
 
-      {/* ESTADO C: TÉCNICO ACEPTA Y VA EN CAMINO */}
-      {activeRequest?.status === 'ACCEPTED' && (
-        <View style={[styles.bottomSheet, { backgroundColor: colors.card, paddingBottom: 25 }]}>
-          <View style={styles.sheetHandle} />
-          
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-            <Ionicons 
-              name={activeRequest.serviceStarted ? "construct" : "shield-checkmark"} 
-              size={36} 
-              color={activeRequest.serviceStarted ? colors.primary : colors.success} 
-            />
-            <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={[styles.activeTitle, { color: colors.text }]}>
-                {activeRequest.serviceStarted ? '¡Servicio en Ejecución!' : '¡Técnico en camino!'}
-              </Text>
-              <Text style={[styles.activeSubtitle, { color: colors.subtext }]}>
-                {activeRequest.providerName} • {activeRequest.specialty || 'Técnico Especialista'}
-              </Text>
+        {activeRequest && status ? (
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.statusHeader}>
+              <View style={[styles.statusIcon, { backgroundColor: `${colors.primary}18` }]}><Ionicons name="construct-outline" size={26} color={colors.primary} /></View>
+              <View style={{ flex: 1 }}><Text style={[styles.cardTitle, { color: colors.text }]}>{status.label}</Text><Text style={[styles.helper, { color: colors.subtext }]}>{status.detail}</Text></View>
+            </View>
+            <View style={styles.progressRow}>{[1, 2, 3, 4].map((step) => <View key={step} style={[styles.progressSegment, { backgroundColor: step <= status.step ? colors.primary : colors.border }]} />)}</View>
+            <View style={[styles.summaryBox, { backgroundColor: colors.background }]}>
+              <Text style={[styles.summaryLabel, { color: colors.subtext }]}>SERVICIO</Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>{activeRequest.serviceLabel || activeRequest.specialty}</Text>
+              {activeRequest.providerName ? <><Text style={[styles.summaryLabel, { color: colors.subtext }]}>TÉCNICO ASIGNADO</Text><Text style={[styles.summaryValue, { color: colors.text }]}>{activeRequest.providerName}</Text></> : null}
+              {activeRequest.status === 'ACCEPTED' ? <><Text style={[styles.summaryLabel, { color: colors.subtext }]}>PIN DE SEGURIDAD</Text><Text style={[styles.pin, { color: colors.primary }]}>{activeRequest.securityPin}</Text></> : null}
+            </View>
+            <View style={styles.actionRow}>
+              {activeRequest.providerId ? <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}><Ionicons name="chatbubble-outline" size={19} color="#fff" /><Text style={styles.primaryButtonText}>Contactar</Text></TouchableOpacity> : null}
+              <TouchableOpacity style={[styles.secondaryButton, { borderColor: colors.danger }]} onPress={cancelRequest}><Text style={{ color: colors.danger, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
             </View>
           </View>
-
-          {/* 🔐 TARJETA DE PIN DE SEGURIDAD */}
-          <View style={[styles.pinSecurityCard, { backgroundColor: theme === 'dark' ? '#1A2C36' : '#E8F5E9', borderColor: colors.success }]}>
-            <View style={styles.pinHeader}>
-              <Ionicons name="key" size={18} color={colors.success} />
-              <Text style={[styles.pinLabel, { color: colors.success }]}>PIN DE SEGURIDAD (ENTRADA)</Text>
-            </View>
-            <Text style={[styles.pinValue, { color: colors.text }]}>{activeRequest.securityPin || '----'}</Text>
-            <Text style={[styles.pinInstructions, { color: colors.subtext }]}>
-              {activeRequest.serviceStarted
-                ? '✓ PIN validado. Inicio presencial verificado.'
-                : 'Muestra este código al técnico al llegar a tu puerta para iniciar el trabajo.'}
-            </Text>
-          </View>
-
-          {/* BOTONES DE SEGURIDAD (COMPARTIR Y SOS) */}
-          <View style={styles.safetyRow}>
-            <TouchableOpacity
-              style={[styles.safetyBtn, { backgroundColor: '#25D366' }]}
-              onPress={shareServiceDetails}
-            >
-              <Ionicons name="logo-whatsapp" size={18} color="#fff" />
-              <Text style={styles.safetyBtnText}>Compartir</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.safetyBtn, { backgroundColor: colors.danger }]}
-              onPress={callEmergency}
-            >
-              <Ionicons name="call" size={18} color="#fff" />
-              <Text style={styles.safetyBtnText}>SOS 105</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* CHAT Y CANCELAR */}
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-            <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: colors.primary, flex: 1, height: 48 }]}
-              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}
-            >
-              <Ionicons name="chatbubble-ellipses" size={20} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={styles.actionBtnText}>CHAT</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.danger, borderWidth: 1, flex: 1, height: 48 }]}
-              onPress={cancelRequest}
-              disabled={requestLoading}
-            >
-              <Ionicons name="close-circle-outline" size={20} color={colors.danger} style={{ marginRight: 6 }} />
-              <Text style={[styles.actionBtnText, { color: colors.danger }]}>CANCELAR</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* ESTADO D: FINALIZADO -> MODAL CALIFICACIÓN SUPERPUESTO AL MAPA */}
-      <Modal visible={isRatingModalVisible} transparent={true} animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.primary }]}>¡Trabajo Culminado!</Text>
-            <Text style={[styles.modalSubtitle, { color: colors.text }]}>¿Cómo calificarías a {activeRequest?.providerName}?</Text>
-
-            {activeRequest?.evidence_photo && (
-              <Image source={{ uri: activeRequest.evidence_photo }} style={styles.evidenceImage} resizeMode="cover" />
-            )}
-
-            <View style={styles.starsContainer}>
-              {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity key={star} onPress={() => setRating(star)}>
-                  <Ionicons name={star <= rating ? "star" : "star-outline"} size={45} color="#f1c40f" />
+        ) : (
+          <>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Selecciona una especialidad</Text>
+            <View style={styles.serviceGrid}>{SERVICES.map((item) => {
+              const selected = service === item.id;
+              return <TouchableOpacity key={item.id} style={[styles.serviceCard, { backgroundColor: colors.card, borderColor: selected ? colors.primary : colors.border }]} onPress={() => setService(item.id)}><Ionicons name={item.icon} size={25} color={selected ? colors.primary : colors.subtext} /><Text style={[styles.serviceText, { color: colors.text }]}>{item.label}</Text></TouchableOpacity>;
+            })}</View>
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Cuéntanos el problema</Text>
+              <TextInput style={[styles.textArea, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]} placeholder="Ejemplo: Hay una fuga debajo del lavadero desde esta mañana..." placeholderTextColor={colors.subtext} multiline value={description} onChangeText={setDescription} maxLength={500} />
+              <TextInput style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]} placeholder="Distrito" placeholderTextColor={colors.subtext} value={district} onChangeText={setDistrict} />
+              <TextInput style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]} placeholder="Dirección y referencia" placeholderTextColor={colors.subtext} value={address} onChangeText={setAddress} />
+              <View style={styles.locationHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.fieldLabel, { color: colors.text }]}>Confirma el punto exacto</Text>
+                  <Text style={[styles.locationHint, { color: colors.subtext }]}>Usa tu GPS y ajusta el marcador tocando o arrastrando sobre el mapa.</Text>
+                </View>
+                <TouchableOpacity style={[styles.locationButton, { borderColor: colors.primary }]} onPress={useCurrentLocation} disabled={locating}>
+                  {locating ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name="locate-outline" size={19} color={colors.primary} />}
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{locating ? 'Buscando' : 'Mi ubicación'}</Text>
                 </TouchableOpacity>
-              ))}
+              </View>
+              <View style={[styles.mapFrame, { borderColor: serviceLocation ? colors.primary : colors.border }]}>
+                <ServiceMap location={serviceLocation} editable onLocationChange={setServiceLocation} style={styles.map} />
+              </View>
+              <Text style={[styles.mapStatus, { color: serviceLocation ? colors.success : colors.subtext }]}>
+                <Ionicons name={serviceLocation ? 'checkmark-circle' : 'information-circle-outline'} size={15} />{' '}
+                {serviceLocation ? 'Ubicación confirmada para la central' : 'Falta seleccionar la ubicación del servicio'}
+              </Text>
+              <Text style={[styles.fieldLabel, { color: colors.text }]}>¿Cuándo lo necesitas?</Text>
+              <View style={styles.urgencyRow}>{[['NOW', 'Urgente'], ['TODAY', 'Hoy'], ['SCHEDULED', 'Programar']].map(([value, label]) => <TouchableOpacity key={value} style={[styles.urgencyChip, { borderColor: urgency === value ? colors.primary : colors.border }, urgency === value && { backgroundColor: `${colors.primary}15` }]} onPress={() => setUrgency(value as typeof urgency)}><Text style={{ color: urgency === value ? colors.primary : colors.subtext, fontWeight: '700' }}>{label}</Text></TouchableOpacity>)}</View>
+              {urgency === 'SCHEDULED' ? <TextInput style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]} placeholder="Fecha y rango horario preferido" placeholderTextColor={colors.subtext} value={preferredSchedule} onChangeText={setPreferredSchedule} /> : null}
+              {photo ? <View style={styles.photoPreview}><Image source={{ uri: photo.uri }} style={styles.photo} /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhoto(null)}><Ionicons name="close" size={18} color="#fff" /></TouchableOpacity></View> : <TouchableOpacity style={[styles.photoButton, { borderColor: colors.border }]} onPress={selectPhoto}><Ionicons name="camera-outline" size={21} color={colors.primary} /><Text style={{ color: colors.primary, fontWeight: '700' }}>Adjuntar fotografía</Text></TouchableOpacity>}
+              <TouchableOpacity style={[styles.submitButton, { backgroundColor: colors.primary }]} onPress={submitRequest} disabled={submitting}>{submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Enviar a la central</Text>}</TouchableOpacity>
+              <Text style={[styles.disclaimer, { color: colors.subtext }]}>La central evaluará tu solicitud y asignará al técnico más adecuado.</Text>
             </View>
-
-            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary, width: '100%' }]} onPress={submitRating} disabled={ratingLoading}>
-              {ratingLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionBtnText}>ENVIAR Y VOLVER AL MAPA</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-    </View>
+          </>
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  map: { flex: 1, width: '100%' },
-
-  mainNav: { position: 'absolute', top: 55, left: 20, right: 20, zIndex: 30 },
-  navPill: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 30, paddingHorizontal: 10, paddingVertical: 10, elevation: 8, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10 },
-  navIcon: { width: 45, height: 45, borderRadius: 25, backgroundColor: 'rgba(0,123,255,0.08)', justifyContent: 'center', alignItems: 'center' },
-  navTitle: { fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
-
-  headerFilters: { position: 'absolute', top: 135, left: 0, right: 0, zIndex: 10 },
-  chipsScroll: { alignItems: 'center', paddingHorizontal: 20 },
-  chip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 25, marginRight: 12, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
-  chipText: { fontSize: 13, fontWeight: 'bold' },
-
-  bottomSheet: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 25, borderTopLeftRadius: 30, borderTopRightRadius: 30, elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 10 },
-  sheetHandle: { width: 40, height: 5, backgroundColor: '#ddd', borderRadius: 5, alignSelf: 'center', marginBottom: 20, marginTop: -10 },
-
-  providerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  providerIcon: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  panelTitle: { fontSize: 20, fontWeight: 'bold' },
-  specialtyText: { fontSize: 14, fontWeight: '500' },
-
-  statsRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 20, padding: 15, borderRadius: 15 },
-  statItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  statText: { fontWeight: 'bold', fontSize: 14 },
-
-  termsContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  termsText: { flex: 1, marginLeft: 10, fontSize: 12 },
-
-  actionBtn: { padding: 18, borderRadius: 15, alignItems: 'center', elevation: 2 },
-  actionBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15, letterSpacing: 1 },
-  actionBtnOutline: { padding: 18, borderRadius: 15, alignItems: 'center', borderWidth: 1.5 },
-  actionBtnTextOutline: { fontWeight: 'bold', fontSize: 15, letterSpacing: 1 },
-
-  waitingTitle: { fontSize: 22, fontWeight: 'bold', marginTop: 15, textAlign: 'center' },
-  waitingSubtitle: { fontSize: 14, textAlign: 'center', marginTop: 5 },
-
-  pendingBanner: { position: 'absolute', top: 135, left: 20, right: 20, zIndex: 20, flexDirection: 'row', alignItems: 'center', padding: 18, borderRadius: 20, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 12 },
-  pendingTitle: { fontSize: 14, fontWeight: 'bold' },
-  pendingSubtitle: { fontSize: 12, marginTop: 4 },
-  cancelMiniBtn: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 10, elevation: 3 },
-  cancelMiniBtnText: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
-
-  activeTitle: { fontSize: 20, fontWeight: 'bold' },
-  activeSubtitle: { fontSize: 13, marginTop: 2 },
-
-  pinSecurityCard: {
-    borderWidth: 1.5,
-    borderRadius: 16,
-    padding: 14,
-    alignItems: 'center',
-    marginBottom: 12,
-    marginTop: 6,
-  },
-  pinHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  pinLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
-  pinValue: { fontSize: 28, fontWeight: '900', letterSpacing: 6, marginVertical: 2 },
-  pinInstructions: { fontSize: 11, textAlign: 'center', lineHeight: 15 },
-
-  safetyRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
-  safetyBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  safetyBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-
-  markerContainer: { alignItems: 'center' },
-  markerBubble: { padding: 8, borderRadius: 20, borderWidth: 2, borderColor: '#fff', elevation: 5 },
-  markerArrow: { width: 10, height: 10, transform: [{ rotate: '45deg' }], marginTop: -6, borderBottomRightRadius: 2 },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalContent: { width: '100%', padding: 25, borderRadius: 25, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 15, elevation: 15 },
-  modalTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 5 },
-  modalSubtitle: { fontSize: 16, textAlign: 'center', marginBottom: 20 },
-  evidenceImage: { width: '100%', height: 180, borderRadius: 15, marginBottom: 20, borderWidth: 1, borderColor: '#eee' },
-  starsContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 30, gap: 15 }
+  container: { flex: 1 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  content: { paddingHorizontal: 18, paddingTop: Platform.OS === 'android' ? 52 : 64, paddingBottom: 40, maxWidth: 760, width: '100%', alignSelf: 'center' },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 26 }, eyebrow: { fontSize: 11, fontWeight: '900', letterSpacing: 1.3 }, title: { fontSize: 27, fontWeight: '800', marginTop: 4 },
+  iconButton: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' }, sectionTitle: { fontSize: 17, fontWeight: '800', marginBottom: 13 },
+  serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 22 }, serviceCard: { width: '48%', minHeight: 82, borderWidth: 1.5, borderRadius: 16, padding: 13, gap: 7 }, serviceText: { fontSize: 13, fontWeight: '700' },
+  card: { borderWidth: 1, borderRadius: 22, padding: 18, marginBottom: 20 }, textArea: { minHeight: 105, borderWidth: 1, borderRadius: 14, padding: 13, textAlignVertical: 'top', marginBottom: 11 }, input: { height: 50, borderWidth: 1, borderRadius: 14, paddingHorizontal: 13, marginBottom: 11 },
+  locationHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2, marginBottom: 10 }, locationHint: { fontSize: 11, lineHeight: 16 }, locationButton: { minWidth: 105, minHeight: 42, borderWidth: 1, borderRadius: 12, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 }, mapFrame: { height: 220, borderWidth: 1.5, borderRadius: 15, overflow: 'hidden' }, map: { width: '100%', height: '100%' }, mapStatus: { fontSize: 12, fontWeight: '700', marginTop: 7, marginBottom: 12 },
+  fieldLabel: { fontSize: 14, fontWeight: '800', marginTop: 4, marginBottom: 9 }, urgencyRow: { flexDirection: 'row', gap: 8, marginBottom: 14 }, urgencyChip: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  photoButton: { height: 50, borderWidth: 1, borderStyle: 'dashed', borderRadius: 14, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }, photoPreview: { height: 160, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }, photo: { width: '100%', height: '100%' }, removePhoto: { position: 'absolute', right: 8, top: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,.65)', alignItems: 'center', justifyContent: 'center' },
+  submitButton: { height: 54, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, submitText: { color: '#fff', fontSize: 16, fontWeight: '800' }, disclaimer: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 10 },
+  statusHeader: { flexDirection: 'row', gap: 12, alignItems: 'center' }, statusIcon: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }, cardTitle: { fontSize: 18, fontWeight: '800' }, helper: { fontSize: 13, lineHeight: 18, marginTop: 3 }, progressRow: { flexDirection: 'row', gap: 6, marginVertical: 18 }, progressSegment: { flex: 1, height: 5, borderRadius: 4 },
+  summaryBox: { padding: 15, borderRadius: 15 }, summaryLabel: { fontSize: 10, fontWeight: '800', letterSpacing: .8, marginTop: 7 }, summaryValue: { fontSize: 15, fontWeight: '700', marginTop: 2 }, pin: { fontSize: 30, fontWeight: '900', letterSpacing: 7, marginTop: 4 }, actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 }, primaryButton: { flex: 1, height: 48, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }, primaryButtonText: { color: '#fff', fontWeight: '800' }, secondaryButton: { flex: 1, height: 48, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,0 +1,30 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOperator() {
+      return signedIn()
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['OPERATOR', 'ADMIN'];
+    }
+
+    function participatesIn(requestId) {
+      let service = firestore.get(/databases/(default)/documents/service_requests/$(requestId)).data;
+      return signedIn()
+        && (service.clientId == request.auth.uid || service.providerId == request.auth.uid);
+    }
+
+    match /service_requests/{requestId}/{uploaderId}/{allPaths=**} {
+      allow read: if isOperator() || participatesIn(requestId);
+      allow create: if signedIn()
+        && request.auth.uid == uploaderId
+        && participatesIn(requestId)
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow update: if false;
+      allow delete: if isOperator();
+    }
+  }
+}

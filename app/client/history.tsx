@@ -50,6 +50,9 @@ export default function ClientHistory() {
             case 'COMPLETED': return colors.success;
             case 'ACCEPTED': return colors.primary;
             case 'PENDING': return '#f1c40f';
+            case 'PENDING_ASSIGNMENT': return '#e67e22';
+            case 'REQUIRES_REASSIGNMENT': return '#e67e22';
+            case 'IN_PROGRESS': return colors.primary;
             case 'ARCHIVED': return colors.subtext;
             case 'CANCELLED': return colors.danger;
             default: return colors.subtext;
@@ -61,6 +64,9 @@ export default function ClientHistory() {
             case 'COMPLETED': return 'FINALIZADO';
             case 'ACCEPTED': return 'ACEPTADO';
             case 'PENDING': return 'PENDIENTE';
+            case 'PENDING_ASSIGNMENT': return 'POR ASIGNAR';
+            case 'REQUIRES_REASSIGNMENT': return 'REASIGNANDO';
+            case 'IN_PROGRESS': return 'EN EJECUCIÓN';
             case 'ARCHIVED': return 'FINALIZADO';
             case 'CANCELLED': return 'CANCELADO';
             default: return status;
@@ -72,7 +78,7 @@ export default function ClientHistory() {
             <View style={styles.cardHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <View style={[styles.statusDot, { backgroundColor: getStatusColor(item.status) }]} />
-                    <Text style={[styles.providerName, { color: colors.text }]}>{item.providerName || 'Técnico'}</Text>
+                    <Text style={[styles.providerName, { color: colors.text }]}>{item.providerName || 'Central evaluando solicitud'}</Text>
                 </View>
                 <View style={[styles.badge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
                     <Text style={[styles.badgeText, { color: getStatusColor(item.status) }]}>{getStatusLabel(item.status)}</Text>
@@ -119,7 +125,7 @@ export default function ClientHistory() {
 
                 <TouchableOpacity
                     style={[styles.actionButton, { backgroundColor: colors.primary }]}
-                    onPress={() => router.push('/client/map')}
+                    onPress={() => router.push('/client/home')}
                 >
                     <Ionicons name="reload" size={18} color="#fff" />
                     <Text style={[styles.actionText, { color: '#fff' }]}>REPETIR</Text>

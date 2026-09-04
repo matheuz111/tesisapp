@@ -1,31 +1,66 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Usuarios: Lectura y actualización para usuarios autenticados (permite que clientes califiquen técnicos)
-    match /users/{userId} {
-      allow read, write: if request.auth != null;
+    function signedIn() {
+      return request.auth != null;
     }
-    
-    // Solicitudes de servicio: Permitir a usuarios autenticados interactuar con sus solicitudes
-    match /service_requests/{requestId} {
-      allow read, write: if request.auth != null;
 
-      // Subcolección de mensajes del chat en tiempo real del servicio
+    function isOperator() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['OPERATOR', 'ADMIN'];
+    }
+
+    function isParticipant(requestData) {
+      return signedIn()
+        && (requestData.clientId == request.auth.uid || requestData.providerId == request.auth.uid);
+    }
+
+    match /users/{userId} {
+      // Los perfiles son consultables para asignación, historial y contacto.
+      allow read: if signedIn();
+
+      // Los roles privilegiados nunca se crean desde la aplicación pública.
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role in ['CLIENT', 'PROVIDER'];
+
+      // Cada persona mantiene su perfil sin poder cambiar rol ni aprobación.
+      allow update: if isOperator()
+        || (request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.is_verified == resource.data.is_verified)
+        // Compatibilidad: el cliente puede acumular la calificación del técnico.
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['total_rating', 'review_count', 'jobs_completed']));
+    }
+
+    match /push_tokens/{userId} {
+      allow read: if false;
+      allow create, update, delete: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /service_requests/{requestId} {
+      allow create: if isOperator()
+        || (signedIn() && request.resource.data.clientId == request.auth.uid);
+      allow read: if isOperator() || isParticipant(resource.data);
+      allow update: if isOperator()
+        || (isParticipant(resource.data)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['clientId', 'providerId', 'organizationId', 'assignedBy']));
+
       match /messages/{messageId} {
-        allow read, write: if request.auth != null;
+        allow read, create: if isOperator()
+          || isParticipant(get(/databases/$(database)/documents/service_requests/$(requestId)).data);
+        allow update, delete: if false;
       }
     }
 
-    // Colección de chats adicional
+    // Colección heredada: se conserva para no romper conversaciones antiguas.
     match /chats/{chatId} {
-      allow read, write: if request.auth != null;
-      
+      allow read, write: if signedIn();
       match /messages/{messageId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if signedIn();
       }
     }
   }
 }
-
-
-

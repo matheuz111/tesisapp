@@ -68,7 +68,13 @@ export default function LoginScreen() {
         Toast.show({
           type: 'success',
           text1: '¡Bienvenido!',
-          text2: `Iniciando sesión como ${userRole === 'CLIENT' ? 'Cliente' : 'Proveedor'}...`
+          text2: `Iniciando sesión como ${
+            userRole === 'CLIENT'
+              ? 'Cliente'
+              : userRole === 'PROVIDER'
+                ? 'Técnico'
+                : 'Operador'
+          }...`
         });
 
         setTimeout(() => {
@@ -76,6 +82,8 @@ export default function LoginScreen() {
             router.replace('/client/home');
           } else if (userRole === 'PROVIDER') {
             router.replace('/provider/home');
+          } else if (userRole === 'OPERATOR' || userRole === 'ADMIN') {
+            router.replace('/operator/home' as any);
           } else {
             Toast.show({ type: 'error', text1: 'Error', text2: 'Usuario sin rol válido asignado' });
           }

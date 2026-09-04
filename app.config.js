@@ -2,7 +2,7 @@ require('dotenv').config();
 
 export default {
   expo: {
-    name: "TesisApp",
+    name: "Maestro a Domicilio",
     slug: "TesisApp",
     version: "1.0.0",
     orientation: "portrait",
@@ -65,14 +65,15 @@ export default {
       [
         "expo-location",
         {
-          locationAlwaysAndWhenInUsePermission: "Permitir a TesisApp acceder a tu ubicación para encontrar técnicos cercanos."
+          locationAlwaysAndWhenInUsePermission: "Permitir a Maestro a Domicilio acceder a tu ubicación para coordinar el servicio."
         }
       ],
       [
         "expo-notifications",
         {
           icon: "./assets/images/icon.png",
-          color: "#007bff"
+          color: "#007bff",
+          defaultChannel: "default"
         }
       ]
     ],

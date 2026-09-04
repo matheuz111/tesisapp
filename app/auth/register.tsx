@@ -158,7 +158,7 @@ export default function RegisterScreen() {
         phone: cleanPhone || '',
         role: selectedRole.toUpperCase(),
         created_at: serverTimestamp(),
-        is_verified: isProvider ? true : false,
+        is_verified: !isProvider,
       };
 
       if (isProvider) {
@@ -169,6 +169,7 @@ export default function RegisterScreen() {
         userData.review_count = 0;
         userData.jobs_completed = 0;
         userData.is_active = false;
+        userData.approval_status = 'PENDING_REVIEW';
         userData.service_radius_km = 10;
         userData.description = '';
       }
@@ -177,7 +178,7 @@ export default function RegisterScreen() {
 
       Alert.alert(
         '¡Registro Exitoso! 🎉',
-        `Bienvenido a TesisApp ${cleanName}. Ahora puedes iniciar sesión con tu correo.`,
+        `Bienvenido a Maestro a Domicilio, ${cleanName}. Ahora puedes iniciar sesión con tu correo.`,
         [{ text: 'Iniciar Sesión', onPress: () => router.replace('/auth/login') }]
       );
     } catch (error: any) {
@@ -206,7 +207,7 @@ export default function RegisterScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.title}>Crear Cuenta Segura</Text>
-          <Text style={styles.subtitle}>Plataforma Verificada de Servicios en Lima</Text>
+          <Text style={styles.subtitle}>Servicios coordinados y supervisados por nuestra central</Text>
         </View>
 
         {/* ═══ SELECTOR DE ROL ═══ */}

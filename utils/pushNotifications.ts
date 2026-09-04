@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { doc, setDoc } from 'firebase/firestore';
+import { arrayUnion, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { Platform } from 'react-native';
 import { db } from '../src/config/firebase';
 
@@ -17,11 +17,12 @@ Notifications.setNotificationHandler({
 
 // FUNCIÓN 1: Pedir permiso y obtener el Token único del celular
 export async function registerForPushNotificationsAsync(userId: string) {
-  let token;
+  let token: string | undefined;
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
-      name: 'default',
+      name: 'Solicitudes y servicios',
+      description: 'Alertas importantes sobre solicitudes y estados del servicio',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#FF231F7C',
@@ -45,13 +46,16 @@ export async function registerForPushNotificationsAsync(userId: string) {
     }
     try {
       const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
+      if (!projectId) {
+        throw new Error('No se encontró extra.eas.projectId en la configuración de Expo.');
+      }
       token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
       
-      // Guardar el token en Firebase (expoPushToken para Cloud Functions y pushToken para compatibilidad)
+      // Los tokens viven en una colección privada; no forman parte del perfil público.
       if (token && userId) {
-        await setDoc(doc(db, 'users', userId), { 
-          expoPushToken: token,
-          pushToken: token 
+        await setDoc(doc(db, 'push_tokens', userId), {
+          tokens: arrayUnion(token),
+          updatedAt: serverTimestamp(),
         }, { merge: true });
         console.log("Push Token guardado:", token);
       }
@@ -63,53 +67,4 @@ export async function registerForPushNotificationsAsync(userId: string) {
   }
 
   return token;
-}
-
-// FUNCIÓN 2: Disparar notificación push a otro usuario
-// NOTA: Esta función sigue disponible para usarla desde el servidor o donde se necesite,
-// pero la entrega principal al proveedor ahora la hace la Cloud Function `onNewServiceRequest`.
-export async function sendPushNotification(expoPushToken: string, title: string, body: string, data = {}) {
-  const message = {
-    to: expoPushToken,
-    sound: 'default',
-    title: title,
-    body: body,
-    data: data,
-    priority: 'high',
-    channelId: 'default',
-    ttl: 3600,
-    android: {
-      priority: 'high',
-      sound: 'default',
-      channelId: 'default',
-    },
-    apns: {
-      payload: {
-        aps: {
-          'content-available': 1,
-          sound: 'default',
-        },
-      },
-      headers: {
-        'apns-priority': '10',
-      },
-    },
-  };
-
-  try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
-    const result = await response.json();
-    console.log('Push result:', JSON.stringify(result));
-    return result;
-  } catch (error) {
-    console.error('Error enviando push notification:', error);
-  }
 }

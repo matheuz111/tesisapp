@@ -7,66 +7,59 @@
 //  si la app del cliente o del proveedor está abierta.
 // ═══════════════════════════════════════════════════════════════════
 
-const functions = require("firebase-functions");
+// La ruta /v1 mantiene la API `firestore.document(...).onCreate/onUpdate`
+// con firebase-functions v6 y evita una migración destructiva de los triggers.
+const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
-const fetch = require("node-fetch");
+const {getUserPushTokens, sendExpoNotifications} = require("./push");
 
 admin.initializeApp();
 const db = admin.firestore();
 
 // ────────────────────────────────────────────────────────────────
-// HELPER: Enviar push via Expo Push API
+// HELPER: Enviar push a todos los dispositivos registrados del usuario
 // ────────────────────────────────────────────────────────────────
-async function sendExpoNotification(expoPushToken, title, body, data = {}) {
-  if (!expoPushToken || !expoPushToken.startsWith("ExponentPushToken[")) {
-    console.log("Token inválido o faltante:", expoPushToken);
-    return null;
+async function notifyUser(userId, title, body, data = {}) {
+  if (!userId) {
+    console.warn("No se puede notificar: falta el id del usuario.");
+    return [];
   }
 
-  const message = {
-    to: expoPushToken,
-    sound: "default",
-    title,
-    body,
-    data,
-    priority: "high",
-    channelId: "default",
-    ttl: 3600,
-    android: {
-      priority: "high",
-      sound: "default",
-      channelId: "default",
-    },
-    apns: {
-      payload: {
-        aps: {
-          "content-available": 1,
-          sound: "default",
-        },
-      },
-      headers: {
-        "apns-priority": "10",
-      },
-    },
-  };
-
-  try {
-    const response = await fetch("https://exp.host/--/api/v2/push/send", {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Accept-encoding": "gzip, deflate",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(message),
-    });
-    const result = await response.json();
-    console.log(`Push enviado a token ${expoPushToken.substring(0, 30)}...:`, JSON.stringify(result));
-    return result;
-  } catch (error) {
-    console.error("Error enviando push:", error);
-    return null;
+  const [userDoc, tokenDoc] = await Promise.all([
+    db.collection("users").doc(userId).get(),
+    db.collection("push_tokens").doc(userId).get(),
+  ]);
+  if (!userDoc.exists) {
+    console.warn("No se puede notificar: usuario no encontrado", userId);
+    return [];
   }
+
+  // Los campos del perfil son fallback temporal para instalaciones anteriores.
+  const tokens = getUserPushTokens({
+    ...userDoc.data(),
+    ...(tokenDoc.exists ? tokenDoc.data() : {}),
+  });
+  if (tokens.length === 0) {
+    console.warn("El usuario no tiene tokens push válidos", userId);
+    return [];
+  }
+
+  const tickets = await sendExpoNotifications(tokens, title, body, data);
+  console.log("Notificación entregada a Expo", {
+    userId,
+    devices: tokens.length,
+    accepted: tickets.filter((ticket) => ticket?.status === "ok").length,
+  });
+  return tickets;
+}
+
+async function notifyOperators(title, body, data = {}) {
+  const snapshot = await db.collection("users").where("role", "in", ["OPERATOR", "ADMIN"]).get();
+  if (snapshot.empty) {
+    console.warn("No hay operadores registrados para recibir la alerta.");
+    return [];
+  }
+  return Promise.all(snapshot.docs.map((operator) => notifyUser(operator.id, title, body, data)));
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -79,7 +72,16 @@ exports.onNewServiceRequest = functions.firestore
     const data = snap.data();
     const requestId = context.params.requestId;
 
-    // Solo procesar solicitudes PENDING
+    if (data.status === "PENDING_ASSIGNMENT") {
+      const serviceType = data.serviceLabel || data.specialty || data.serviceType || "servicio";
+      return notifyOperators(
+        data.priority === "HIGH" ? "Solicitud urgente por asignar 🚨" : "Nueva solicitud por asignar",
+        `${data.clientName || "Un cliente"} solicita ${serviceType} en ${data.district || "Lima"}.`,
+        {screen: "operator_home", requestId, type: "PENDING_ASSIGNMENT"}
+      );
+    }
+
+    // Compatibilidad con solicitudes creadas por la versión anterior.
     if (data.status !== "PENDING") {
       console.log(`Request ${requestId} creada con status ${data.status}, ignorando.`);
       return null;
@@ -91,24 +93,15 @@ exports.onNewServiceRequest = functions.firestore
       return null;
     }
 
-    // Obtener el push token del proveedor
-    const providerDoc = await db.collection("users").doc(providerId).get();
-    if (!providerDoc.exists) {
-      console.log("Proveedor no encontrado:", providerId);
-      return null;
-    }
-
-    const providerData = providerDoc.data();
-    const expoPushToken = providerData.expoPushToken;
     const clientName = data.clientName || "Un cliente";
-    const serviceType = data.serviceType || "servicio";
+    const serviceType = data.specialty || data.serviceType || "servicio";
 
     console.log(`Nueva solicitud ${requestId} → notificando a proveedor ${providerId}`);
 
-    return sendExpoNotification(
-      expoPushToken,
+    return notifyUser(
+      providerId,
       "¡NUEVA SOLICITUD! 🚨",
-      `${clientName} necesita tus servicios. Abre la app para aceptar.`,
+      `${clientName} necesita un servicio de ${serviceType}. Abre la app para aceptar.`,
       {
         screen: "provider_home",
         requestId,
@@ -146,6 +139,31 @@ exports.onRequestStatusChange = functions.firestore
     let body = "";
     let notifData = { requestId, screen: "client_home" };
 
+    if (after.status === "REQUIRES_REASSIGNMENT") {
+      return notifyOperators(
+        "Servicio requiere reasignación",
+        `${providerName} no puede atender la solicitud de ${clientName}.`,
+        {requestId, screen: "operator_home", type: "REQUIRES_REASSIGNMENT"}
+      );
+    }
+
+    if (after.status === "PENDING" && before.status !== "PENDING") {
+      return Promise.all([
+        notifyUser(
+          providerId,
+          "Nuevo servicio asignado 🔧",
+          `${clientName} solicita ${after.serviceLabel || after.specialty || "un servicio"} en ${after.district || "Lima"}.`,
+          {requestId, screen: "provider_home", type: "ASSIGNED"}
+        ),
+        notifyUser(
+          clientId,
+          "Técnico seleccionado",
+          `${providerName} fue asignado a tu solicitud. Estamos esperando su confirmación.`,
+          {requestId, screen: "client_home", type: "PROVIDER_ASSIGNED"}
+        ),
+      ]);
+    }
+
     switch (after.status) {
       // Proveedor aceptó → notificar al CLIENTE
       case "ACCEPTED":
@@ -153,6 +171,13 @@ exports.onRequestStatusChange = functions.firestore
         title = "¡TÉCNICO EN CAMINO! 🚀";
         body = `${providerName} ha aceptado tu solicitud y va en camino.`;
         notifData = { requestId, screen: "client_home", type: "ACCEPTED" };
+        break;
+
+      case "IN_PROGRESS":
+        targetUserId = clientId;
+        title = "Servicio iniciado 🛠️";
+        body = `${providerName} validó el PIN e inició el trabajo.`;
+        notifData = { requestId, screen: "client_home", type: "IN_PROGRESS" };
         break;
 
       // Proveedor rechazó → notificar al CLIENTE
@@ -189,13 +214,58 @@ exports.onRequestStatusChange = functions.firestore
       return null;
     }
 
-    // Obtener el push token del usuario objetivo
-    const userDoc = await db.collection("users").doc(targetUserId).get();
-    if (!userDoc.exists) {
-      console.log("Usuario objetivo no encontrado:", targetUserId);
+    if (after.status === "COMPLETED") {
+      return Promise.all([
+        notifyUser(targetUserId, title, body, notifData),
+        notifyOperators(
+          "Servicio pendiente de validación",
+          `${providerName} registró la culminación del servicio de ${clientName}.`,
+          {requestId, screen: "operator_home", type: "PENDING_VALIDATION"}
+        ),
+      ]);
+    }
+
+    return notifyUser(targetUserId, title, body, notifData);
+  });
+
+// ────────────────────────────────────────────────────────────────
+// FUNCIÓN 3: Un mensaje nuevo notifica al otro participante.
+// El envío se mantiene en backend para no exponer ni confiar en tokens ajenos.
+// ────────────────────────────────────────────────────────────────
+exports.onNewChatMessage = functions.firestore
+  .document("service_requests/{requestId}/messages/{messageId}")
+  .onCreate(async (snap, context) => {
+    const message = snap.data();
+    const requestId = context.params.requestId;
+    const requestDoc = await db.collection("service_requests").doc(requestId).get();
+
+    if (!requestDoc.exists) {
+      console.warn("Solicitud del mensaje no encontrada", requestId);
       return null;
     }
 
-    const expoPushToken = userDoc.data().expoPushToken;
-    return sendExpoNotification(expoPushToken, title, body, notifData);
+    const request = requestDoc.data();
+    const senderIsClient = message.senderId === request.clientId;
+    const senderIsProvider = message.senderId === request.providerId;
+    if (!senderIsClient && !senderIsProvider) {
+      console.warn("El remitente no pertenece a la solicitud", {
+        requestId,
+        senderId: message.senderId,
+      });
+      return null;
+    }
+
+    const targetUserId = senderIsClient ? request.providerId : request.clientId;
+    const senderName = senderIsClient
+      ? request.clientName || "Cliente"
+      : request.providerName || "Técnico";
+    const preview = message.type === "image"
+      ? "📷 Imagen"
+      : String(message.text || "Nuevo mensaje").slice(0, 80);
+
+    return notifyUser(targetUserId, `💬 ${senderName}`, preview, {
+      screen: "chat",
+      requestId,
+      type: "NEW_MESSAGE",
+    });
   });

@@ -3,6 +3,7 @@ import { FirebaseApp, getApp, getApps, initializeApp } from 'firebase/app';
 // @ts-ignore - The type definition is missing in some TS configurations, but the export exists at runtime in React Native
 import { Auth, getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { Firestore, getFirestore } from 'firebase/firestore';
+import { FirebaseStorage, getStorage } from 'firebase/storage';
 
 // Configuración de Firebase (soporta variables de entorno y fallback)
 const firebaseConfig = {
@@ -29,6 +30,7 @@ if (!getApps().length) {
 }
 
 const db: Firestore = getFirestore(app);
+const storage: FirebaseStorage = getStorage(app);
 
-export { auth, db };
+export { auth, db, storage };
 

@@ -24,6 +24,8 @@ export default function Index() {
               router.replace('/client/home');
             } else if (role === 'PROVIDER') {
               router.replace('/provider/home');
+            } else if (role === 'OPERATOR' || role === 'ADMIN') {
+              router.replace('/operator/home' as any);
             } else {
               // Rol desconocido
               router.replace('/auth/login');

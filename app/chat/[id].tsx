@@ -61,7 +61,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { auth, db } from '../../src/config/firebase';
 import { useTheme } from '../../src/context/ThemeContext';
-import { sendPushNotification } from '../../utils/pushNotifications';
 
 // ─────────────────────────────────────────────
 // TIPOS
@@ -387,32 +386,6 @@ export default function ChatScreen() {
     };
   }, [setTypingStatus]);
 
-  // ══════ #7: Push notification helper ══════
-  const sendPushToOtherUser = useCallback(async (msgText: string) => {
-    if (!jobDetails || !user) return;
-    try {
-      const otherUserId = user.uid === jobDetails.clientId
-        ? jobDetails.providerId
-        : jobDetails.clientId;
-      if (!otherUserId) return;
-
-      const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
-      if (otherUserDoc.exists() && otherUserDoc.data().expoPushToken) {
-        const senderName = user.uid === jobDetails.clientId
-          ? (jobDetails.clientName || user.email?.split('@')[0] || 'Cliente')
-          : (jobDetails.providerName || user.email?.split('@')[0] || 'Técnico');
-
-        await sendPushNotification(
-          otherUserDoc.data().expoPushToken,
-          `💬 ${senderName}`,
-          msgText.length > 80 ? msgText.substring(0, 80) + '...' : msgText
-        );
-      }
-    } catch {
-      // Silencioso: no bloquear UX por fallo de push
-    }
-  }, [jobDetails, user]);
-
   // ══════ #1: Enviar texto con UI optimista ══════
   const sendMessage = useCallback(async () => {
     const text = inputText.trim();
@@ -440,15 +413,13 @@ export default function ChatScreen() {
         type: 'text' as MessageType,
       });
 
-      // #7: Push notification al otro usuario
-      sendPushToOtherUser(text);
     } catch {
       // Rollback: remover optimista y restaurar texto
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
       setInputText(text);
       Alert.alert('Error', 'No se pudo enviar el mensaje.');
     }
-  }, [inputText, user, id, setTypingStatus, sendPushToOtherUser]);
+  }, [inputText, user, id, setTypingStatus]);
 
   // ══════ #5: Enviar imagen con preview y compresión óptima ══════
   const pickImage = useCallback(async (useCamera: boolean) => {
@@ -491,14 +462,12 @@ export default function ChatScreen() {
         type: 'image' as MessageType,
       });
 
-      // Push para imagen
-      sendPushToOtherUser('📷 Imagen');
     } catch {
       Alert.alert('Error', 'La imagen no pudo enviarse. Revisa tu conexión a internet.');
     }
     setSending(false);
     setImagePreviewBase64(null);
-  }, [imagePreviewBase64, user, id, sendPushToOtherUser]);
+  }, [imagePreviewBase64, user, id]);
 
   const cancelImagePreview = useCallback(() => {
     setImagePreview(null);
@@ -575,7 +544,7 @@ export default function ChatScreen() {
     }
     const cleanPhone = phone.replace(/[^\d]/g, '');
     const fullPhone = cleanPhone.startsWith('51') ? cleanPhone : `51${cleanPhone}`;
-    const url = `https://wa.me/${fullPhone}?text=Hola,%20te%20contacto%20desde%20TesisApp`;
+    const url = `https://wa.me/${fullPhone}?text=Hola,%20te%20contacto%20desde%20Maestro%20a%20Domicilio`;
     Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
   }, [otherUserData]);
 
