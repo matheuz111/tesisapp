@@ -48,6 +48,8 @@ export default function ClientHome() {
   const [loadingRequest, setLoadingRequest] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [service, setService] = useState('');
+  const [visitFeePaymentMethod, setVisitFeePaymentMethod] = useState<'PLIN' | 'YAPE' | 'TRANSFERENCIA' | 'EFECTIVO'>('PLIN');
+  const selectedService = useMemo(() => SERVICES.find((s) => s.id === service), [service]);
   const [description, setDescription] = useState('');
   const [district, setDistrict] = useState('');
   const [address, setAddress] = useState('');
@@ -306,6 +308,10 @@ export default function ClientHome() {
         status: 'PENDING_ASSIGNMENT',
         priority: urgency === 'NOW' ? 'HIGH' : 'NORMAL',
         securityPin: Math.floor(1000 + Math.random() * 9000).toString(),
+        technicalVisitFee: 50.00,
+        technicalVisitPaymentMethod: visitFeePaymentMethod,
+        visitFeeDeductible: true,
+        price_agreed: 'Visita técnica: S/. 50.00 (Deducible)',
         serviceStarted: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -604,6 +610,60 @@ export default function ClientHome() {
               <View style={styles.urgencyRow}>{[['NOW', 'Urgente'], ['TODAY', 'Hoy'], ['SCHEDULED', 'Programar']].map(([value, label]) => <TouchableOpacity key={value} style={[styles.urgencyChip, { borderColor: urgency === value ? colors.primary : colors.border }, urgency === value && { backgroundColor: `${colors.primary}15` }]} onPress={() => setUrgency(value as typeof urgency)}><Text style={{ color: urgency === value ? colors.primary : colors.subtext, fontWeight: '700' }}>{label}</Text></TouchableOpacity>)}</View>
               {urgency === 'SCHEDULED' ? <TextInput style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]} placeholder="Fecha y rango horario preferido" placeholderTextColor={colors.subtext} value={preferredSchedule} onChangeText={setPreferredSchedule} /> : null}
               {photo ? <View style={styles.photoPreview}><Image source={{ uri: photo.uri }} style={styles.photo} /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhoto(null)}><Ionicons name="close" size={18} color="#fff" /></TouchableOpacity></View> : <TouchableOpacity style={[styles.photoButton, { borderColor: colors.border }]} onPress={selectPhoto}><Ionicons name="camera-outline" size={21} color={colors.primary} /><Text style={{ color: colors.primary, fontWeight: '700' }}>Adjuntar fotografía</Text></TouchableOpacity>}
+
+              {/* Tarjeta de Tarifa de Visita Técnica Maestro a Domicilio */}
+              <View style={[styles.visitFeeCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <View style={styles.visitFeeHeader}>
+                  <View style={[styles.visitFeeIconBox, { backgroundColor: `${colors.primary}18` }]}>
+                    <Ionicons name="cash-outline" size={22} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.visitFeeTitle, { color: colors.text }]}>Visita Técnica y Diagnóstico</Text>
+                    <Text style={[styles.visitFeeSubtitle, { color: colors.subtext }]}>
+                      Evaluación presencial en domicilio
+                    </Text>
+                  </View>
+                  <Text style={[styles.visitFeeAmount, { color: colors.primary }]}>S/. 50.00</Text>
+                </View>
+                <View style={[styles.visitFeeNoteBox, { backgroundColor: `${colors.primary}0D` }]}>
+                  <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.visitFeeNoteText, { color: colors.text }]}>
+                    Este importe se <Text style={{ fontWeight: '800', color: colors.primary }}>descontará de la cotización final</Text> si se aprueba el servicio.
+                  </Text>
+                </View>
+
+                <Text style={[styles.visitFeeMethodLabel, { color: colors.text }]}>
+                  Modalidad de Abono de Visita:
+                </Text>
+                <View style={styles.visitPaymentRow}>
+                  {(['PLIN', 'YAPE', 'TRANSFERENCIA', 'EFECTIVO'] as const).map((method) => {
+                    const isSelected = visitFeePaymentMethod === method;
+                    return (
+                      <TouchableOpacity
+                        key={method}
+                        style={[
+                          styles.visitPaymentChip,
+                          {
+                            borderColor: isSelected ? colors.primary : colors.border,
+                            backgroundColor: isSelected ? `${colors.primary}18` : colors.card,
+                          },
+                        ]}
+                        onPress={() => setVisitFeePaymentMethod(method)}
+                      >
+                        <Text
+                          style={[
+                            styles.visitPaymentChipText,
+                            { color: isSelected ? colors.primary : colors.subtext, fontWeight: isSelected ? '800' : '600' },
+                          ]}
+                        >
+                          {method}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
               <TouchableOpacity style={[styles.submitButton, { backgroundColor: colors.primary }]} onPress={submitRequest} disabled={submitting}>{submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Enviar a la central</Text>}</TouchableOpacity>
               <Text style={[styles.disclaimer, { color: colors.subtext }]}>La central evaluará tu solicitud y asignará al técnico más adecuado.</Text>
             </View>
@@ -642,4 +702,16 @@ const styles = StyleSheet.create({
   voucherButton: { height: 42, borderWidth: 1, borderStyle: 'dashed', borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginVertical: 6 },
   ratingCardContainer: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
   ratingCommentInput: { minHeight: 60, borderWidth: 1, borderRadius: 10, padding: 10, textAlignVertical: 'top', marginTop: 8, fontSize: 13 },
+  visitFeeCard: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 16 },
+  visitFeeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  visitFeeIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  visitFeeTitle: { fontSize: 14, fontWeight: '800' },
+  visitFeeSubtitle: { fontSize: 11, marginTop: 2 },
+  visitFeeAmount: { fontSize: 18, fontWeight: '900' },
+  visitFeeNoteBox: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 10, marginTop: 10 },
+  visitFeeNoteText: { fontSize: 11, flex: 1, lineHeight: 15 },
+  visitFeeMethodLabel: { fontSize: 12, fontWeight: '800', marginTop: 10, marginBottom: 6 },
+  visitPaymentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  visitPaymentChip: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 6 },
+  visitPaymentChipText: { fontSize: 11 },
 });
