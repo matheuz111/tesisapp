@@ -1,15 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 
 import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../../src/config/firebase';
+import { auth } from '../../src/config/firebase';
+import { useSession } from '../../src/context/SessionContext';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { user, authLoading } = useSession();
+  const submitting = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (!authLoading && user && auth.currentUser?.uid === user.uid) router.replace('/');
+  }, [user, authLoading, router]);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,8 +30,9 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    if (submitting.current) return;
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
+    const cleanPassword = password;
 
     if (!cleanEmail || !cleanPassword) {
       Toast.show({
@@ -53,49 +61,12 @@ export default function LoginScreen() {
       return;
     }
 
+    submitting.current = true;
     setLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-      const user = userCredential.user;
-
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-
-      if (userDocSnap.exists()) {
-        const userData = userDocSnap.data();
-        const userRole = userData?.role;
-
-        Toast.show({
-          type: 'success',
-          text1: '¡Bienvenido!',
-          text2: `Iniciando sesión como ${
-            userRole === 'CLIENT'
-              ? 'Cliente'
-              : userRole === 'PROVIDER'
-                ? 'Técnico'
-                : 'Operador'
-          }...`
-        });
-
-        setTimeout(() => {
-          if (userRole === 'CLIENT') {
-            router.replace('/client/home');
-          } else if (userRole === 'PROVIDER') {
-            router.replace('/provider/home');
-          } else if (userRole === 'OPERATOR' || userRole === 'ADMIN') {
-            router.replace('/operator/home' as any);
-          } else {
-            Toast.show({ type: 'error', text1: 'Error', text2: 'Usuario sin rol válido asignado' });
-          }
-        }, 800);
-
-      } else {
-        Toast.show({ 
-          type: 'error', 
-          text1: 'Perfil no encontrado', 
-          text2: 'Credenciales válidas pero falta el perfil en base de datos. Regístrate de nuevo.' 
-        });
-      }
+      // SessionContext resolves the role from its shared listener, including cached data.
+      if (mounted.current && auth.currentUser?.uid === userCredential.user.uid) router.replace('/');
 
     } catch (error: any) {
       console.error('Error en login:', error);
@@ -121,7 +92,8 @@ export default function LoginScreen() {
         text2: msg
       });
     } finally {
-      setLoading(false);
+      submitting.current = false;
+      if (mounted.current) setLoading(false);
     }
   };
 

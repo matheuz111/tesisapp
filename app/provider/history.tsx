@@ -146,18 +146,27 @@ export default function ProviderHistoryScreen() {
                 </View>
 
                 {isArchived && item.rating_given && (
-                    <View style={[styles.ratingRow, { backgroundColor: isDark ? '#1a1a1a' : '#FFFDE7' }]}>
-                        <Text style={[styles.ratingLabel, { color: colors.subtext }]}>Calificación recibida:</Text>
-                        <View style={styles.starsRow}>
-                            {[1, 2, 3, 4, 5].map((star) => (
-                                <Ionicons
-                                    key={star}
-                                    name={star <= (item.rating_given || 0) ? 'star' : 'star-outline'}
-                                    size={16}
-                                    color="#f1c40f"
-                                />
-                            ))}
+                    <View style={[styles.ratingCard, { backgroundColor: isDark ? '#1a1a1a' : '#FFFDE7' }]}>
+                        <View style={styles.ratingRow}>
+                            <Text style={[styles.ratingLabel, { color: colors.subtext }]}>Calificación recibida:</Text>
+                            <View style={styles.starsRow}>
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <Ionicons
+                                        key={star}
+                                        name={star <= (item.rating_given || 0) ? 'star' : 'star-outline'}
+                                        size={16}
+                                        color="#f1c40f"
+                                    />
+                                ))}
+                            </View>
                         </View>
+                        {item.review_comment ? (
+                            <View style={[styles.reviewCommentBox, { borderTopColor: isDark ? '#333' : '#F0E68C' }]}>
+                                <Text style={[styles.reviewCommentText, { color: colors.text }]}>
+                                    "{item.review_comment}"
+                                </Text>
+                            </View>
+                        ) : null}
                     </View>
                 )}
 
@@ -331,17 +340,29 @@ const styles = StyleSheet.create({
     metaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     metaText: { fontSize: 13 },
 
-    ratingRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+    ratingCard: {
         paddingHorizontal: 12,
         paddingVertical: 10,
         borderRadius: 10,
         marginBottom: 12,
     },
+    ratingRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
     ratingLabel: { fontSize: 12, fontWeight: '500' },
     starsRow: { flexDirection: 'row', gap: 2 },
+    reviewCommentBox: {
+        marginTop: 8,
+        paddingTop: 6,
+        borderTopWidth: 1,
+    },
+    reviewCommentText: {
+        fontSize: 13,
+        fontStyle: 'italic',
+        lineHeight: 18,
+    },
 
     evidenceContainer: { borderTopWidth: 1, paddingTop: 14, marginBottom: 12 },
     evidenceLabel: { fontSize: 12, marginBottom: 8, fontWeight: '600' },

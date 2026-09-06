@@ -1,88 +1,62 @@
-import { Ionicons } from '@expo/vector-icons';
+import { signOutWithNotifications } from '../../utils/pushNotifications';
+import { notifyCentral } from '../../src/services/centralNotifications';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
   Keyboard,
-  Linking,
-  Platform,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   Vibration,
   View,
 } from 'react-native';
-import MapView, { Marker, UrlTile } from 'react-native-maps';
 import Toast from 'react-native-toast-message';
 
 import * as Haptics from 'expo-haptics';
-import { onAuthStateChanged } from 'firebase/auth';
 import {
   GeoPoint,
   arrayUnion,
   collection,
   doc,
-  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
-  updateDoc,
+  updateDoc, runTransaction,
   where,
 } from 'firebase/firestore';
 import * as geofire from 'geofire-common';
-import { getDistance } from 'geolib';
+import { ProviderDashboard } from '../../src/components/ProviderDashboard';
 import { auth, db } from '../../src/config/firebase';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useSession } from '../../src/context/SessionContext';
 import { uploadServiceImage } from '../../src/services/mediaStorage';
+import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
+import { confirmProviderPayment } from '../../src/services/payment';
 
-
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-function getGreeting(): { text: string; emoji: string } {
-  const h = new Date().getHours();
-  if (h < 12) return { text: 'Buenos días', emoji: '☀️' };
-  if (h < 18) return { text: 'Buenas tardes', emoji: '🌤️' };
-  return { text: 'Buenas noches', emoji: '🌙' };
-}
-
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${meters} m`;
-  return `${(meters / 1000).toFixed(1)} km`;
-}
 
 // ─────────────────────────────────────────────
 // COMPONENTE
 // ─────────────────────────────────────────────
 export default function ProviderHome() {
   const router = useRouter();
-  const { colors, theme } = useTheme();
-  const isDark = theme === 'dark';
+  const { colors } = useTheme();
 
-  const [user, setUser] = useState(auth.currentUser);
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUser(u));
-    return () => unsub();
-  }, []);
-
-  const [loading, setLoading] = useState(true);
+  const { user, profile, loading, error: profileError, retry } = useSession();
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestAttempt, setRequestAttempt] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [specialty, setSpecialty] = useState('');
-  const [price, setPrice] = useState('');
   const [location, setLocation] = useState<any>(null);
   const [providerName, setProviderName] = useState('');
   const [isVerified, setIsVerified] = useState(false);
 
   // Gamification
   const [totalRating, setTotalRating] = useState('0.0');
-  const [reviewCount, setReviewCount] = useState(0);
   const [jobsCompleted, setJobsCompleted] = useState(0);
   const [serviceRadius, setServiceRadius] = useState(10);
 
@@ -93,47 +67,21 @@ export default function ProviderHome() {
   const [accepting, setAccepting] = useState(false);
   const [inputPin, setInputPin] = useState('');
   const [verifyingPin, setVerifyingPin] = useState(false);
-  const [providerKeyboardOffset, setProviderKeyboardOffset] = useState(0);
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [dismissedCompletedId, setDismissedCompletedId] = useState<string | null>(null);
   const isAcceptingRef = useRef(false);
 
-  // Escuchar teclado para evitar que tape el PIN de validación
-  useEffect(() => {
-    const showSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => {
-        setProviderKeyboardOffset(e.endCoordinates.height);
-      }
-    );
-    const hideSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setProviderKeyboardOffset(0);
-      }
-    );
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
   // Animación del toggle
-  const [toggleScale] = useState(new Animated.Value(1));
+  const [toggleScale] = useState(() => new Animated.Value(1));
 
-  const greeting = useMemo(() => getGreeting(), []);
 
   // ── Cargar perfil ───────────────────────
   useEffect(() => {
-    const loadProfile = async () => {
-      if (!user) return;
-      try {
-        const docRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
+    const data = profile;
+    if (data && user && data.uid === user.uid) {
           setSpecialty(data.specialty || '');
-          setPrice(data.price_range || '');
           setIsActive(data.is_active || false);
-          setProviderName(data.name || data.displayName || user.email?.split('@')[0] || '');
+          setProviderName(data.full_name || data.name || data.displayName || user.email?.split('@')[0] || '');
           setIsVerified(data.is_verified !== false);
           if (data.current_location) {
             setLocation({
@@ -143,83 +91,49 @@ export default function ProviderHome() {
               longitudeDelta: 0.005,
             });
           }
-          if (data.review_count > 0) {
-            setTotalRating((data.total_rating / data.review_count).toFixed(1));
-            setReviewCount(data.review_count);
-          }
+          setTotalRating(data.review_count > 0 ? (data.total_rating / data.review_count).toFixed(1) : '0.0');
           setJobsCompleted(data.jobs_completed || 0);
           setServiceRadius(data.service_radius_km || 10);
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadProfile();
-  }, [user]);
+    }
+  }, [profile, user]);
 
-  // ── Escuchar solicitudes PENDING ────────
+  useEffect(() => {
+    setIncomingRequest(null); setCurrentJob(null); setInputPin(''); setRequestError(null);
+    isAcceptingRef.current = false;
+  }, [user?.uid]);
+
+  // Una consulta de servicios activos; el historial no se descarga en el inicio.
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, 'service_requests'),
-      where('providerId', '==', user.uid),
-      where('status', '==', 'PENDING')
-    );
-
-    const unsub = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-        docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        const reqData = docs[0];
-
-        setIncomingRequest((prev: any) => {
-          if (!prev || prev.id !== reqData.id) {
-            Vibration.vibrate([0, 500, 200, 500, 200, 500]);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            Toast.show({
-              type: 'success',
-              text1: '¡NUEVA SOLICITUD! 🔔',
-              text2: `${reqData.clientName || 'Un cliente'} te necesita.`,
-              visibilityTime: 6000,
-            });
-          }
-          return reqData;
-        });
-      } else {
-        setIncomingRequest((prev: any) => {
-          if (prev && !isAcceptingRef.current) {
-            Alert.alert('Aviso', 'El cliente ha cancelado la solicitud o ya no está disponible.');
-          }
-          isAcceptingRef.current = false;
-          return null;
-        });
+    let active = true;
+    let incomingId: string | null = null;
+    const unsubscribe = onSnapshot(query(collection(db, 'service_requests'), where('providerId', '==', user.uid), where('status', 'in', ['PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'])), (snapshot) => {
+      if (!active || auth.currentUser?.uid !== user.uid) return;
+      setRequestError(null);
+      const requests = snapshot.docs.map((item) => ({ id: item.id, ...item.data() as any }))
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      const incoming = requests.find((request) => request.status === 'PENDING') || null;
+      if (incoming && incoming.id !== incomingId) {
+        Vibration.vibrate([0, 500, 200, 500]);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+        Toast.show({ type: 'success', text1: 'Nueva solicitud', text2: (incoming.clientName || 'Un cliente') + ' te necesita.' });
       }
-    });
-    return () => unsub();
-  }, [user]);
-
-  // ── Escuchar job ACCEPTED ───────────────
-  useEffect(() => {
-    if (!user) return;
-    const q = query(
-      collection(db, 'service_requests'),
-      where('providerId', '==', user.uid),
-      where('status', 'in', ['ACCEPTED', 'IN_PROGRESS'])
-    );
-
-    const unsub = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const docs = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-        docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        setCurrentJob(docs[0]);
-      } else {
+      incomingId = incoming?.id || null;
+      setIncomingRequest(incoming);
+      const activeJob = requests.find((request) => request.status !== 'PENDING') || null;
+      if (activeJob && activeJob.status === 'COMPLETED' && activeJob.id === dismissedCompletedId) {
         setCurrentJob(null);
+      } else {
+        setCurrentJob(activeJob);
       }
+      if (!incoming) isAcceptingRef.current = false;
+    }, (error) => {
+      if (!active || auth.currentUser?.uid !== user.uid) return;
+      console.warn('No se pudo actualizar el servicio:', error.message);
+      setRequestError('No se pudieron actualizar tus servicios. Vuelve a intentar.');
     });
-    return () => unsub();
-  }, [user]);
+    return () => { active = false; unsubscribe(); };
+  }, [user, requestAttempt]);
 
   // ── Aceptar trabajo ─────────────────────
   const acceptJob = async () => {
@@ -229,10 +143,34 @@ export default function ProviderHome() {
     const targetRequest = incomingRequest;
     setIncomingRequest(null);
     try {
-      await updateDoc(doc(db, 'service_requests', targetRequest.id), { status: 'ACCEPTED' });
+      await runTransaction(db, async (transaction) => {
+        const ref = doc(db, 'service_requests', targetRequest.id);
+        const snapshot = await transaction.get(ref);
+        if (snapshot.data()?.status !== 'PENDING' || snapshot.data()?.providerId !== user?.uid) throw new Error('La asignación ya no está disponible.');
+        transaction.update(ref, { status: 'ACCEPTED', acceptedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Toast.show({ type: 'success', text1: '¡Trabajo Aceptado!', text2: 'Iniciando navegación...' });
+      Toast.show({ type: 'success', text1: 'Trabajo aceptado', text2: 'Consulta el destino y valida el PIN al llegar.' });
 
+      // Notificar al cliente
+      const clientTokens = targetRequest.notificationTokens?.client;
+      if (clientTokens && clientTokens.length > 0) {
+        const providerName = user?.displayName || 'El técnico';
+        sendDemoPushNotification(
+          clientTokens,
+          'Técnico en camino 🚀',
+          `${providerName} ha aceptado tu solicitud y va en camino.`,
+          {
+            requestId: targetRequest.id,
+            screen: 'client_home',
+            type: 'ACCEPTED',
+          },
+          {
+            requestId: targetRequest.id,
+            eventType: 'ACCEPTED',
+          }
+        ).catch(() => {});
+      }
     } catch {
       Alert.alert('Error', 'No se pudo aceptar');
     } finally {
@@ -262,6 +200,7 @@ export default function ProviderHome() {
               });
 
               setIncomingRequest(null);
+              void notifyCentral(incomingRequest.id, 'Servicio requiere reasignación', 'Un trabajador devolvió su asignación. Revisa la bandeja.', 'REQUIRES_REASSIGNMENT');
               Toast.show({ type: 'info', text1: 'Solicitud devuelta a la central' });
             } catch {
               Alert.alert('Error', 'No se pudo rechazar');
@@ -274,10 +213,10 @@ export default function ProviderHome() {
 
   // ── Cancelar job en ruta ────────────────
   const cancelJobAsProvider = async () => {
-    if (!currentJob) return;
+    if (!currentJob || !user) return;
     Alert.alert(
-      'Abortar Servicio',
-      '¿Estás seguro de cancelar? El cliente será notificado.',
+      'Solicitar reasignación',
+      'La central buscará otro trabajador y el cliente será notificado.',
       [
         { text: 'No, seguir en camino', style: 'cancel' },
         {
@@ -286,12 +225,34 @@ export default function ProviderHome() {
           onPress: async () => {
             setCancelling(true);
             try {
+              const clientTokens = currentJob.notificationTokens?.client;
               await updateDoc(doc(db, 'service_requests', currentJob.id), {
-                status: 'CANCELLED_BY_PROVIDER',
-                cancelledAt: serverTimestamp(),
+                status: 'REQUIRES_REASSIGNMENT',
+                serviceStarted: false,
+                rejectedProviderIds: arrayUnion(user.uid),
+                rejectionReason: 'TECHNICIAN_UNAVAILABLE',
+                rejectedAt: serverTimestamp(), updatedAt: serverTimestamp(),
               });
 
-              Alert.alert('Servicio Abortado', 'Se ha notificado al cliente.');
+              if (clientTokens && clientTokens.length > 0) {
+                sendDemoPushNotification(
+                  clientTokens,
+                  'Solicitud Rechazada 😔',
+                  'El técnico no está disponible. Por favor contacta a la central.',
+                  {
+                    requestId: currentJob.id,
+                    screen: 'client_home',
+                    type: 'CANCELLED_BY_PROVIDER',
+                  },
+                  {
+                    requestId: currentJob.id,
+                    eventType: 'CANCELLED_BY_PROVIDER',
+                  }
+                ).catch(() => {});
+              }
+
+              void notifyCentral(currentJob.id, 'Servicio requiere reasignación', 'El trabajador no puede continuar. Revisa la bandeja.', 'REQUIRES_REASSIGNMENT');
+              Alert.alert('Solicitud devuelta', 'La central podrá reasignar el servicio.');
               setCurrentJob(null);
             } catch {
               Alert.alert('Error', 'No se pudo cancelar el servicio.');
@@ -331,6 +292,27 @@ export default function ProviderHome() {
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: '¡PIN VALIDADO! 🚀', text2: 'Inicio presencial verificado.' });
+
+      // Notificar al cliente
+      const clientTokens = currentJob.notificationTokens?.client;
+      if (clientTokens && clientTokens.length > 0) {
+        const providerName = user?.displayName || 'El técnico';
+        sendDemoPushNotification(
+          clientTokens,
+          'Servicio iniciado 🛠️',
+          `${providerName} validó el PIN e inició el trabajo.`,
+          {
+            requestId: currentJob.id,
+            screen: 'client_home',
+            type: 'IN_PROGRESS',
+          },
+          {
+            requestId: currentJob.id,
+            eventType: 'IN_PROGRESS',
+          }
+        ).catch(() => {});
+      }
+
       setInputPin('');
     } catch (err) {
       console.error('Error validando PIN:', err);
@@ -342,6 +324,7 @@ export default function ProviderHome() {
 
   // ── Finalizar job ───────────────────────
   const finishJob = async () => {
+    if (!currentJob || !user || uploading || currentJob.status !== 'IN_PROGRESS') return;
     const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
     if (!permissionResult.granted) {
       Alert.alert('Permiso denegado', 'Necesitas la cámara.');
@@ -350,7 +333,7 @@ export default function ProviderHome() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
-      quality: 0.25,
+      quality: 0.15,
       base64: true,
       allowsEditing: true,
       aspect: [4, 3],
@@ -365,22 +348,69 @@ export default function ProviderHome() {
 
       setUploading(true);
       try {
-        const evidencePhoto = await uploadServiceImage(currentJob.id, user!.uid, asset.base64, 'completion');
+        const evidencePhoto = await uploadServiceImage(currentJob.id, user.uid, asset.base64, 'completion');
+
         await updateDoc(doc(db, 'service_requests', currentJob.id), {
           status: 'COMPLETED',
-          evidence_photo: evidencePhoto,
+          ...(evidencePhoto ? { evidence_photo: evidencePhoto } : {}),
           finished_at: serverTimestamp(),
         });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-        Toast.show({ type: 'success', text1: '¡Misión Cumplida! 🎉', text2: 'Evidencia guardada.' });
-        setCurrentJob(null);
+        // Notificar al cliente
+        const clientTokens = currentJob.notificationTokens?.client;
+        if (clientTokens && clientTokens.length > 0) {
+          const providerName = user?.displayName || 'El técnico';
+          sendDemoPushNotification(
+            clientTokens,
+            'Trabajo culminado 🎉',
+            `${providerName} ha completado el trabajo.`,
+            {
+              requestId: currentJob.id,
+              screen: 'client_home',
+              type: 'COMPLETED',
+            },
+            {
+              requestId: currentJob.id,
+              eventType: 'COMPLETED',
+            }
+          ).catch(() => {});
+        }
+
+        void notifyCentral(currentJob.id, 'Servicio por validar', 'El trabajador guardó la evidencia y terminó el servicio.', 'COMPLETED');
+        Toast.show({ type: 'success', text1: 'Servicio completado', text2: 'Evidencia guardada. Esperando pago y validación.' });
       } catch (err: any) {
         console.error('Error guardando evidencia:', err);
-        Alert.alert('Error', 'Problema guardando la evidencia.');
+        Alert.alert('No se finalizó el servicio', err.message || 'No se pudo guardar la evidencia. Intenta nuevamente.');
       } finally {
         setUploading(false);
       }
+    }
+  };
+
+  // ── Confirmar pago recibido ──────────────
+  const handleConfirmPayment = async (requestId: string) => {
+    if (!user || !requestId) return;
+    setConfirmingPayment(true);
+    try {
+      await confirmProviderPayment(requestId, user.uid);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Toast.show({
+        type: 'success',
+        text1: '¡Pago confirmado!',
+        text2: 'Has confirmado la recepción del pago del servicio.',
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'No se pudo confirmar el pago.');
+    } finally {
+      setConfirmingPayment(false);
+    }
+  };
+
+  const handleDismissJob = () => {
+    if (currentJob?.id) {
+      setDismissedCompletedId(currentJob.id);
+      setCurrentJob(null);
     }
   };
 
@@ -391,8 +421,8 @@ export default function ProviderHome() {
       Alert.alert('Validación pendiente', 'La central debe revisar y aprobar tu perfil antes de habilitarte para recibir servicios.');
       return;
     }
-    if (!isActive && (!specialty || !price)) {
-      Alert.alert('Faltan datos', 'Ingresa tu especialidad y tarifa antes de conectarte.');
+    if (!isActive && !specialty.trim()) {
+      Alert.alert('Faltan datos', 'Ingresa tu especialidad antes de conectarte.');
       return;
     }
 
@@ -428,7 +458,6 @@ export default function ProviderHome() {
         await updateDoc(doc(db, 'users', user.uid), {
           is_active: true,
           specialty,
-          price_range: price,
           service_radius_km: serviceRadius,
           current_location: new GeoPoint(coords.latitude, coords.longitude),
           geohash: hash,
@@ -453,8 +482,8 @@ export default function ProviderHome() {
         text: 'Cerrar sesión',
         style: 'destructive',
         onPress: async () => {
-          await auth.signOut();
-          router.replace('/');
+          try { await signOutWithNotifications(); } catch { Alert.alert('No se pudo cerrar sesión', 'Vuelve a intentar.'); return; }
+          router.replace('/auth/login');
         },
       },
     ]);
@@ -465,717 +494,11 @@ export default function ProviderHome() {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
+        <TouchableOpacity onPress={() => router.push('/profile')} style={{ padding: 16 }}><Text style={{ color: colors.primary }}>Abrir mi perfil</Text></TouchableOpacity>
       </View>
     );
   }
 
-  // ── Mapa style ──────────────────────────
-  const mapStyle = isDark
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-
-  // ═══════════════════════════════════════
-  // MODO EN-RUTA (con job aceptado)
-  // ═══════════════════════════════════════
-  if (currentJob) {
-    const jobDistance =
-      location && currentJob.location
-        ? getDistance(
-          { latitude: location.latitude, longitude: location.longitude },
-          { latitude: currentJob.location.latitude, longitude: currentJob.location.longitude }
-        )
-        : null;
-
-    const clientDisplayName = currentJob.clientName
-      ? (currentJob.clientName.includes('@') ? currentJob.clientName.split('@')[0] : currentJob.clientName)
-      : 'Cliente';
-
-    return (
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={[styles.containerFull, { backgroundColor: colors.background }]}>
-          {location && currentJob.location ? (
-            <MapView
-              style={styles.mapAbsolute}
-              initialRegion={{
-                latitude: (location.latitude + currentJob.location.latitude) / 2,
-                longitude: (location.longitude + currentJob.location.longitude) / 2,
-                latitudeDelta: Math.abs(location.latitude - currentJob.location.latitude) * 2 + 0.01,
-                longitudeDelta: Math.abs(location.longitude - currentJob.location.longitude) * 2 + 0.01,
-              }}
-              onPress={Keyboard.dismiss}
-            >
-              <UrlTile urlTemplate={mapStyle} maximumZ={19} flipY={false} />
-              <Marker coordinate={location} title="Tu ubicación" description="Estás aquí" pinColor="blue" />
-              <Marker
-                coordinate={{ latitude: currentJob.location.latitude, longitude: currentJob.location.longitude }}
-                title={clientDisplayName}
-                description="Destino del servicio"
-                pinColor="red"
-              />
-            </MapView>
-          ) : (
-            <View style={[styles.mapAbsolute, styles.center, { backgroundColor: colors.background }]}>
-              <ActivityIndicator color={colors.primary} size="large" />
-            </View>
-          )}
-
-          {/* PANEL FLOTANTE EN-RUTA / EN-EJECUCIÓN */}
-          <View
-            style={[
-              styles.floatingActionCard,
-              {
-                backgroundColor: colors.card,
-                shadowColor: colors.shadow,
-                bottom: providerKeyboardOffset > 0 ? providerKeyboardOffset + 10 : 20,
-              },
-            ]}
-          >
-            <View style={styles.routeHeaderRow}>
-              <View style={styles.routeHeaderLeft}>
-                <Text style={[styles.routeLabel, { color: currentJob.serviceStarted ? colors.success : colors.primary }]}>
-                  {currentJob.serviceStarted ? '🟢 TRABAJO EN EJECUCIÓN' : '📌 EN RUTA HACIA EL CLIENTE'}
-                </Text>
-                <Text style={[styles.routeClientName, { color: colors.text }]} numberOfLines={1}>
-                  {clientDisplayName}
-                </Text>
-                {currentJob.specialty && (
-                  <Text style={[styles.routeServiceType, { color: colors.subtext }]}>
-                    {currentJob.specialty}
-                  </Text>
-                )}
-              </View>
-              {jobDistance !== null && (
-                <View style={[styles.distanceBadge, { backgroundColor: isDark ? '#1a3a2a' : '#E8F5E9' }]}>
-                  <Ionicons name="navigate-outline" size={14} color={colors.success} />
-                  <Text style={[styles.distanceBadgeText, { color: colors.success }]}>
-                    {formatDistance(jobDistance)}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-          {/* ACCIONES DE RUTA */}
-          <View style={styles.routeActionsContainer}>
-            <TouchableOpacity
-              style={[styles.circleBtn, { backgroundColor: '#111' }]}
-              onPress={() => {
-                const lat = currentJob.location.latitude;
-                const lng = currentJob.location.longitude;
-                const url = Platform.OS === 'ios'
-                  ? `maps://app?daddr=${lat},${lng}`
-                  : `google.navigation:q=${lat},${lng}`;
-                Linking.openURL(url).catch(() =>
-                  Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`)
-                );
-              }}
-              accessibilityLabel="Abrir GPS"
-            >
-              <Ionicons name="navigate" size={22} color="#fff" />
-              <Text style={styles.circleBtnLabel}>GPS</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.circleBtn, { backgroundColor: colors.success }]}
-              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: currentJob.id } })}
-              accessibilityLabel="Abrir chat"
-            >
-              <Ionicons name="chatbubble-ellipses" size={22} color="#fff" />
-              <Text style={styles.circleBtnLabel}>Chat</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.circleBtn, { backgroundColor: colors.danger }]}
-              onPress={cancelJobAsProvider}
-              disabled={cancelling}
-              accessibilityLabel="Cancelar servicio"
-            >
-              {cancelling ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="close-circle" size={22} color="#fff" />
-              )}
-              <Text style={styles.circleBtnLabel}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* PASO 1: VALIDACIÓN DE PIN PRESENCIAL */}
-          {!currentJob.serviceStarted ? (
-            <View style={[styles.pinValidateBox, { backgroundColor: isDark ? '#1A2C36' : '#F0F9FF', borderColor: colors.primary }]}>
-              <View style={styles.pinBoxHeader}>
-                <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
-                <Text style={[styles.pinBoxTitle, { color: colors.primary }]}>PASO 1: VALIDAR INICIO PRESENCIAL</Text>
-              </View>
-              <Text style={[styles.pinBoxHint, { color: colors.subtext }]}>
-                Solicita al cliente el PIN de 4 dígitos que aparece en su pantalla al llegar a su puerta:
-              </Text>
-              
-              <View style={styles.pinInputRow}>
-                <TextInput
-                  style={[
-                    styles.pinTextInput,
-                    {
-                      backgroundColor: colors.input,
-                      color: colors.text,
-                      borderColor: colors.border,
-                    }
-                  ]}
-                  placeholder="PIN (4 dígitos)"
-                  placeholderTextColor={colors.subtext}
-                  keyboardType="number-pad"
-                  maxLength={4}
-                  value={inputPin}
-                  onChangeText={setInputPin}
-                />
-                
-                <TouchableOpacity
-                  style={[styles.validatePinBtn, { backgroundColor: colors.primary }]}
-                  onPress={validatePin}
-                  disabled={verifyingPin || inputPin.length !== 4}
-                >
-                  {verifyingPin ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Text style={styles.validatePinBtnText}>VALIDAR PIN</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            /* PASO 2: TRABAJO EN EJECUCIÓN Y FOTO DE EVIDENCIA */
-            <TouchableOpacity
-              style={[styles.finishBtn, { backgroundColor: colors.primary }, uploading && styles.disabledButton]}
-              onPress={finishJob}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="camera" size={22} color="#fff" style={{ marginRight: 10 }} />
-                  <Text style={styles.finishBtnText}>CAPTURAR EVIDENCIA Y FINALIZAR</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-    </TouchableWithoutFeedback>
-  );
+  return <View style={{ flex: 1 }}>{profileError || requestError ? <View style={{ padding: 12, paddingTop: 40, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{profileError || requestError}</Text><TouchableOpacity onPress={() => { retry(); setRequestAttempt((value) => value + 1); }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}<ProviderDashboard {...{ currentJob, incomingRequest, location, providerName, specialty, totalRating, jobsCompleted, isVerified, isActive, inputPin, setInputPin, validatePin, verifyingPin, finishJob, uploading, cancelJobAsProvider, cancelling, acceptJob, accepting, rejectJob, toggleSwitch, setSpecialty, serviceRadius, setServiceRadius, handleLogout, confirmPayment: handleConfirmPayment, confirmingPayment, dismissJob: handleDismissJob }} onError={(message: string) => Alert.alert('Aviso', message)} /></View>;
 }
-
-  // ═══════════════════════════════════════
-  // DASHBOARD PRINCIPAL
-  // ═══════════════════════════════════════
-  const radarDistance =
-    incomingRequest && location && incomingRequest.location
-      ? getDistance(
-        { latitude: location.latitude, longitude: location.longitude },
-        { latitude: incomingRequest.location.latitude, longitude: incomingRequest.location.longitude }
-      )
-      : null;
-
-  return (
-    <View style={[styles.containerFull, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.containerDashboard} showsVerticalScrollIndicator={false}>
-        {/* ═══ HEADER CON SALUDO ═══ */}
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.greetingEmoji]}>{greeting.emoji}</Text>
-            <Text style={[styles.greetingTitle, { color: colors.text }]}>
-              {greeting.text},{' '}
-              <Text style={{ color: colors.primary }}>{providerName || 'Técnico'}</Text>
-            </Text>
-            <Text style={[styles.subtitleDash, { color: colors.subtext }]}>
-              {isActive ? 'Disponible para asignaciones' : 'Activa tu disponibilidad'}
-            </Text>
-          </View>
-        </View>
-
-        {/* ═══ STATS PILLS ═══ */}
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-            <Ionicons name="star" size={22} color="#f1c40f" />
-            <Text style={[styles.statValue, { color: colors.text }]}>{totalRating}</Text>
-            <Text style={[styles.statLabel, { color: colors.subtext }]}>
-              {reviewCount > 0 ? `${reviewCount} reseñas` : 'Sin reseñas'}
-            </Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-            <Ionicons name="briefcase" size={22} color={colors.primary} />
-            <Text style={[styles.statValue, { color: colors.text }]}>{jobsCompleted}</Text>
-            <Text style={[styles.statLabel, { color: colors.subtext }]}>Trabajos</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-            <Ionicons name="trending-up" size={22} color={colors.success} />
-            <Text style={[styles.statValue, { color: colors.text }]}>
-              {jobsCompleted > 0 ? 'Activo' : 'Nuevo'}
-            </Text>
-            <Text style={[styles.statLabel, { color: colors.subtext }]}>Nivel</Text>
-          </View>
-        </View>
-
-        {/* ═══ TOGGLE ONLINE / OFFLINE ═══ */}
-        <Animated.View style={[styles.statusContainer, { transform: [{ scale: toggleScale }] }]}>
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={[
-              styles.bigStatusButton,
-              isActive
-                ? { backgroundColor: colors.success, borderColor: isDark ? '#1e7e34' : '#1e7e34' }
-                : { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow },
-            ]}
-            onPress={toggleSwitch}
-            accessibilityLabel={isActive ? 'Desconectarse' : 'Conectarse'}
-          >
-            <View style={[styles.pulseRing, isActive && styles.pulseRingActive]}>
-              <Ionicons
-                name={isActive ? 'radio-outline' : 'power'}
-                size={45}
-                color={isActive ? '#fff' : colors.subtext}
-              />
-            </View>
-            <Text style={[styles.statusMainText, { color: isActive ? '#fff' : colors.text }]}>
-              {isActive ? 'ONLINE' : 'OFFLINE'}
-            </Text>
-            <Text style={[styles.statusSubText, { color: isActive ? 'rgba(255,255,255,0.8)' : colors.subtext }]}>
-              {isActive ? 'La central puede asignarte servicios' : 'Toca para quedar disponible'}
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* ═══ FORMULARIO ═══ */}
-        <View style={[styles.sectionForm, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-          <View style={styles.formHeader}>
-            <Text style={[styles.formTitle, { color: colors.text }]}>Tu Perfil de Servicio</Text>
-            {isActive && (
-              <View style={[styles.lockedBadge, { backgroundColor: isDark ? '#2a2a2a' : '#FFF3CD' }]}>
-                <Ionicons name="lock-closed" size={12} color={isDark ? '#f1c40f' : '#856404'} />
-                <Text style={[styles.lockedBadgeText, { color: isDark ? '#f1c40f' : '#856404' }]}>
-                  Bloqueado
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={[styles.labelForm, { color: colors.subtext }]}>Especialidad</Text>
-          <TextInput
-            style={[
-              styles.inputForm,
-              {
-                backgroundColor: isActive ? (isDark ? '#1a1a1a' : '#f0f0f0') : colors.input,
-                color: isActive ? colors.subtext : colors.text,
-                borderColor: colors.border,
-              },
-            ]}
-            value={specialty}
-            onChangeText={setSpecialty}
-            editable={!isActive}
-            placeholder="ej. Electricista, Gasfitero, Pintor..."
-            placeholderTextColor={colors.subtext}
-          />
-
-          <Text style={[styles.labelForm, { color: colors.subtext, marginTop: 12 }]}>Tarifa Referencial</Text>
-          <TextInput
-            style={[
-              styles.inputForm,
-              {
-                backgroundColor: isActive ? (isDark ? '#1a1a1a' : '#f0f0f0') : colors.input,
-                color: isActive ? colors.subtext : colors.text,
-                borderColor: colors.border,
-              },
-            ]}
-            value={price}
-            onChangeText={setPrice}
-            editable={!isActive}
-            placeholder="ej. S/ 30 - S/ 80 por visita"
-            placeholderTextColor={colors.subtext}
-          />
-        </View>
-
-        {/* ═══ ÁREA DE SERVICIO ═══ */}
-        <View style={[styles.sectionForm, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-          <View style={styles.formHeader}>
-            <Text style={[styles.formTitle, { color: colors.text }]}>Área de Servicio</Text>
-            {isActive && (
-              <View style={[styles.lockedBadge, { backgroundColor: isDark ? '#2a2a2a' : '#FFF3CD' }]}>
-                <Ionicons name="lock-closed" size={12} color={isDark ? '#f1c40f' : '#856404'} />
-                <Text style={[styles.lockedBadgeText, { color: isDark ? '#f1c40f' : '#856404' }]}>Bloqueado</Text>
-              </View>
-            )}
-          </View>
-          <Text style={[styles.labelForm, { color: colors.subtext }]}>Radio máximo de cobertura</Text>
-          <View style={styles.radiusChipsRow}>
-            {[5, 10, 15, 20, 30].map((km) => (
-              <TouchableOpacity
-                key={km}
-                disabled={isActive}
-                onPress={() => setServiceRadius(km)}
-                style={[
-                  styles.radiusChip,
-                  {
-                    backgroundColor: serviceRadius === km
-                      ? colors.primary
-                      : (isDark ? '#2a2a2a' : '#f0f0f0'),
-                    opacity: isActive ? 0.5 : 1,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.radiusChipText,
-                    { color: serviceRadius === km ? '#fff' : colors.text },
-                  ]}
-                >
-                  {km} km
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={[styles.radiusInfo, { backgroundColor: isDark ? '#0d1418' : '#F0F7FF' }]}>
-            <Ionicons name="map-outline" size={16} color={colors.primary} />
-            <Text style={[styles.radiusInfoText, { color: colors.subtext }]}>
-              La central priorizará servicios dentro de {serviceRadius} km de tu ubicación.
-            </Text>
-          </View>
-        </View>
-
-        {/* ═══ MENÚ DE NAVEGACIÓN ═══ */}
-        <View style={[styles.dashNavLinks, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>
-          <TouchableOpacity
-            onPress={() => router.push('/provider/history')}
-            style={[styles.dashLink, { borderBottomColor: colors.border }]}
-          >
-            <View style={[styles.dashLinkIcon, { backgroundColor: isDark ? '#1a2e1a' : '#E8F5E9' }]}>
-              <Ionicons name="time-outline" size={20} color={colors.success} />
-            </View>
-            <Text style={[styles.dashLinkText, { color: colors.text }]}>Mi Historial</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.subtext} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => router.push('/profile')}
-            style={[styles.dashLink, { borderBottomColor: colors.border }]}
-          >
-            <View style={[styles.dashLinkIcon, { backgroundColor: isDark ? '#1a1a2e' : '#E3F2FD' }]}>
-              <Ionicons name="person-outline" size={20} color={colors.primary} />
-            </View>
-            <Text style={[styles.dashLinkText, { color: colors.text }]}>Editar Mi Perfil</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.subtext} />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.dashLink, { borderBottomWidth: 0 }]} onPress={handleLogout}>
-            <View style={[styles.dashLinkIcon, { backgroundColor: isDark ? '#2e1a1a' : '#FFEBEE' }]}>
-              <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-            </View>
-            <Text style={[styles.dashLinkText, { color: colors.danger }]}>Cerrar Sesión</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
-      {/* ═══════════ RADAR BOTTOM SHEET ═══════════ */}
-      {incomingRequest && (
-        <View style={styles.radarOverlay}>
-          <View style={[styles.radarCard, { backgroundColor: isDark ? '#1F2C34' : '#fff' }]}>
-            <View style={[styles.radarIconBox, { backgroundColor: colors.success }]}>
-              <Ionicons name="notifications" size={36} color="#fff" />
-            </View>
-
-            <Text style={[styles.radarTitle, { color: colors.text }]}>¡NUEVA SOLICITUD!</Text>
-
-            <View style={[styles.radarDetails, { backgroundColor: isDark ? '#0d1418' : '#F8F9FA' }]}>
-              <View style={styles.radarDetailRow}>
-                <Text style={[styles.radarDetailLabel, { color: colors.subtext }]}>Cliente</Text>
-                <Text style={[styles.radarDetailValue, { color: colors.text }]}>
-                  {incomingRequest.clientName || 'Anónimo'}
-                </Text>
-              </View>
-
-              <View style={styles.radarDetailRow}>
-                <Text style={[styles.radarDetailLabel, { color: colors.subtext }]}>Servicio</Text>
-                <Text style={[styles.radarDetailValue, { color: colors.text }]}>
-                  {incomingRequest.serviceLabel || incomingRequest.specialty || incomingRequest.serviceType || 'Servicio general'}
-                </Text>
-              </View>
-
-              <View style={styles.radarDetailRow}>
-                <Text style={[styles.radarDetailLabel, { color: colors.subtext }]}>Precio acordado</Text>
-                <Text style={[styles.radarDetailValue, { color: colors.primary, fontWeight: '800' }]}>
-                  {incomingRequest.price_agreed || 'Por confirmar por la central'}
-                </Text>
-              </View>
-
-              {radarDistance !== null && (
-                <View style={[styles.radarDistancePill, { backgroundColor: isDark ? '#1a2e2e' : '#E3F2FD' }]}>
-                  <Ionicons name="location" size={16} color={colors.primary} />
-                  <Text style={[styles.radarDistanceText, { color: colors.primary }]}>
-                    A {formatDistance(radarDistance)} aprox.
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.radarButtonsRow}>
-              <TouchableOpacity
-                style={[styles.radarRejectBtn, { borderColor: colors.danger }, accepting && { opacity: 0.5 }]}
-                onPress={rejectJob}
-                disabled={accepting}
-              >
-                <Ionicons name="close" size={22} color={colors.danger} />
-                <Text style={[styles.radarRejectText, { color: colors.danger }]}>RECHAZAR</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.radarAcceptBtn, { backgroundColor: colors.success }, accepting && { opacity: 0.7 }]}
-                onPress={acceptJob}
-                disabled={accepting}
-              >
-                {accepting ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Ionicons name="checkmark-circle" size={22} color="#fff" />
-                )}
-                <Text style={styles.radarAcceptText}>{accepting ? 'ACEPTANDO...' : 'ACEPTAR'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-// ─────────────────────────────────────────────
-// ESTILOS
-// ─────────────────────────────────────────────
-const styles = StyleSheet.create({
-  containerFull: { flex: 1 },
-  containerDashboard: { flexGrow: 1, padding: 20, paddingBottom: 50, paddingTop: 60 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
-  // ── Header ──────────────────────────
-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 24 },
-  greetingEmoji: { fontSize: 28, marginBottom: 4 },
-  greetingTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  subtitleDash: { fontSize: 14, marginTop: 4 },
-
-  // ── Stats ───────────────────────────
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 30 },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 16,
-    borderRadius: 16,
-    elevation: 2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  statValue: { fontSize: 20, fontWeight: '800', marginTop: 6 },
-  statLabel: { fontSize: 11, marginTop: 2 },
-
-  // ── Toggle ──────────────────────────
-  statusContainer: { alignItems: 'center', marginBottom: 30 },
-  bigStatusButton: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    elevation: 12,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-  },
-  pulseRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  pulseRingActive: { backgroundColor: 'rgba(255,255,255,0.2)' },
-  statusMainText: { fontSize: 20, fontWeight: '900', letterSpacing: 2 },
-  statusSubText: { fontSize: 12, marginTop: 4, fontWeight: '500' },
-
-  // ── Form ────────────────────────────
-  sectionForm: { padding: 20, borderRadius: 20, elevation: 2, marginBottom: 20, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 4 },
-  formHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  formTitle: { fontSize: 16, fontWeight: '700' },
-  lockedBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, gap: 4 },
-  lockedBadgeText: { fontSize: 11, fontWeight: '600' },
-  labelForm: { fontSize: 13, fontWeight: '600', marginBottom: 6 },
-  inputForm: {
-    padding: 14,
-    borderRadius: 12,
-    fontSize: 15,
-    borderWidth: 1,
-  },
-
-  // ── Nav Links ───────────────────────
-  dashNavLinks: { borderRadius: 20, elevation: 2, paddingHorizontal: 4, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 4 },
-  dashLink: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 12, borderBottomWidth: 1 },
-  dashLinkIcon: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  dashLinkText: { flex: 1, fontSize: 15, fontWeight: '600' },
-
-  // ── En-ruta ─────────────────────────
-  mapAbsolute: { ...StyleSheet.absoluteFillObject },
-  floatingActionCard: {
-    position: 'absolute',
-    bottom: 20,
-    left: 16,
-    right: 16,
-    borderRadius: 24,
-    padding: 20,
-    elevation: 20,
-    shadowOffset: { width: 0, height: -5 },
-    shadowRadius: 15,
-    shadowOpacity: 0.15,
-  },
-  routeHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  routeHeaderLeft: { flex: 1 },
-  routeLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 4 },
-  routeClientName: { fontSize: 22, fontWeight: '800' },
-  routeServiceType: { fontSize: 13, marginTop: 2 },
-  distanceBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  distanceBadgeText: { fontSize: 13, fontWeight: '700' },
-  routeActionsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 16 },
-  circleBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-  },
-  circleBtnLabel: { color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 3 },
-  // ── Validación de PIN Presencial ──
-  pinValidateBox: {
-    borderWidth: 1.5,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 8,
-  },
-  pinBoxHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  pinBoxTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
-  pinBoxHint: { fontSize: 12, lineHeight: 16, marginBottom: 12 },
-  pinInputRow: { flexDirection: 'row', gap: 10 },
-  pinTextInput: {
-    flex: 1,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-    letterSpacing: 4,
-  },
-  validatePinBtn: {
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  validatePinBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-
-  finishBtn: {
-    flexDirection: 'row',
-    paddingVertical: 16,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-  },
-  finishBtnText: { color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
-  disabledButton: { opacity: 0.5 },
-
-  // ── Radar ───────────────────────────
-  radarOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end', zIndex: 100 },
-  radarCard: {
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
-    alignItems: 'center',
-    elevation: 30,
-  },
-  radarIconBox: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: -60,
-    marginBottom: 16,
-    borderWidth: 4,
-    borderColor: '#fff',
-    elevation: 8,
-  },
-  radarTitle: { fontSize: 22, fontWeight: '900', letterSpacing: 1, marginBottom: 16 },
-  radarDetails: { width: '100%', borderRadius: 16, padding: 16, marginBottom: 20 },
-  radarDetailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
-  radarDetailLabel: { fontSize: 13, fontWeight: '500' },
-  radarDetailValue: { fontSize: 16, fontWeight: '700' },
-  radarDistancePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    gap: 6,
-  },
-  radarDistanceText: { fontWeight: '700', fontSize: 14 },
-  radarButtonsRow: { flexDirection: 'row', width: '100%', gap: 12 },
-  radarRejectBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 16,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    gap: 6,
-  },
-  radarRejectText: { fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
-  radarAcceptBtn: {
-    flex: 2,
-    flexDirection: 'row',
-    paddingVertical: 16,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    gap: 8,
-  },
-  radarAcceptText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 0.5 },
-
-  // ── Service Area Chips ──────────────
-  radiusChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, marginBottom: 16 },
-  radiusChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    elevation: 2,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-  },
-  radiusChipText: { fontSize: 14, fontWeight: '600' },
-  radiusInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
-    gap: 8,
-    marginTop: 8,
-  },
-  radiusInfoText: { flex: 1, fontSize: 13, lineHeight: 18 },
-});
+const styles = StyleSheet.create({ center: { flex: 1, alignItems: 'center', justifyContent: 'center' } });

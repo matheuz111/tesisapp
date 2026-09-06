@@ -1,0 +1,10 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+const context = { exports: {} };
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/services/pricing.ts','utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, context);
+const { parsePriceCents, formatPrice } = context.exports;
+test('Price supports decimal dot and comma with exact cents', () => { assert.equal(parsePriceCents('85,50'), 8550); assert.equal(parsePriceCents('0.29'), 29); assert.equal(formatPrice(8550), 'S/ 85.50'); });
+test('Rejects zero, negatives, too many decimals, thousands separators and nonnumeric inputs', () => { for (const value of ['0','-1','1.999','NaN','Infinity','100000','1,000.00','']) assert.equal(parsePriceCents(value), null); });

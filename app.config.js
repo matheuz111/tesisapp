@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 export default {
   expo: {
@@ -50,6 +50,7 @@ export default {
     },
     plugins: [
       "expo-router",
+      ["react-native-maps", { androidGoogleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_API_KEY }],
       [
         "expo-splash-screen",
         {

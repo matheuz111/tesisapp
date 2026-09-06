@@ -1,27 +1,11 @@
-/**
- * app/chat/[id].tsx
- * Chat en tiempo real — Cliente ↔ Proveedor
- * Versión FINAL optimizada al 100%
- *
- * Optimizaciones implementadas:
- *  ✅ 1. Mensajes optimistas (Optimistic UI) — aparecen al instante
- *  ✅ 2. useMemo para paleta de colores — sin recálculos innecesarios
- *  ✅ 3. Paginación limit(50) + "Cargar anteriores"
- *  ✅ 4. Indicador "Escribiendo..." en tiempo real
- *  ✅ 5. Vista previa de imagen antes de enviar
- *  ✅ 6. Copiar mensaje con long press
- *  ✅ 7. Push notification al enviar mensaje
- *  ✅ 8. Banner cuando el chat está cerrado (ARCHIVED/CANCELLED)
- *  ✅ 9. Guard de parámetro id inválido
- *  ✅ 10. Botón de llamada funcional con Linking.openURL
- */
+/** Chat del servicio: mensajes recientes en vivo e historial paginado. */
 
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { onAuthStateChanged, User } from 'firebase/auth';
 import {
   addDoc,
+  setDoc,
   collection,
   doc,
   getDoc,
@@ -61,6 +45,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { auth, db } from '../../src/config/firebase';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useSession } from '../../src/context/SessionContext';
+import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
 
 // ─────────────────────────────────────────────
 // TIPOS
@@ -91,6 +77,10 @@ interface JobDetails {
   // Para llamada
   clientPhone?: string;
   providerPhone?: string;
+  notificationTokens?: {
+    client?: string[];
+    provider?: string[];
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -152,22 +142,19 @@ function isChatClosed(status?: string): boolean {
 // COMPONENTE
 // ─────────────────────────────────────────────
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string | string[] }>();
+  const id = typeof params.id === 'string' ? params.id : '';
+  const { user } = useSession();
   const router = useRouter();
   const { colors, theme } = useTheme();
   const insets = useSafeAreaInsets();
   const isDark = theme === 'dark';
 
-  // Auth reactiva
-  const [user, setUser] = useState<User | null>(auth.currentUser);
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUser(u));
-    return () => unsub();
-  }, []);
-
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [sending, setSending] = useState(false);
   const [jobDetails, setJobDetails] = useState<JobDetails | null>(null);
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
@@ -188,27 +175,31 @@ export default function ChatScreen() {
   const [scrollBtnOpacity] = useState(() => new Animated.Value(0));
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDocRef = useRef<any>(null);
+  const loadedHistoryRef = useRef(false);
+  const pagingRef = useRef(false);
+  const typingSentRef = useRef(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
-  // Elevación instantánea y sin lag de teclado para Android
-  const keyboardOffset = useRef(new Animated.Value(0)).current;
+  // ══════ LISTENER DE TECLADO RESPONSIVE ══════
   useEffect(() => {
-    if (Platform.OS !== 'android') return;
-
-    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
-      keyboardOffset.stopAnimation();
-      keyboardOffset.setValue(e.endCoordinates.height);
-    });
-
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardOffset.stopAnimation();
-      keyboardOffset.setValue(0);
-    });
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
 
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, [keyboardOffset]);
+  }, []);
 
   // ══════ #2: useMemo para paleta de colores (Estilo WhatsApp) ══════
   const chatColors = useMemo(() => ({
@@ -231,118 +222,103 @@ export default function ChatScreen() {
     scrollFabBg: isDark ? '#2A3942' : '#fff',
   }), [isDark]);
 
-  // ══════ Cargar detalles del servicio (real-time + guard) ══════
+  // Cada suscripción pertenece a una cuenta y se invalida al cambiar de servicio.
   useEffect(() => {
+    setMessages([]); setJobDetails(null); setOtherUserData(null); setOtherAvatar(null);
+    setInputText(''); setOtherTyping(false); setImagePreview(null); setImagePreviewBase64(null);
+    setChatError(null); setLoading(Boolean(id && user)); setLoadingMore(false);
+    lastDocRef.current = null; loadedHistoryRef.current = false; pagingRef.current = false;
     if (!id || !user) return;
-
-    const unsub = onSnapshot(
-      doc(db, 'service_requests', id),
-      async (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as JobDetails;
-          
-          // Guard de seguridad: verificar que el usuario pertenece a esta solicitud
-          if (data.clientId !== user.uid && data.providerId !== user.uid) {
-            Alert.alert('Acceso no autorizado', 'No tienes permiso para ver esta conversación.');
-            router.replace('/');
-            return;
-          }
-
-          setJobDetails(data);
-
-          // #4: Detectar si el OTRO usuario está escribiendo
-          const isClient = user.uid === data.clientId;
-          setOtherTyping(isClient ? !!data.providerTyping : !!data.clientTyping);
-
-          // Cargar foto y datos del otro usuario
-          const otherUserId = isClient ? data.providerId : data.clientId;
-          if (otherUserId) {
-            try {
-              const otherDoc = await getDoc(doc(db, 'users', otherUserId));
-              if (otherDoc.exists()) {
-                const otherData = otherDoc.data();
-                setOtherAvatar(otherData.profile_photo || null);
-                setOtherUserData(otherData);
-              }
-            } catch { /* silencioso */ }
-          }
-        }
-      },
-      (error) => {
-        console.warn('Advertencia en snapshot de servicio:', error.message);
+    let active = true;
+    const timeout = setTimeout(() => {
+      if (active) { setLoading(false); setChatError('La conexión está tardando. Puedes volver o intentar de nuevo.'); }
+    }, 10000);
+    const unsubscribe = onSnapshot(doc(db, 'service_requests', id), (snap) => {
+      if (!active || auth.currentUser?.uid !== user.uid) return;
+      clearTimeout(timeout);
+      if (!snap.exists()) { setLoading(false); setChatError('La conversación ya no está disponible.'); return; }
+      const data = snap.data() as JobDetails;
+      if (data.clientId !== user.uid && data.providerId !== user.uid) {
+        setLoading(false); setChatError('No tienes acceso a esta conversación.'); return;
       }
-    );
-    return () => unsub();
-  }, [id, user, router]);
+      setJobDetails(data);
+      setChatError(null);
+      setOtherTyping(user.uid === data.clientId ? !!data.providerTyping : !!data.clientTyping);
+    }, (error) => {
+      if (!active || auth.currentUser?.uid !== user.uid) return;
+      clearTimeout(timeout); setLoading(false);
+      console.warn('No se pudo consultar la conversación:', error.message);
+      setChatError('No se pudo abrir la conversación. Revisa tu conexión.');
+    });
+    return () => { active = false; clearTimeout(timeout); unsubscribe(); };
+  }, [id, user, retryAttempt]);
 
-  // ══════ #3: Escuchar mensajes con paginación ══════
+  const otherUserId = user?.uid === jobDetails?.clientId ? jobDetails?.providerId : jobDetails?.clientId;
+  useEffect(() => {
+    setOtherUserData(null); setOtherAvatar(null);
+    if (!otherUserId || !user) return;
+    let active = true;
+    // Cambiar "escribiendo" o el estado del servicio no vuelve a leer el perfil.
+    const unsubscribe = onSnapshot(doc(db, 'users', otherUserId), (snapshot) => {
+      if (!active || auth.currentUser?.uid !== user.uid) return;
+      const data = snapshot.data();
+      setOtherUserData(data || null); setOtherAvatar(data?.profile_photo || null);
+    }, () => { /* Los mensajes siguen disponibles aunque el perfil no tenga acceso. */ });
+    return () => { active = false; unsubscribe(); };
+  }, [otherUserId, user]);
+
   useEffect(() => {
     if (!id || !user) return;
-    const q = query(
-      collection(db, 'service_requests', id, 'messages'),
-      orderBy('createdAt', 'desc'),
-      limit(PAGE_SIZE)
-    );
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const newMessages = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<Message, 'id'>),
-        }));
-
-        // Guardar último documento para paginación
-        if (snap.docs.length > 0) {
-          lastDocRef.current = snap.docs[snap.docs.length - 1];
-        }
+    let active = true;
+    const timeout = setTimeout(() => {
+      if (active) { setLoading(false); setChatError('No se pudieron cargar los mensajes todavía. Vuelve a intentar.'); }
+    }, 10000);
+    const unsubscribe = onSnapshot(query(collection(db, 'service_requests', id, 'messages'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE)), (snap) => {
+      if (!active || auth.currentUser?.uid !== user.uid) return;
+      clearTimeout(timeout);
+      const recent = snap.docs.map((d) => ({ id: d.id, ...(d.data({ serverTimestamps: 'estimate' }) as Omit<Message, 'id'>) }));
+      if (!loadedHistoryRef.current) {
+        lastDocRef.current = snap.docs[snap.docs.length - 1] || null;
         setHasMoreMessages(snap.docs.length >= PAGE_SIZE);
-
-        // Merge con mensajes optimistas (remover los confirmados)
-        setMessages((prev) => {
-          const optimistic = prev.filter((m) => m._optimistic);
-          const remainingOptimistic = optimistic.filter(
-            (m) => !newMessages.some((nm) => nm.text === m.text && nm.senderId === m.senderId)
-          );
-          return [...remainingOptimistic, ...newMessages];
-        });
-
-        setLoading(false);
-      },
-      (error) => {
-        console.warn('Advertencia en snapshot de mensajes:', error.message);
-        setLoading(false);
       }
-    );
-    return () => unsub();
-  }, [id, user]);
+      const recentIds = new Set(recent.map((message) => message.id));
+      const oldest = recent[recent.length - 1]?.createdAt?.toMillis() ?? Infinity;
+      setMessages((previous) => {
+        const retained = previous.filter((message) => !recentIds.has(message.id) && (message._optimistic || (message.createdAt?.toMillis() ?? Infinity) < oldest));
+        return [...recent, ...retained].sort((a, b) => (b.createdAt?.toMillis() ?? Infinity) - (a.createdAt?.toMillis() ?? Infinity));
+      });
+      setLoading(false);
+    }, (error) => {
+      if (!active || auth.currentUser?.uid !== user.uid) return;
+      clearTimeout(timeout); setLoading(false);
+      console.warn('No se pudieron cargar los mensajes:', error.message);
+      setChatError('No se pudieron cargar los mensajes. Revisa tu conexión.');
+    });
+    return () => { active = false; clearTimeout(timeout); unsubscribe(); };
+  }, [id, user, retryAttempt]);
 
-  // ══════ #3: Cargar más mensajes (paginación) ══════
   const loadMoreMessages = useCallback(async () => {
-    if (!hasMoreMessages || loadingMore || !lastDocRef.current || !id) return;
-    setLoadingMore(true);
+    if (!hasMoreMessages || pagingRef.current || !lastDocRef.current || !id || !user) return;
+    const accountId = user.uid;
+    pagingRef.current = true; setLoadingMore(true);
     try {
-      const q = query(
-        collection(db, 'service_requests', id, 'messages'),
-        orderBy('createdAt', 'desc'),
-        startAfter(lastDocRef.current),
-        limit(PAGE_SIZE)
-      );
-      const snap = await getDocs(q);
-      const olderMessages = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Message, 'id'>),
-      }));
-
-      if (snap.docs.length > 0) {
-        lastDocRef.current = snap.docs[snap.docs.length - 1];
-      }
+      const snap = await getDocs(query(collection(db, 'service_requests', id, 'messages'), orderBy('createdAt', 'desc'), startAfter(lastDocRef.current), limit(PAGE_SIZE)));
+      if (auth.currentUser?.uid !== accountId) return;
+      const older = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Message, 'id'>) }));
+      loadedHistoryRef.current = true;
+      if (snap.docs.length > 0) lastDocRef.current = snap.docs[snap.docs.length - 1];
       setHasMoreMessages(snap.docs.length >= PAGE_SIZE);
-      setMessages((prev) => [...prev, ...olderMessages]);
+      setMessages((previous) => {
+        const ids = new Set(previous.map((message) => message.id));
+        return [...previous, ...older.filter((message) => !ids.has(message.id))];
+      });
     } catch (error) {
-      console.error('Error cargando mensajes anteriores:', error);
+      if (auth.currentUser?.uid === accountId) Toast.show({ type: 'error', text1: 'No se cargaron los mensajes anteriores', text2: 'Vuelve a deslizar para intentar de nuevo.' });
+      console.warn('No se pudieron cargar mensajes anteriores:', error);
+    } finally {
+      if (auth.currentUser?.uid === accountId) { pagingRef.current = false; setLoadingMore(false); }
     }
-    setLoadingMore(false);
-  }, [hasMoreMessages, loadingMore, id]);
+  }, [hasMoreMessages, id, user]);
 
   // ── Scroll-to-bottom button animation ──────
   useEffect(() => {
@@ -354,15 +330,16 @@ export default function ChatScreen() {
   }, [showScrollBtn, scrollBtnOpacity]);
 
   // ══════ #4: Typing indicator — escribir al Firestore ══════
+  const typingField = !jobDetails || !user ? null : user.uid === jobDetails.clientId ? 'clientTyping' : 'providerTyping';
   const setTypingStatus = useCallback(async (isTyping: boolean) => {
-    if (!id || !user || !jobDetails) return;
+    if (!id || !user || !typingField || auth.currentUser?.uid !== user.uid || typingSentRef.current === isTyping) return;
+    typingSentRef.current = isTyping;
     try {
-      const field = user.uid === jobDetails.clientId ? 'clientTyping' : 'providerTyping';
-      await updateDoc(doc(db, 'service_requests', id), { [field]: isTyping });
+      await updateDoc(doc(db, 'service_requests', id), { [typingField]: isTyping });
     } catch {
       // Silencioso: no bloquear UX por fallo de typing indicator
     }
-  }, [id, user, jobDetails]);
+  }, [id, user, typingField]);
 
   const handleTextChange = useCallback((text: string) => {
     setInputText(text);
@@ -389,14 +366,15 @@ export default function ChatScreen() {
   // ══════ #1: Enviar texto con UI optimista ══════
   const sendMessage = useCallback(async () => {
     const text = inputText.trim();
-    if (!text || !user || !id) return;
+    if (!text || !user || !id || !jobDetails || isChatClosed(jobDetails.status) || auth.currentUser?.uid !== user.uid) return;
     setInputText('');
     setTypingStatus(false);
     inputRef.current?.focus();
 
     // Mensaje optimista: aparece al instante
+    const messageRef = doc(collection(db, 'service_requests', id, 'messages'));
     const optimisticMsg: Message = {
-      id: `_opt_${Date.now()}`,
+      id: messageRef.id,
       text,
       senderId: user.uid,
       createdAt: Timestamp.now(),
@@ -406,20 +384,44 @@ export default function ChatScreen() {
     setMessages((prev) => [optimisticMsg, ...prev]);
 
     try {
-      await addDoc(collection(db, 'service_requests', id, 'messages'), {
+      await setDoc(messageRef, {
         text,
         senderId: user.uid,
         createdAt: serverTimestamp(),
         type: 'text' as MessageType,
       });
 
+      if (auth.currentUser?.uid !== user.uid) return;
+      // Notificar al otro participante (modo demo-direct)
+      const isClient = user.uid === jobDetails?.clientId;
+      const targetTokens = isClient
+        ? jobDetails?.notificationTokens?.provider
+        : jobDetails?.notificationTokens?.client;
+      const senderName = isClient
+        ? jobDetails?.clientName || 'Cliente'
+        : jobDetails?.providerName || 'Técnico';
+
+      if (targetTokens && targetTokens.length > 0) {
+        sendDemoPushNotification(
+          targetTokens,
+          `💬 ${senderName}`,
+          text,
+          {
+            requestId: id,
+            screen: 'chat',
+            type: 'NEW_MESSAGE',
+            recipientId: isClient ? jobDetails?.providerId : jobDetails?.clientId,
+          }
+        ).catch(() => {});
+      }
     } catch {
+      if (auth.currentUser?.uid !== user.uid) return;
       // Rollback: remover optimista y restaurar texto
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
       setInputText(text);
       Alert.alert('Error', 'No se pudo enviar el mensaje.');
     }
-  }, [inputText, user, id, setTypingStatus]);
+  }, [inputText, user, id, jobDetails, setTypingStatus]);
 
   // ══════ #5: Enviar imagen con preview y compresión óptima ══════
   const pickImage = useCallback(async (useCamera: boolean) => {
@@ -443,7 +445,7 @@ export default function ChatScreen() {
   }, []);
 
   const confirmSendImage = useCallback(async () => {
-    if (!imagePreviewBase64 || !user || !id) return;
+    if (!imagePreviewBase64 || !user || !id || !jobDetails || isChatClosed(jobDetails.status) || auth.currentUser?.uid !== user.uid) return;
     
     // Validación estricta de tamaño de imagen para no sobrepasar límite de 1MB de Firestore
     if (imagePreviewBase64.length > 800000) {
@@ -462,12 +464,34 @@ export default function ChatScreen() {
         type: 'image' as MessageType,
       });
 
+      // Notificar al otro participante (modo demo-direct)
+      const isClient = user.uid === jobDetails?.clientId;
+      const targetTokens = isClient
+        ? jobDetails?.notificationTokens?.provider
+        : jobDetails?.notificationTokens?.client;
+      const senderName = isClient
+        ? jobDetails?.clientName || 'Cliente'
+        : jobDetails?.providerName || 'Técnico';
+
+      if (targetTokens && targetTokens.length > 0) {
+        sendDemoPushNotification(
+          targetTokens,
+          `💬 ${senderName}`,
+          '📷 Imagen',
+          {
+            requestId: id,
+            screen: 'chat',
+            type: 'NEW_MESSAGE',
+            recipientId: isClient ? jobDetails?.providerId : jobDetails?.clientId,
+          }
+        ).catch(() => {});
+      }
     } catch {
       Alert.alert('Error', 'La imagen no pudo enviarse. Revisa tu conexión a internet.');
     }
     setSending(false);
     setImagePreviewBase64(null);
-  }, [imagePreviewBase64, user, id]);
+  }, [imagePreviewBase64, user, id, jobDetails]);
 
   const cancelImagePreview = useCallback(() => {
     setImagePreview(null);
@@ -633,7 +657,7 @@ export default function ChatScreen() {
   const chatClosed = isChatClosed(jobDetails?.status);
 
   // ── Loading state ──────────────────────────
-  if (loading) {
+  if (loading && id && user) {
     return (
       <View style={[styles.fill, { backgroundColor: chatColors.chatBg }]}>
         <StatusBar barStyle="light-content" backgroundColor={chatColors.headerBg} translucent />
@@ -643,21 +667,22 @@ export default function ChatScreen() {
           <Text style={[styles.loadingText, { color: chatColors.mutedText }]}>
             Cargando mensajes…
           </Text>
+          <TouchableOpacity onPress={() => router.back()} style={{ padding: 16 }}><Text style={{ color: colors.primary }}>Volver</Text></TouchableOpacity>
         </View>
       </View>
     );
   }
 
   // ══════ GUARD: id inválido (#9) ══════
-  if (!id) {
+  if (!id || !user || chatError) {
     return (
       <View style={[styles.fill, styles.center, { backgroundColor: isDark ? '#0B141A' : '#ECE5DD' }]}>
         <Ionicons name="alert-circle-outline" size={60} color={isDark ? '#8696A0' : '#999'} />
         <Text style={[styles.errorTitle, { color: isDark ? '#E9EDEF' : '#111B21' }]}>
-          Chat no encontrado
+          {chatError ? 'No se pudo abrir el chat' : 'Chat no encontrado'}
         </Text>
         <Text style={[styles.errorSubtitle, { color: isDark ? '#8696A0' : '#667781' }]}>
-          El enlace es inválido o la conversación fue eliminada.
+          {chatError || 'El enlace es inválido o la conversación fue eliminada.'}
         </Text>
         <TouchableOpacity
           style={[styles.errorBtn, { backgroundColor: colors.primary }]}
@@ -665,6 +690,7 @@ export default function ChatScreen() {
         >
           <Text style={styles.errorBtnText}>Volver</Text>
         </TouchableOpacity>
+        {chatError ? <TouchableOpacity style={{ padding: 16 }} onPress={() => setRetryAttempt((value) => value + 1)}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity> : null}
       </View>
     );
   }
@@ -742,7 +768,7 @@ export default function ChatScreen() {
       {/* ═══════════ CUERPO + TECLADO ═══════════ */}
       <KeyboardAvoidingView
         style={styles.fill}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 45 : 0}
       >
         <View style={styles.fill}>
@@ -825,8 +851,7 @@ export default function ChatScreen() {
           <Animated.View style={[
             styles.toolbar, 
             { 
-              paddingBottom: Math.max(insets.bottom, 8), 
-              marginBottom: Platform.OS === 'android' ? keyboardOffset : 0,
+              paddingBottom: keyboardVisible ? (Platform.OS === 'android' ? 8 : 4) : Math.max(insets.bottom, 8), 
             }
           ]}>
             {/* Cápsula flotante con adjunto + input + cámara */}
@@ -847,6 +872,11 @@ export default function ChatScreen() {
                 placeholderTextColor={chatColors.mutedText}
                 value={inputText}
                 onChangeText={handleTextChange}
+                onFocus={() => {
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+                  }, 120);
+                }}
                 multiline
                 maxLength={2000}
                 blurOnSubmit={false}
@@ -888,7 +918,6 @@ export default function ChatScreen() {
             { 
               backgroundColor: isDark ? '#1F2C34' : '#E1F0DA', 
               paddingBottom: Math.max(insets.bottom, 12),
-              marginBottom: Platform.OS === 'android' ? keyboardOffset : 0
             }
           ]}>
             <Ionicons name="lock-closed-outline" size={16} color={chatColors.mutedText} />
