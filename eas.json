@@ -1,0 +1,31 @@
+{
+  "cli": {
+    "version": ">= 7.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_NOTIFICATION_MODE": "demo-direct", "EXPO_PUBLIC_MEDIA_MODE": "firestore-demo" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "env": { "EXPO_PUBLIC_NOTIFICATION_MODE": "demo-direct", "EXPO_PUBLIC_MEDIA_MODE": "firestore-demo" },
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk" 
+      }
+    },
+    "production": {
+      "env": { "EXPO_PUBLIC_NOTIFICATION_MODE": "backend" },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

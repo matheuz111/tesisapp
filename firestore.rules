@@ -1,0 +1,141 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOperator() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['OPERATOR', 'ADMIN'];
+    }
+
+    function isParticipant(requestData) {
+      return signedIn()
+        && (requestData.get('clientId', '') == request.auth.uid || requestData.get('providerId', '') == request.auth.uid);
+    }
+
+    match /users/{userId} {
+      // Los perfiles son consultables para asignación, historial y contacto.
+      allow read: if signedIn();
+
+      // Los roles privilegiados nunca se crean desde la aplicación pública.
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role in ['CLIENT', 'PROVIDER'];
+
+      // Cada persona mantiene su perfil sin poder cambiar rol ni aprobación.
+      allow update: if isOperator()
+        || (request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.get('is_verified', false) == resource.data.get('is_verified', false)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price_range', 'activeRequestId', 'approval_status', 'approvedBy', 'approvedAt']))
+        // Compatibilidad: el cliente puede acumular la calificación del técnico.
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['total_rating', 'review_count', 'jobs_completed']));
+    }
+
+    match /push_tokens/{userId} {
+      // El propietario y el operador pueden leer el token para asignación de notificaciones
+      allow read: if signedIn() && (request.auth.uid == userId || isOperator()
+        || get(/databases/$(database)/documents/users/$(userId)).data.role in ['OPERATOR', 'ADMIN']);
+      allow create, update, delete: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /service_requests/{requestId} {
+      // Creación: operador o cliente. El cliente no puede inyectar el token del técnico
+      allow create: if isOperator()
+        || (signedIn() 
+            && request.resource.data.clientId == request.auth.uid
+            && request.resource.data.status == 'PENDING_ASSIGNMENT'
+            && request.resource.data.get('providerId', null) == null
+            && !request.resource.data.keys().hasAny(['pricing', 'price_agreed', 'assignedBy'])
+            && (!('notificationTokens' in request.resource.data) 
+                || !('provider' in request.resource.data.notificationTokens)));
+
+      allow read: if isOperator() || isParticipant(resource.data);
+
+      // Actualización: operador o participantes con restricciones de tokens y asignación
+      function validPricingChange() {
+        let changed = request.resource.data.diff(resource.data).affectedKeys();
+        return !changed.hasAny(['pricing', 'price_agreed']) || (
+          resource.data.status in ['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING']
+          && request.resource.data.pricing.amountCents is int
+          && request.resource.data.pricing.amountCents > 0
+          && request.resource.data.pricing.amountCents <= 9999999
+          && request.resource.data.pricing.currency == 'PEN'
+          && request.resource.data.pricing.description is string
+          && request.resource.data.pricing.description.size() > 0
+          && request.resource.data.pricing.description.size() <= 300
+          && request.resource.data.pricing.assignedBy == request.auth.uid
+          && request.resource.data.pricing.updatedAt == request.time
+          && request.resource.data.pricing.version == resource.data.get('pricing', {}).get('version', 0) + 1
+          && request.resource.data.price_agreed is string
+        );
+      }
+      function ownTokensOnly() {
+        let before = resource.data.get('notificationTokens', {});
+        let after = request.resource.data.get('notificationTokens', {});
+        return (request.auth.uid == resource.data.clientId && after.diff(before).affectedKeys().hasOnly(['client']))
+          || (request.auth.uid == resource.data.get('providerId', '') && after.diff(before).affectedKeys().hasOnly(['provider']));
+      }
+      function validParticipantTransition() {
+        let before = resource.data.status;
+        let after = request.resource.data.status;
+        return before == after || (
+          request.auth.uid == resource.data.clientId
+            ? before in ['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED'] && after == 'CANCELLED_BY_CLIENT'
+            : (before == 'PENDING' && after in ['ACCEPTED', 'REQUIRES_REASSIGNMENT'])
+              || (before == 'ACCEPTED' && after in ['IN_PROGRESS', 'REQUIRES_REASSIGNMENT'])
+              || (before == 'IN_PROGRESS' && after in ['COMPLETED', 'REQUIRES_REASSIGNMENT'])
+        );
+      }
+      allow update: if (isOperator() && validPricingChange())
+        || (isParticipant(resource.data)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['clientId', 'providerId', 'organizationId', 'assignedBy', 'pricing', 'price_agreed', 'location', 'address', 'addressReference', 'district', 'securityPin'])
+          && ownTokensOnly()
+          && validParticipantTransition());
+
+      match /price_history/{revisionId} {
+        allow read: if isOperator() || isParticipant(get(/databases/$(database)/documents/service_requests/$(requestId)).data);
+        allow create: if isOperator()
+          && request.resource.data == getAfter(/databases/$(database)/documents/service_requests/$(requestId)).data.pricing;
+        allow update, delete: if false;
+      }
+
+      match /locations/{userId} {
+        function serviceData() {
+          return get(/databases/$(database)/documents/service_requests/$(requestId)).data;
+        }
+        allow read: if isOperator() || (signedIn() && request.auth.uid == userId && isParticipant(serviceData()));
+        allow create, update: if signedIn() && request.auth.uid == userId
+          && isParticipant(serviceData())
+          && serviceData().status in ['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS']
+          && request.resource.data.keys().hasOnly(['latitude', 'longitude', 'accuracy', 'capturedAt', 'updatedAt'])
+          && request.resource.data.latitude is number
+          && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90
+          && request.resource.data.longitude is number
+          && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180
+          && (request.resource.data.accuracy == null || (request.resource.data.accuracy is number && request.resource.data.accuracy >= 0))
+          && request.resource.data.capturedAt is number
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
+      }
+
+      match /messages/{messageId} {
+        allow read, create: if isOperator()
+          || isParticipant(get(/databases/$(database)/documents/service_requests/$(requestId)).data);
+        allow update, delete: if false;
+      }
+    }
+
+    // Colección heredada: se conserva para no romper conversaciones antiguas.
+    match /chats/{chatId} {
+      allow read, write: if signedIn();
+      match /messages/{messageId} {
+        allow read, write: if signedIn();
+      }
+    }
+  }
+}
