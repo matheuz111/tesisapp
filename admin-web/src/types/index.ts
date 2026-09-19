@@ -61,6 +61,9 @@ export interface ServiceRequest {
   serviceLabel?: string;
   description?: string;
   priority?: Priority;
+  urgency?: 'NOW' | 'TODAY' | 'SCHEDULED' | string;
+  preferredTime?: string;
+  preferredDate?: string;
   technicalVisitFee?: number;
   price_agreed?: string;
   pricing?: {

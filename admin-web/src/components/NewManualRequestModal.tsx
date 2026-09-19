@@ -31,6 +31,9 @@ const SPECIALTIES = [
 export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => {
   const { user, userName } = useAuth();
   const [intakeChannel, setIntakeChannel] = useState<IntakeChannel>('WHATSAPP');
+  const [urgency, setUrgency] = useState<'NOW' | 'TODAY' | 'SCHEDULED'>('TODAY');
+  const [preferredDate, setPreferredDate] = useState('');
+  const [preferredTime, setPreferredTime] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [specialty, setSpecialty] = useState('Gasfitero');
@@ -41,6 +44,31 @@ export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => 
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const QUICK_PRESETS: Record<string, Array<{ text: string; fee: number }>> = {
+    Gasfitero: [
+      { text: 'Fuga de agua en llave de paso o tubería', fee: 60 },
+      { text: 'Destape de inodoro / desagüe atorado', fee: 70 },
+      { text: 'Instalación o cambio de grifería/llaves', fee: 50 },
+    ],
+    Electricista: [
+      { text: 'Cortocircuito / Salto constante de llave térmica', fee: 80 },
+      { text: 'Instalación de luminaria / tomacorrientes nuevos', fee: 50 },
+      { text: 'Mantenimiento y revisión de tablero eléctrico', fee: 90 },
+    ],
+    Cerrajero: [
+      { text: 'Apertura de puerta trabada / llave perdida', fee: 60 },
+      { text: 'Cambio e instalación de cerradura de seguridad', fee: 80 },
+    ],
+    Tecnico: [
+      { text: 'Revisión técnica de lavadora (no centrifuga / bota agua)', fee: 60 },
+      { text: 'Revisión y carga de gas para refrigeradora', fee: 80 },
+    ],
+  };
+
+  const applyPreset = (presetText: string) => {
+    setDescription((prev) => (prev ? `${prev} - ${presetText}` : presetText));
+  };
 
   if (!isOpen) return null;
 
@@ -82,7 +110,10 @@ export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => 
           clientPhone: clientPhone.trim(),
           specialty,
           serviceLabel: SPECIALTIES.find((s) => s.id === specialty)?.label || specialty,
-          priority,
+          priority: urgency === 'NOW' ? 'HIGH' : priority,
+          urgency,
+          preferredDate: urgency === 'SCHEDULED' ? preferredDate : null,
+          preferredTime: urgency === 'SCHEDULED' ? preferredTime : null,
           district,
           address: address.trim(),
           addressReference: addressReference.trim(),
@@ -105,7 +136,7 @@ export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => 
           actorId: user?.uid || 'central',
           actorRole: 'OPERATOR',
           timestamp: serverTimestamp(),
-          notes: `Transcripción manual de pedido recibido vía ${intakeChannel}`,
+          notes: `Transcripción manual vía ${intakeChannel} [Urgencia: ${urgency}]`,
         });
       });
 
@@ -153,6 +184,77 @@ export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => 
             </div>
           </div>
 
+          {/* Selector de Urgencia Operativa */}
+          <div className="form-group">
+            <label>Tiempo de Atención Solicitado por el Cliente</label>
+            <div className="radio-pill-group">
+              <label className={`radio-pill ${urgency === 'NOW' ? 'active' : ''}`} style={urgency === 'NOW' ? { borderColor: '#ef4444', color: '#ef4444', background: 'rgba(239,68,68,0.1)' } : {}}>
+                <input
+                  type="radio"
+                  name="urgency"
+                  value="NOW"
+                  checked={urgency === 'NOW'}
+                  onChange={() => {
+                    setUrgency('NOW');
+                    setPriority('HIGH');
+                  }}
+                />
+                ⚡ Inmediato (Urgencia)
+              </label>
+              <label className={`radio-pill ${urgency === 'TODAY' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="urgency"
+                  value="TODAY"
+                  checked={urgency === 'TODAY'}
+                  onChange={() => {
+                    setUrgency('TODAY');
+                    setPriority('NORMAL');
+                  }}
+                />
+                📅 Para Hoy
+              </label>
+              <label className={`radio-pill ${urgency === 'SCHEDULED' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="urgency"
+                  value="SCHEDULED"
+                  checked={urgency === 'SCHEDULED'}
+                  onChange={() => {
+                    setUrgency('SCHEDULED');
+                    setPriority('NORMAL');
+                  }}
+                />
+                🕒 Programado
+              </label>
+            </div>
+          </div>
+
+          {urgency === 'SCHEDULED' && (
+            <div className="form-row">
+              <div className="form-group flex-1">
+                <label htmlFor="preferredDate">Fecha Deseada</label>
+                <input
+                  id="preferredDate"
+                  type="date"
+                  value={preferredDate}
+                  onChange={(e) => setPreferredDate(e.target.value)}
+                  required={urgency === 'SCHEDULED'}
+                />
+              </div>
+              <div className="form-group flex-1">
+                <label htmlFor="preferredTime">Rango Horario</label>
+                <input
+                  id="preferredTime"
+                  type="text"
+                  placeholder="Ej. 10:00 AM - 12:00 PM"
+                  value={preferredTime}
+                  onChange={(e) => setPreferredTime(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="form-row">
             <div className="form-group flex-1">
               <label htmlFor="clientName">Nombre del Cliente *</label>
@@ -191,17 +293,37 @@ export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => 
               </select>
             </div>
             <div className="form-group flex-1">
-              <label htmlFor="priority">Prioridad</label>
+              <label htmlFor="priority">Nivel de Prioridad</label>
               <select
                 id="priority"
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as Priority)}
               >
-                <option value="NORMAL">Normal (Hoy / Programado)</option>
-                <option value="HIGH">Alta / Urgencia Inmediata</option>
+                <option value="NORMAL">Normal</option>
+                <option value="HIGH">🚨 Alta (Urgencia)</option>
               </select>
             </div>
           </div>
+
+          {/* Presets / Baremo de fallas comunes para agilizar transcripción */}
+          {QUICK_PRESETS[specialty] && (
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: '0.8rem', color: '#64748b' }}>Sugerencias Rápidas de Falla (Click para añadir):</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                {QUICK_PRESETS[specialty].map((item, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '4px 8px', borderRadius: 14 }}
+                    onClick={() => applyPreset(item.text)}
+                  >
+                    + {item.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="form-row">
             <div className="form-group flex-1">

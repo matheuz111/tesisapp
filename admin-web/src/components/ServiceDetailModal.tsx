@@ -16,6 +16,8 @@ import {
   Check,
   Loader2,
   MessageSquare,
+  MessageCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { ImageLightboxModal } from './ImageLightboxModal';
 import { AssignWorkerModal } from './AssignWorkerModal';
@@ -139,7 +141,21 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
 
           {/* Información del Cliente y Ubicación */}
           <div className="detail-section">
-            <h3 className="section-subtitle"><User size={16} /> Cliente y Solicitud</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 className="section-subtitle" style={{ margin: 0 }}><User size={16} /> Cliente y Solicitud</h3>
+              {request.clientPhone && (
+                <a
+                  href={`https://wa.me/51${request.clientPhone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${request.clientName || 'estimado(a)'}, te contactamos de la central de Multiservicios sobre tu solicitud ${request.code || ''}`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', padding: '4px 10px', color: '#16a34a', borderColor: 'rgba(22,163,74,0.3)' }}
+                >
+                  <MessageCircle size={14} color="#16a34a" />
+                  <span>WhatsApp Cliente</span>
+                </a>
+              )}
+            </div>
             <div className="detail-two-col">
               <div>
                 <p><strong>Nombre:</strong> {request.clientName || 'No especificado'}</p>
@@ -159,6 +175,30 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
               <div className="detail-box">{request.description || 'Sin descripción'}</div>
             </div>
           </div>
+
+          {/* Sello de Garantía Digital 30 Días (Si está completado o validado) */}
+          {['COMPLETED', 'VALIDATED'].includes(request.status) && (
+            <div className="detail-section" style={{ background: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.3)', borderRadius: 10, padding: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <ShieldCheck size={28} color="#10b981" />
+                <div>
+                  <h4 style={{ margin: 0, color: '#10b981', fontSize: '0.95rem' }}>Garantía Digital de 30 Días Activa</h4>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                    Este servicio cuenta con respaldo técnico y cobertura post-servicio hasta el{' '}
+                    <strong>
+                      {(() => {
+                        const baseDate = request.validatedAt || request.finishedAt || request.createdAt;
+                        if (!baseDate) return '30 días posteriores';
+                        const d = baseDate.toDate ? baseDate.toDate() : new Date(baseDate);
+                        const exp = new Date(d.getTime() + 30 * 24 * 60 * 60 * 1000);
+                        return exp.toLocaleDateString('es-PE', { dateStyle: 'long' });
+                      })()}
+                    </strong>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Tarifas y Cotización */}
           <div className="detail-section">

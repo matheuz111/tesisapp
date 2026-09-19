@@ -373,23 +373,52 @@ export const Dashboard = () => {
                       <td>
                         <div className="client-cell">
                           <span className="client-name">{req.clientName || 'Cliente'}</span>
-                          {req.clientPhone && <span className="client-sub">{req.clientPhone}</span>}
+                          {req.clientPhone ? (
+                            <a
+                              href={`https://wa.me/51${req.clientPhone.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(req.clientName || '')},%20te%20saludamos%20de%20la%20Central%20de%20Maestro%20a%20Domicilio%20respecto%20a%20tu%20solicitud%20${encodeURIComponent(req.code || '')}.`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="client-phone-link"
+                              title="Contactar al cliente por WhatsApp directo"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MessageCircle size={12} color="#22c55e" />
+                              <span>{req.clientPhone}</span>
+                            </a>
+                          ) : (
+                            <span className="client-sub">Sin teléfono</span>
+                          )}
                         </div>
                       </td>
                       <td>
                         <div className="service-cell">
                           <span className="service-name">{req.serviceLabel || req.specialty}</span>
                           <span className="service-district">{req.district || 'Lima'}</span>
+                          {req.urgency === 'NOW' ? (
+                            <span className="urgency-badge urgency-now">⚡ Urgente</span>
+                          ) : req.urgency === 'TODAY' ? (
+                            <span className="urgency-badge urgency-today">📅 Hoy</span>
+                          ) : req.urgency === 'SCHEDULED' ? (
+                            <span className="urgency-badge urgency-scheduled">🕒 Programado</span>
+                          ) : null}
                         </div>
                       </td>
                       <td>
                         <span className="price-tag">{req.price_agreed || 'S/. 50.00 (Visita)'}</span>
                       </td>
                       <td>
-                        <span className={`status-badge ${getStatusBadgeClass(req.status)}`}>
-                          <span className="status-dot" />
-                          <span>{formatStatus(req.status)}</span>
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span className={`status-badge ${getStatusBadgeClass(req.status)}`}>
+                            <span className="status-dot" />
+                            <span>{formatStatus(req.status)}</span>
+                          </span>
+                          {['COMPLETED', 'VALIDATED'].includes(req.status) && (
+                            <span className="warranty-badge" title="Garantía de calidad de 30 días vigente">
+                              <ShieldCheck size={11} />
+                              <span>Garantía 30d</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <span className="provider-text">
