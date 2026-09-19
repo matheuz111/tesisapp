@@ -42,6 +42,11 @@ service cloud.firestore {
       allow create, update, delete: if signedIn() && request.auth.uid == userId;
     }
 
+    match /counters/{counterId} {
+      // Generación correlativa atómica para códigos de atención SOL-POST-XXXX
+      allow read, write: if signedIn();
+    }
+
     match /service_requests/{requestId} {
       // Creación: operador o cliente. El cliente no puede inyectar el token del técnico
       allow create: if isOperator()
@@ -49,7 +54,7 @@ service cloud.firestore {
             && request.resource.data.clientId == request.auth.uid
             && request.resource.data.status == 'PENDING_ASSIGNMENT'
             && request.resource.data.get('providerId', null) == null
-            && !request.resource.data.keys().hasAny(['pricing', 'price_agreed', 'assignedBy'])
+            && !request.resource.data.keys().hasAny(['pricing', 'assignedBy'])
             && (!('notificationTokens' in request.resource.data) 
                 || !('provider' in request.resource.data.notificationTokens)));
 
@@ -91,12 +96,26 @@ service cloud.firestore {
               || (before == 'IN_PROGRESS' && after in ['COMPLETED', 'REQUIRES_REASSIGNMENT'])
         );
       }
+      function timestampsNotModified() {
+        let changed = request.resource.data.diff(resource.data).affectedKeys();
+        return (!('createdAt' in resource.data) || !changed.hasAny(['createdAt']))
+          && (!('startedAt' in resource.data) || !changed.hasAny(['startedAt']))
+          && (!('finishedAt' in resource.data) || !changed.hasAny(['finishedAt']));
+      }
       allow update: if (isOperator() && validPricingChange())
         || (isParticipant(resource.data)
           && !request.resource.data.diff(resource.data).affectedKeys()
             .hasAny(['clientId', 'providerId', 'organizationId', 'assignedBy', 'pricing', 'price_agreed', 'location', 'address', 'addressReference', 'district', 'securityPin'])
           && ownTokensOnly()
-          && validParticipantTransition());
+          && validParticipantTransition()
+          && timestampsNotModified());
+
+      // Subcolección inmutable de auditoría científica para IBM SPSS
+      match /status_history/{historyId} {
+        allow read: if isOperator() || isParticipant(get(/databases/$(database)/documents/service_requests/$(requestId)).data);
+        allow create: if signedIn();
+        allow update, delete: if false; // Inmutable ante el jurado
+      }
 
       match /price_history/{revisionId} {
         allow read: if isOperator() || isParticipant(get(/databases/$(database)/documents/service_requests/$(requestId)).data);

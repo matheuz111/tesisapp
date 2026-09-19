@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOutWithNotifications } from '../../utils/pushNotifications';
-import { collection, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { getDistance } from 'geolib';
 import React, { useEffect, useMemo, useState } from 'react';
+import { getNextServiceRequestCode } from '../../src/domain/counterService';
+import { createInitialStatusHistoryRecord } from '../../src/domain/serviceRequestTransition';
 import { ActivityIndicator, Alert, Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { ServiceMap, TechnicianMapMarker } from '../../src/components/ServiceMap';
@@ -52,6 +54,17 @@ function statusLabel(status: string) {
   return labels[status] || status;
 }
 
+const SERVICES = [
+  { id: 'Gasfitero', label: 'Gasfitería', icon: 'water-outline' },
+  { id: 'Electricista', label: 'Electricidad', icon: 'flash-outline' },
+  { id: 'Pintor', label: 'Pintura', icon: 'color-palette-outline' },
+  { id: 'Carpintero', label: 'Carpintería', icon: 'hammer-outline' },
+  { id: 'Albañil', label: 'Albañilería', icon: 'construct-outline' },
+  { id: 'Cerrajero', label: 'Cerrajería', icon: 'key-outline' },
+  { id: 'Tecnico', label: 'Línea blanca / TV', icon: 'tv-outline' },
+  { id: 'Otro', label: 'Otro servicio', icon: 'apps-outline' },
+] as const;
+
 export default function OperatorHome() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -69,6 +82,85 @@ export default function OperatorHome() {
   const [priceDescription, setPriceDescription] = useState('');
   const [savingPrice, setSavingPrice] = useState(false);
 
+  // Estados para Pedido Express (WhatsApp / Llamada)
+  const [expressModalVisible, setExpressModalVisible] = useState(false);
+  const [expressChannel, setExpressChannel] = useState<'WHATSAPP' | 'PHONE'>('WHATSAPP');
+  const [expressClientName, setExpressClientName] = useState('');
+  const [expressClientPhone, setExpressClientPhone] = useState('');
+  const [expressDistrict, setExpressDistrict] = useState('');
+  const [expressAddress, setExpressAddress] = useState('');
+  const [expressSpecialty, setExpressSpecialty] = useState('Gasfitero');
+  const [expressDescription, setExpressDescription] = useState('');
+  const [submittingExpress, setSubmittingExpress] = useState(false);
+
+  const handleCreateExpressRequest = async () => {
+    if (!expressClientName.trim() || !expressDistrict.trim() || !expressAddress.trim() || !expressDescription.trim()) {
+      Alert.alert('Datos requeridos', 'Por favor ingresa nombre, distrito, dirección y descripción del problema.');
+      return;
+    }
+    if (!auth.currentUser) return;
+    setSubmittingExpress(true);
+    try {
+      const code = await getNextServiceRequestCode(db);
+      const requestRef = doc(collection(db, 'service_requests'));
+      const batch = writeBatch(db);
+      const specialtyObj = SERVICES.find((s) => s.id === expressSpecialty);
+
+      batch.set(requestRef, {
+        code,
+        intakeChannel: expressChannel,
+        origin: 'OPERATOR',
+        clientName: expressClientName.trim(),
+        clientPhone: expressClientPhone.trim() || null,
+        clientId: auth.currentUser.uid,
+        district: expressDistrict.trim(),
+        address: expressAddress.trim(),
+        specialty: expressSpecialty,
+        serviceLabel: specialtyObj?.label || expressSpecialty,
+        description: expressDescription.trim(),
+        urgency: 'TODAY',
+        status: 'PENDING_ASSIGNMENT',
+        priority: 'NORMAL',
+        technicalVisitFee: 50.00,
+        price_agreed: 'Visita técnica: S/. 50.00 (Deducible)',
+        datosCompletos: true,
+        securityPin: Math.floor(1000 + Math.random() * 9000).toString(),
+        serviceStarted: false,
+        issuePhoto: null,
+        evidencePhoto: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      createInitialStatusHistoryRecord(
+        batch,
+        db,
+        requestRef.id,
+        { uid: auth.currentUser.uid, role: 'OPERATOR' },
+        `Pedido express registrado por operador vía ${expressChannel === 'WHATSAPP' ? 'WhatsApp' : 'Llamada telefónica'}`
+      );
+
+      await batch.commit();
+
+      Toast.show({
+        type: 'success',
+        text1: 'Pedido Express Registrado',
+        text2: `Código ${code} añadido a la bandeja de atención.`,
+      });
+
+      setExpressModalVisible(false);
+      setExpressClientName('');
+      setExpressClientPhone('');
+      setExpressDistrict('');
+      setExpressAddress('');
+      setExpressDescription('');
+    } catch (error: any) {
+      Alert.alert('Error creando pedido', error.message || 'Inténtalo nuevamente.');
+    } finally {
+      setSubmittingExpress(false);
+    }
+  };
+
   const savePrice = async () => {
     const amountCents = parsePriceCents(priceInput);
     if (!amountCents || !priceDescription.trim()) { Alert.alert('Tarifa inválida', 'Ingresa un importe positivo en soles, con hasta dos decimales, y el alcance del servicio.'); return; }
@@ -81,16 +173,36 @@ export default function OperatorHome() {
         const data = snapshot.data();
         if (!data || !['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING'].includes(data.status)) throw new Error('La tarifa queda bloqueada cuando el trabajador acepta.');
         if ((data.pricing?.version || 0) !== (pricingRequest.pricing?.version || 0)) throw new Error('Otro operador cambió la tarifa. Vuelve a abrirla.');
-        const pricing = { amountCents, currency: 'PEN', description: priceDescription.trim(), assignedBy: auth.currentUser!.uid, updatedAt: serverTimestamp(), version: (data.pricing?.version || 0) + 1 };
+        const pricing = {
+          amountCents,
+          price: amountCents / 100,
+          currency: 'PEN',
+          description: priceDescription.trim(),
+          assignedBy: auth.currentUser!.uid,
+          updatedAt: serverTimestamp(),
+          version: (data.pricing?.version || 0) + 1,
+        };
         const nextStatus = data.providerId ? data.status : 'QUOTED';
         transaction.update(ref, {
           pricing,
           price_agreed: formatPrice(amountCents),
           status: nextStatus,
           quotedAt: serverTimestamp(),
+          firstResponseAt: data.firstResponseAt || serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
         transaction.set(doc(collection(ref, 'price_history')), pricing);
+
+        // Registrar hito inmutable en status_history
+        const historyRef = doc(collection(ref, 'status_history'));
+        transaction.set(historyRef, {
+          fromStatus: data.status,
+          toStatus: nextStatus,
+          actorId: auth.currentUser!.uid,
+          actorRole: 'OPERATOR',
+          timestamp: serverTimestamp(),
+          notes: 'Cotización emitida por operador de central',
+        });
       });
       await sendDemoPushNotification(pricingRequest.notificationTokens?.client, 'Tarifa de tu servicio', `La central cotizó ${formatPrice(amountCents)}. Revisa el alcance y confirma en la app.`, { requestId: pricingRequest.id, screen: 'client_home', type: 'PRICED' });
       if (pricingRequest.providerId) await sendDemoPushNotification(pricingRequest.notificationTokens?.provider, 'Tarifa actualizada por la central', formatPrice(amountCents), { requestId: pricingRequest.id, screen: 'provider_home', type: 'PRICED' });
@@ -203,6 +315,18 @@ export default function OperatorHome() {
           assignedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+
+        // Registrar hito inmutable en status_history
+        const historyRef = doc(collection(requestRef, 'status_history'));
+        transaction.set(historyRef, {
+          fromStatus: currentStatus,
+          toStatus: 'PENDING',
+          actorId: auth.currentUser!.uid,
+          actorRole: 'OPERATOR',
+          timestamp: serverTimestamp(),
+          notes: `Técnico ${provider.full_name || provider.name || provider.id} asignado por operador`,
+        });
+
         transaction.update(providerRef, { activeRequestId: selectedRequest.id });
       });
 
@@ -243,11 +367,28 @@ export default function OperatorHome() {
       await runTransaction(db, async (transaction) => {
         const ref = doc(db, 'service_requests', request.id);
         const snapshot = await transaction.get(ref);
-        if (snapshot.data()?.status !== 'COMPLETED') throw new Error('El servicio ya no está pendiente de validación.');
-        if (!snapshot.data()?.evidence_photo) throw new Error('Este servicio no tiene evidencia. Solicita al trabajador que la complete antes de cerrarlo.');
-        transaction.update(ref, { status: 'ARCHIVED', validatedBy: auth.currentUser?.uid, validatedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        const data = snapshot.data();
+        if (data?.status !== 'COMPLETED') throw new Error('El servicio ya no está pendiente de validación.');
+        if (!data?.evidence_photo && !data?.evidencePhoto) throw new Error('Este servicio no tiene evidencia. Solicita al trabajador que la complete antes de cerrarlo.');
+        
+        transaction.update(ref, {
+          status: 'VALIDATED',
+          validatedBy: auth.currentUser?.uid,
+          validatedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        const historyRef = doc(collection(ref, 'status_history'));
+        transaction.set(historyRef, {
+          fromStatus: 'COMPLETED',
+          toStatus: 'VALIDATED',
+          actorId: auth.currentUser?.uid,
+          actorRole: 'OPERATOR',
+          timestamp: serverTimestamp(),
+          notes: 'Servicio validado y cerrado por la central',
+        });
       });
-      await sendDemoPushNotification(request.notificationTokens?.client, 'Servicio validado', 'La central revisó la evidencia y cerró tu servicio.', { requestId: request.id, screen: 'client_home', type: 'ARCHIVED' });
+      await sendDemoPushNotification(request.notificationTokens?.client, 'Servicio validado', 'La central revisó la evidencia y cerró tu servicio.', { requestId: request.id, screen: 'client_home', type: 'VALIDATED' });
       Toast.show({ type: 'success', text1: 'Servicio cerrado', text2: 'La central validó la evidencia del trabajo.' });
     } catch (error: any) { Alert.alert('No se pudo cerrar', error.message); }
   };
@@ -274,6 +415,29 @@ export default function OperatorHome() {
           <Metric label="Disponibles" value={providers.filter((item) => item.is_active && item.is_verified !== false).length} color={colors.success} />
         </View>
 
+        {/* Botón Pedido Express (WhatsApp / Llamada) */}
+        <TouchableOpacity
+          style={{
+            backgroundColor: '#25D366',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            paddingVertical: 13,
+            borderRadius: 14,
+            marginBottom: 16,
+            shadowColor: '#25D366',
+            shadowOffset: { width: 0, height: 3 },
+            shadowOpacity: 0.25,
+            shadowRadius: 5,
+            elevation: 3,
+          }}
+          onPress={() => setExpressModalVisible(true)}
+        >
+          <Ionicons name="flash" size={18} color="#fff" />
+          <Text style={{ color: '#fff', fontWeight: '900', fontSize: 14 }}>+ Nuevo Pedido Express (WhatsApp / Llamada)</Text>
+        </TouchableOpacity>
+
         <View style={[styles.tabs, { backgroundColor: colors.card }]}>
           <TabButton active={tab === 'QUEUE'} label="Solicitudes" onPress={() => setTab('QUEUE')} color={colors.primary} />
           <TabButton active={tab === 'TECHNICIANS'} label="Técnicos" onPress={() => setTab('TECHNICIANS')} color={colors.primary} />
@@ -281,9 +445,25 @@ export default function OperatorHome() {
 
         {tab === 'QUEUE' ? requests.map((request) => (
           <View key={request.id} style={[styles.card, { backgroundColor: colors.card, borderColor: request.priority === 'HIGH' ? '#E74C3C' : colors.border }]}>
-            <View style={styles.row}><View style={{ flex: 1 }}><Text style={[styles.cardTitle, { color: colors.text }]}>{request.serviceLabel || request.specialty || 'Servicio general'}</Text><Text style={[styles.muted, { color: colors.subtext }]}>{request.clientName || 'Cliente'} · {request.district || 'Distrito pendiente'}</Text></View><View style={[styles.badge, { backgroundColor: request.status === 'REQUIRES_REASSIGNMENT' ? '#FDEDEC' : `${colors.primary}16` }]}><Text style={{ color: request.status === 'REQUIRES_REASSIGNMENT' ? '#C0392B' : colors.primary, fontWeight: '800', fontSize: 11 }}>{statusLabel(request.status)}</Text></View></View>
+            <View style={styles.row}>
+              <View style={{ flex: 1 }}>
+                {request.code ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <View style={{ backgroundColor: `${colors.primary}20`, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5 }}>
+                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800' }}>{request.code}</Text>
+                    </View>
+                    <Text style={{ color: colors.subtext, fontSize: 10, fontWeight: '700' }}>CANAL: {request.intakeChannel || 'APP'}</Text>
+                  </View>
+                ) : null}
+                <Text style={[styles.cardTitle, { color: colors.text }]}>{request.serviceLabel || request.specialty || 'Servicio general'}</Text>
+                <Text style={[styles.muted, { color: colors.subtext }]}>{request.clientName || 'Cliente'} · {request.district || 'Distrito pendiente'}</Text>
+              </View>
+              <View style={[styles.badge, { backgroundColor: request.status === 'REQUIRES_REASSIGNMENT' ? '#FDEDEC' : `${colors.primary}16` }]}>
+                <Text style={{ color: request.status === 'REQUIRES_REASSIGNMENT' ? '#C0392B' : colors.primary, fontWeight: '800', fontSize: 11 }}>{statusLabel(request.status)}</Text>
+              </View>
+            </View>
             {request.description ? <Text style={[styles.description, { color: colors.text }]}>{request.description}</Text> : null}
-            {request.issuePhoto ? <Image source={{ uri: request.issuePhoto }} style={styles.issuePhoto} /> : null}
+            {request.issuePhoto ? <Image source={{ uri: request.issuePhoto }} style={styles.issuePhoto} resizeMode="contain" /> : null}
             <Text style={[styles.muted, { color: colors.subtext }]}><Ionicons name="location-outline" /> {request.address || 'Sin dirección registrada'}</Text>
             {request.addressReference ? <Text style={{ color: colors.subtext }}>{request.addressReference}</Text> : null}
             <Text style={[styles.cardTitle, { color: colors.primary, marginTop: 12 }]}>{request.price_agreed || 'Tarifa pendiente'}</Text>
@@ -357,6 +537,151 @@ export default function OperatorHome() {
       </Modal>
 
       {selectedRequest ? <View style={styles.overlay}><View style={[styles.sheet, { backgroundColor: colors.card }]}><View style={styles.row}><View style={{ flex: 1 }}><Text style={[styles.sheetTitle, { color: colors.text }]}>Técnicos recomendados</Text><Text style={[styles.muted, { color: colors.subtext }]}>Ordenados por compatibilidad, disponibilidad y distancia.</Text></View><TouchableOpacity onPress={() => setSelectedRequest(null)}><Ionicons name="close-circle" size={30} color={colors.subtext} /></TouchableOpacity></View>{selectedRequest.location ? <><View style={styles.dispatchMapFrame}><ServiceMap location={{ latitude: selectedRequest.location.latitude, longitude: selectedRequest.location.longitude }} technicians={candidateMarkers} style={styles.dispatchMap} /></View><TouchableOpacity style={styles.mapsLink} onPress={openRequestInMaps}><Ionicons name="navigate-outline" size={17} color={colors.primary} /><Text style={{ color: colors.primary, fontWeight: '800' }}>Abrir ubicación del cliente en Maps</Text></TouchableOpacity></> : <View style={[styles.noLocation, { backgroundColor: colors.background }]}><Ionicons name="location-outline" size={20} color={colors.subtext} /><Text style={[styles.muted, { color: colors.subtext }]}>Esta solicitud no tiene coordenadas confirmadas.</Text></View>}<ScrollView style={{ maxHeight: 300 }}>{candidates.map((provider, index) => <TouchableOpacity key={provider.id} style={[styles.candidate, { borderColor: colors.border }]} onPress={() => assignProvider(provider)} disabled={assigning}><View style={[styles.rank, { backgroundColor: `${colors.primary}18` }]}><Text style={{ color: colors.primary, fontWeight: '900' }}>{index + 1}</Text></View><View style={{ flex: 1 }}><Text style={{ color: colors.text, fontWeight: '800' }}>{provider.full_name || provider.name}</Text><Text style={[styles.muted, { color: colors.subtext }]}>{provider.specialty || 'Sin especialidad'} · {provider.is_active ? 'Disponible' : 'No disponible'}</Text><Text style={[styles.muted, { color: colors.subtext }]}>{provider.distance === null ? 'Distancia no disponible' : `${(provider.distance / 1000).toFixed(1)} km`} · Compatibilidad {Math.round(provider.score)}%</Text></View><Ionicons name="chevron-forward" size={20} color={colors.primary} /></TouchableOpacity>)}</ScrollView></View></View> : null}
+
+      {/* Modal de Pedido Express (WhatsApp / Llamada) */}
+      <Modal visible={expressModalVisible} transparent animationType="slide" onRequestClose={() => { if (!submittingExpress) setExpressModalVisible(false); }}>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, { backgroundColor: colors.card, maxHeight: '88%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.sheetTitle, { color: colors.text }]}>Nuevo Pedido Express</Text>
+                  <Text style={{ color: colors.subtext, fontSize: 12 }}>Atención rápida para pedidos recibidos por WhatsApp o llamada.</Text>
+                </View>
+                <TouchableOpacity onPress={() => setExpressModalVisible(false)}>
+                  <Ionicons name="close-circle" size={28} color={colors.subtext} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Selector de Canal */}
+              <Text style={{ color: colors.subtext, fontSize: 11, fontWeight: '800', marginTop: 14, marginBottom: 6 }}>CANAL DE INGRESO</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+                <TouchableOpacity
+                  onPress={() => setExpressChannel('WHATSAPP')}
+                  style={{
+                    flex: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    borderWidth: 1.5,
+                    borderColor: expressChannel === 'WHATSAPP' ? '#25D366' : colors.border,
+                    backgroundColor: expressChannel === 'WHATSAPP' ? '#25D36615' : colors.background,
+                  }}
+                >
+                  <Ionicons name="logo-whatsapp" size={18} color={expressChannel === 'WHATSAPP' ? '#25D366' : colors.subtext} />
+                  <Text style={{ fontWeight: '800', color: expressChannel === 'WHATSAPP' ? '#25D366' : colors.text, fontSize: 13 }}>WhatsApp</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setExpressChannel('PHONE')}
+                  style={{
+                    flex: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    borderWidth: 1.5,
+                    borderColor: expressChannel === 'PHONE' ? colors.primary : colors.border,
+                    backgroundColor: expressChannel === 'PHONE' ? `${colors.primary}15` : colors.background,
+                  }}
+                >
+                  <Ionicons name="call" size={18} color={expressChannel === 'PHONE' ? colors.primary : colors.subtext} />
+                  <Text style={{ fontWeight: '800', color: expressChannel === 'PHONE' ? colors.primary : colors.text, fontSize: 13 }}>Llamada</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Formulario */}
+              <TextInput
+                placeholder="Nombre del cliente *"
+                placeholderTextColor={colors.subtext}
+                value={expressClientName}
+                onChangeText={setExpressClientName}
+                style={{ padding: 12, borderWidth: 1, borderColor: colors.border, color: colors.text, borderRadius: 10, marginBottom: 10 }}
+              />
+
+              <TextInput
+                placeholder="Teléfono / WhatsApp de contacto"
+                placeholderTextColor={colors.subtext}
+                keyboardType="phone-pad"
+                value={expressClientPhone}
+                onChangeText={setExpressClientPhone}
+                style={{ padding: 12, borderWidth: 1, borderColor: colors.border, color: colors.text, borderRadius: 10, marginBottom: 10 }}
+              />
+
+              <TextInput
+                placeholder="Distrito (ej. Miraflores, Surco) *"
+                placeholderTextColor={colors.subtext}
+                value={expressDistrict}
+                onChangeText={setExpressDistrict}
+                style={{ padding: 12, borderWidth: 1, borderColor: colors.border, color: colors.text, borderRadius: 10, marginBottom: 10 }}
+              />
+
+              <TextInput
+                placeholder="Dirección y referencia *"
+                placeholderTextColor={colors.subtext}
+                value={expressAddress}
+                onChangeText={setExpressAddress}
+                style={{ padding: 12, borderWidth: 1, borderColor: colors.border, color: colors.text, borderRadius: 10, marginBottom: 10 }}
+              />
+
+              {/* Selector de Especialidad */}
+              <Text style={{ color: colors.subtext, fontSize: 11, fontWeight: '800', marginBottom: 6 }}>ESPECIALIDAD REQUERIDA</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {SERVICES.map((s) => (
+                    <TouchableOpacity
+                      key={s.id}
+                      onPress={() => setExpressSpecialty(s.id)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: expressSpecialty === s.id ? colors.primary : colors.border,
+                        backgroundColor: expressSpecialty === s.id ? `${colors.primary}20` : colors.background,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: expressSpecialty === s.id ? colors.primary : colors.text }}>
+                        {s.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+
+              <TextInput
+                placeholder="Descripción del problema o requerimiento *"
+                placeholderTextColor={colors.subtext}
+                value={expressDescription}
+                onChangeText={setExpressDescription}
+                multiline
+                numberOfLines={3}
+                style={{ padding: 12, borderWidth: 1, borderColor: colors.border, color: colors.text, borderRadius: 10, marginBottom: 14 }}
+              />
+
+              <TouchableOpacity
+                disabled={submittingExpress}
+                style={[styles.primaryButton, { backgroundColor: colors.primary }]}
+                onPress={handleCreateExpressRequest}
+              >
+                {submittingExpress ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Registrar Pedido Express</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={submittingExpress}
+                style={{ paddingVertical: 12, alignItems: 'center', marginTop: 4 }}
+                onPress={() => setExpressModalVisible(false)}
+              >
+                <Text style={{ color: colors.subtext, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -369,7 +694,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 }, eyebrow: { fontSize: 11, fontWeight: '900', letterSpacing: 1.4 }, title: { fontSize: 27, fontWeight: '900', marginTop: 3 }, iconButton: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   metrics: { flexDirection: 'row', gap: 10, marginBottom: 16 }, metric: { flex: 1, backgroundColor: '#fff', borderRadius: 15, padding: 13, borderTopWidth: 4 }, metricValue: { fontSize: 25, fontWeight: '900' }, metricLabel: { color: '#687481', fontSize: 11, fontWeight: '700' },
   tabs: { flexDirection: 'row', borderRadius: 15, padding: 4, marginBottom: 14 }, tab: { flex: 1, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  card: { borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 }, cardTitle: { fontSize: 17, fontWeight: '900' }, muted: { fontSize: 12, lineHeight: 18 }, description: { fontSize: 14, lineHeight: 20, marginVertical: 12 }, badge: { borderRadius: 10, paddingHorizontal: 9, paddingVertical: 6 }, issuePhoto: { width: '100%', height: 170, borderRadius: 13, marginBottom: 12 },
+  card: { borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 }, cardTitle: { fontSize: 17, fontWeight: '900' }, muted: { fontSize: 12, lineHeight: 18 }, description: { fontSize: 14, lineHeight: 20, marginVertical: 12 }, badge: { borderRadius: 10, paddingHorizontal: 9, paddingVertical: 6 }, issuePhoto: { width: '100%', height: 180, borderRadius: 13, marginBottom: 12, backgroundColor: '#0f172a' },
   primaryButton: { height: 45, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 13 }, primaryText: { color: '#fff', fontWeight: '900' }, assignment: { flexDirection: 'row', alignItems: 'center', gap: 7, padding: 11, borderRadius: 12, marginTop: 12 }, onlineDot: { width: 12, height: 12, borderRadius: 6 },
   overlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,.55)', justifyContent: 'flex-end' }, sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 20, paddingBottom: 32 }, sheetTitle: { fontSize: 20, fontWeight: '900' }, candidate: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 11, borderBottomWidth: 1 }, rank: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   dispatchMapFrame: { height: 205, borderRadius: 16, overflow: 'hidden', marginTop: 14 }, dispatchMap: { width: '100%', height: '100%' }, mapsLink: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }, noLocation: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, padding: 12, marginTop: 12 },

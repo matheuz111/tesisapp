@@ -125,6 +125,7 @@ export default function ClientHistory() {
             case 'PENDING_ASSIGNMENT': return '#e67e22';
             case 'REQUIRES_REASSIGNMENT': return '#e67e22';
             case 'IN_PROGRESS': return colors.primary;
+            case 'VALIDATED':
             case 'ARCHIVED': return colors.success;
             case 'CANCELLED':
             case 'CANCELLED_BY_CLIENT':
@@ -141,6 +142,7 @@ export default function ClientHistory() {
             case 'PENDING_ASSIGNMENT': return 'POR ASIGNAR';
             case 'REQUIRES_REASSIGNMENT': return 'REASIGNANDO';
             case 'IN_PROGRESS': return 'EN EJECUCIÓN';
+            case 'VALIDATED':
             case 'ARCHIVED': return 'FINALIZADO';
             case 'CANCELLED':
             case 'CANCELLED_BY_CLIENT':
@@ -150,7 +152,7 @@ export default function ClientHistory() {
     };
 
     const renderItem = ({ item }: { item: any }) => {
-        const isFinished = item.status === 'ARCHIVED' || item.status === 'COMPLETED';
+        const isFinished = item.status === 'VALIDATED' || item.status === 'ARCHIVED' || item.status === 'COMPLETED';
         const hasRating = typeof item.rating_given === 'number' && item.rating_given > 0;
 
         return (

@@ -3,8 +3,10 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { signOutWithNotifications } from '../../utils/pushNotifications';
-import { GeoPoint, collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
+import { GeoPoint, collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { getNextServiceRequestCode } from '../../src/domain/counterService';
+import { createInitialStatusHistoryRecord, transitionServiceStatus } from '../../src/domain/serviceRequestTransition';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { MapCoordinate, ServiceMap } from '../../src/components/ServiceMap';
@@ -151,21 +153,69 @@ export default function ClientHome() {
     return () => { active = false; clearTimeout(timeout); unsubscribe(); };
   }, [user, requestAttempt, dismissedCompletedId]);
 
-  const selectVoucherPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permiso requerido', 'Permite el acceso a fotos para adjuntar el comprobante.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.25,
-      base64: true,
-      allowsEditing: true,
+  // ── Selector optimizado de foto completa (Cámara o Galería sin recorte) ──
+  const pickPhotoComplete = async (title: string): Promise<{ uri: string; base64: string } | null> => {
+    return new Promise((resolve) => {
+      Alert.alert(
+        title,
+        'Selecciona el origen de la imagen (se conservará completa y sin recortes):',
+        [
+          {
+            text: 'Cámara 📷',
+            onPress: async () => {
+              const perm = await ImagePicker.requestCameraPermissionsAsync();
+              if (!perm.granted) {
+                Alert.alert('Permiso requerido', 'Permite el acceso a la cámara para capturar la fotografía.');
+                resolve(null);
+                return;
+              }
+              const res = await ImagePicker.launchCameraAsync({
+                mediaTypes: ['images'],
+                quality: 0.7,
+                base64: true,
+                allowsEditing: false,
+              });
+              const asset = res.assets?.[0];
+              if (!res.canceled && asset?.base64 && asset?.uri) {
+                resolve({ uri: asset.uri, base64: asset.base64 });
+              } else {
+                resolve(null);
+              }
+            },
+          },
+          {
+            text: 'Galería 🖼️',
+            onPress: async () => {
+              const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (!perm.granted) {
+                Alert.alert('Permiso requerido', 'Permite el acceso a tus fotos para adjuntar la fotografía.');
+                resolve(null);
+                return;
+              }
+              const res = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                quality: 0.7,
+                base64: true,
+                allowsEditing: false,
+              });
+              const asset = res.assets?.[0];
+              if (!res.canceled && asset?.base64 && asset?.uri) {
+                resolve({ uri: asset.uri, base64: asset.base64 });
+              } else {
+                resolve(null);
+              }
+            },
+          },
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
+        ]
+      );
     });
-    const asset = result.assets?.[0];
-    if (!result.canceled && asset?.base64) {
-      setVoucher({ uri: asset.uri, base64: asset.base64 });
+  };
+
+  const selectVoucherPhoto = async () => {
+    const asset = await pickPhotoComplete('Adjuntar Comprobante de Pago');
+    if (asset) {
+      setVoucher(asset);
     }
   };
 
@@ -210,19 +260,9 @@ export default function ClientHome() {
   };
 
   const selectPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permiso requerido', 'Permite el acceso a tus fotos para adjuntar evidencia del problema.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.25, base64: true, allowsEditing: true, aspect: [4, 3] });
-    const asset = result.assets?.[0];
-    if (!result.canceled && asset?.base64) {
-      if (asset.base64.length > 700000) {
-        Alert.alert('Imagen muy pesada', 'Selecciona una fotografía de menor tamaño.');
-        return;
-      }
-      setPhoto({ uri: asset.uri, base64: asset.base64 });
+    const asset = await pickPhotoComplete('Adjuntar Fotografía del Problema');
+    if (asset) {
+      setPhoto(asset);
     }
   };
 
@@ -297,10 +337,19 @@ export default function ClientHome() {
 
       const location = new GeoPoint(serviceLocation.latitude, serviceLocation.longitude);
       if (auth.currentUser?.uid !== user.uid) return;
+
+      // Generar correlativo SOL-POST-XXXX mediante transacción atómica
+      const code = await getNextServiceRequestCode(db);
+
       const requestRef = doc(collection(db, 'service_requests'));
-      await setDoc(requestRef, {
+      const batch = writeBatch(db);
+
+      batch.set(requestRef, {
+        code,
+        intakeChannel: 'APP',
+        origin: 'CLIENT',
+        datosCompletos: true,
         organizationId: ORGANIZATION_ID,
-        intakeChannel: 'CUSTOMER_APP',
         clientId: user.uid,
         clientName: user.displayName || user.email?.split('@')[0] || 'Cliente',
         notificationTokens: {
@@ -315,6 +364,8 @@ export default function ClientHome() {
         urgency,
         preferredSchedule: urgency === 'SCHEDULED' ? preferredSchedule.trim() : null,
         issuePhoto: null,
+        evidencePhoto: null,
+        evidence_photo: null,
         location,
         locationSource: 'CUSTOMER_CONFIRMED',
         status: 'PENDING_ASSIGNMENT',
@@ -328,6 +379,14 @@ export default function ClientHome() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+
+      // Crear primer hito en subcolección status_history
+      createInitialStatusHistoryRecord(batch, db, requestRef.id, {
+        uid: user.uid,
+        role: 'CLIENT',
+      });
+
+      await batch.commit();
       if (auth.currentUser?.uid !== user.uid) return;
       void notifyCentral(requestRef.id, urgency === 'NOW' ? 'Solicitud urgente' : 'Nueva solicitud', `${user.displayName || 'Un cliente'} solicita ${selectedService?.label || service} en ${district}.`, 'PENDING_ASSIGNMENT');
       if (photo) {
@@ -356,20 +415,30 @@ export default function ClientHome() {
         const targetProviderTokens = activeRequest.notificationTokens?.provider;
         if (!user || auth.currentUser?.uid !== user.uid) return;
         try {
-        await updateDoc(doc(db, 'service_requests', activeRequest.id), { status: 'CANCELLED_BY_CLIENT', cancelledAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        if (auth.currentUser?.uid !== user.uid) return;
-        void notifyCentral(activeRequest.id, 'Solicitud cancelada', 'El cliente canceló su solicitud.', 'CANCELLED_BY_CLIENT');
-        
-        // Notificar al técnico si la solicitud ya tenía técnico asignado
-        if (targetProviderTokens && targetProviderTokens.length > 0) {
-          sendDemoPushNotification(
-            targetProviderTokens,
-            'Solicitud Cancelada',
-            `${user?.displayName || 'El cliente'} ha cancelado la solicitud.`,
-            { requestId: activeRequest.id, screen: 'provider_home', type: 'CANCELLED_BY_CLIENT' },
-            { requestId: activeRequest.id, eventType: 'CANCELLED_BY_CLIENT' }
-          ).catch(() => {});
-        }
+          await transitionServiceStatus(
+            db,
+            activeRequest.id,
+            'CANCELLED_BY_CLIENT',
+            { uid: user.uid, role: 'CLIENT' },
+            {
+              fromStatus: activeRequest.status,
+              notes: 'El cliente canceló la solicitud',
+              extraFields: { cancelledAt: serverTimestamp() },
+            }
+          );
+          if (auth.currentUser?.uid !== user.uid) return;
+          void notifyCentral(activeRequest.id, 'Solicitud cancelada', 'El cliente canceló su solicitud.', 'CANCELLED_BY_CLIENT');
+          
+          // Notificar al técnico si la solicitud ya tenía técnico asignado
+          if (targetProviderTokens && targetProviderTokens.length > 0) {
+            sendDemoPushNotification(
+              targetProviderTokens,
+              'Solicitud Cancelada',
+              `${user?.displayName || 'El cliente'} ha cancelado la solicitud.`,
+              { requestId: activeRequest.id, screen: 'provider_home', type: 'CANCELLED_BY_CLIENT' },
+              { requestId: activeRequest.id, eventType: 'CANCELLED_BY_CLIENT' }
+            ).catch(() => {});
+          }
         } catch { Alert.alert('No se pudo cancelar', 'Revisa tu conexión y vuelve a intentar.'); }
       } },
     ]);
@@ -378,11 +447,20 @@ export default function ClientHome() {
   const handleAcceptQuote = async () => {
     if (!activeRequest || !user) return;
     try {
-      await updateDoc(doc(db, 'service_requests', activeRequest.id), {
-        status: 'PENDING_ASSIGNMENT',
-        quoteAcceptedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      await transitionServiceStatus(
+        db,
+        activeRequest.id,
+        'PENDING_ASSIGNMENT',
+        { uid: user.uid, role: 'CLIENT' },
+        {
+          fromStatus: 'QUOTED',
+          notes: 'Cotización aceptada por el cliente',
+          extraFields: {
+            quoteAccepted: true,
+            quoteAcceptedAt: serverTimestamp(),
+          },
+        }
+      );
       void notifyCentral(
         activeRequest.id,
         'Cotización Aceptada 🎉',
@@ -407,13 +485,21 @@ export default function ClientHome() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await updateDoc(doc(db, 'service_requests', activeRequest.id), {
-                status: 'CANCELLED_BY_CLIENT',
-                cancelReason: 'QUOTE_REJECTED',
-                quoteRejectedAt: serverTimestamp(),
-                cancelledAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              });
+              await transitionServiceStatus(
+                db,
+                activeRequest.id,
+                'CANCELLED_BY_CLIENT',
+                { uid: user.uid, role: 'CLIENT' },
+                {
+                  fromStatus: activeRequest.status,
+                  notes: 'Cotización rechazada por el cliente',
+                  extraFields: {
+                    cancelReason: 'QUOTE_REJECTED',
+                    quoteRejectedAt: serverTimestamp(),
+                    cancelledAt: serverTimestamp(),
+                  },
+                }
+              );
               void notifyCentral(
                 activeRequest.id,
                 'Cotización Rechazada',
@@ -513,6 +599,14 @@ export default function ClientHome() {
             ) : null}
 
             <View style={[styles.summaryBox, { backgroundColor: colors.background }]}>
+              {activeRequest.code ? (
+                <View style={{ marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <Text style={[styles.summaryLabel, { color: colors.subtext, marginBottom: 0 }]}>CÓDIGO DE ATENCIÓN</Text>
+                  <View style={{ backgroundColor: `${colors.primary}20`, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>{activeRequest.code}</Text>
+                  </View>
+                </View>
+              ) : null}
               <Text style={[styles.summaryLabel, { color: colors.subtext }]}>SERVICIO</Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>{activeRequest.serviceLabel || activeRequest.specialty}</Text>
               <Text style={[styles.summaryLabel, { color: colors.subtext }]}>TARIFA DE LA EMPRESA</Text><Text style={[styles.summaryValue, { color: colors.text }]}>{activeRequest.price_agreed || 'Pendiente de cotización por la central'}</Text>
@@ -531,11 +625,24 @@ export default function ClientHome() {
             </View>
             {activeRequest.status === 'COMPLETED' ? (
               <View style={[styles.completedSection, { borderTopColor: colors.border }]}>
-                {/* 1. Evidencia del trabajo */}
-                {activeRequest.evidence_photo && (
+                {/* 1. Evidencia del trabajo: Antes y Después */}
+                {(activeRequest.issuePhoto || activeRequest.evidence_photo) && (
                   <View style={{ marginBottom: 14 }}>
-                    <Text style={[styles.completedSubheading, { color: colors.text }]}>Evidencia del trabajo finalizado:</Text>
-                    <Image source={{ uri: activeRequest.evidence_photo }} style={styles.completedEvidenceImage} />
+                    <Text style={[styles.completedSubheading, { color: colors.text }]}>Evidencia del servicio (Antes y Después):</Text>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+                      {activeRequest.issuePhoto ? (
+                        <View style={{ flex: 1, backgroundColor: '#0f172a', borderRadius: 12, overflow: 'hidden', padding: 6 }}>
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800', textAlign: 'center', marginBottom: 4 }}>1. ANTES (INICIAL)</Text>
+                          <Image source={{ uri: activeRequest.issuePhoto }} style={{ width: '100%', height: 140 }} resizeMode="contain" />
+                        </View>
+                      ) : null}
+                      {activeRequest.evidence_photo ? (
+                        <View style={{ flex: 1, backgroundColor: '#0f172a', borderRadius: 12, overflow: 'hidden', padding: 6 }}>
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800', textAlign: 'center', marginBottom: 4 }}>2. DESPUÉS (FINAL)</Text>
+                          <Image source={{ uri: activeRequest.evidence_photo }} style={{ width: '100%', height: 140 }} resizeMode="contain" />
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
                 )}
 
@@ -592,7 +699,7 @@ export default function ClientHome() {
                         <View style={{ marginTop: 8 }}>
                           {voucher ? (
                             <View style={styles.voucherPreview}>
-                              <Image source={{ uri: voucher.uri }} style={styles.voucherImage} />
+                              <Image source={{ uri: voucher.uri }} style={styles.voucherImage} resizeMode="contain" />
                               <TouchableOpacity style={styles.removeVoucherBtn} onPress={() => setVoucher(null)}>
                                 <Ionicons name="close" size={16} color="#fff" />
                               </TouchableOpacity>
@@ -741,7 +848,7 @@ export default function ClientHome() {
               <Text style={[styles.fieldLabel, { color: colors.text }]}>¿Cuándo lo necesitas?</Text>
               <View style={styles.urgencyRow}>{[['NOW', 'Urgente'], ['TODAY', 'Hoy'], ['SCHEDULED', 'Programar']].map(([value, label]) => <TouchableOpacity key={value} style={[styles.urgencyChip, { borderColor: urgency === value ? colors.primary : colors.border }, urgency === value && { backgroundColor: `${colors.primary}15` }]} onPress={() => setUrgency(value as typeof urgency)}><Text style={{ color: urgency === value ? colors.primary : colors.subtext, fontWeight: '700' }}>{label}</Text></TouchableOpacity>)}</View>
               {urgency === 'SCHEDULED' ? <TextInput style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]} placeholder="Fecha y rango horario preferido" placeholderTextColor={colors.subtext} value={preferredSchedule} onChangeText={setPreferredSchedule} /> : null}
-              {photo ? <View style={styles.photoPreview}><Image source={{ uri: photo.uri }} style={styles.photo} /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhoto(null)}><Ionicons name="close" size={18} color="#fff" /></TouchableOpacity></View> : <TouchableOpacity style={[styles.photoButton, { borderColor: colors.border }]} onPress={selectPhoto}><Ionicons name="camera-outline" size={21} color={colors.primary} /><Text style={{ color: colors.primary, fontWeight: '700' }}>Adjuntar fotografía</Text></TouchableOpacity>}
+              {photo ? <View style={styles.photoPreview}><Image source={{ uri: photo.uri }} style={styles.photo} resizeMode="contain" /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhoto(null)}><Ionicons name="close" size={18} color="#fff" /></TouchableOpacity></View> : <TouchableOpacity style={[styles.photoButton, { borderColor: colors.border }]} onPress={selectPhoto}><Ionicons name="camera-outline" size={21} color={colors.primary} /><Text style={{ color: colors.primary, fontWeight: '700' }}>Adjuntar fotografía completa</Text></TouchableOpacity>}
 
               {/* Tarjeta de Tarifa de Visita Técnica Maestro a Domicilio */}
               <View style={[styles.visitFeeCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -815,20 +922,20 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 22, padding: 18, marginBottom: 20 }, textArea: { minHeight: 105, borderWidth: 1, borderRadius: 14, padding: 13, textAlignVertical: 'top', marginBottom: 11 }, input: { height: 50, borderWidth: 1, borderRadius: 14, paddingHorizontal: 13, marginBottom: 11 },
   locationHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2, marginBottom: 10 }, locationHint: { fontSize: 11, lineHeight: 16 }, locationButton: { minWidth: 105, minHeight: 42, borderWidth: 1, borderRadius: 12, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 }, mapFrame: { height: 220, borderWidth: 1.5, borderRadius: 15, overflow: 'hidden' }, map: { width: '100%', height: '100%' }, mapStatus: { fontSize: 12, fontWeight: '700', marginTop: 7, marginBottom: 12 },
   fieldLabel: { fontSize: 14, fontWeight: '800', marginTop: 4, marginBottom: 9 }, urgencyRow: { flexDirection: 'row', gap: 8, marginBottom: 14 }, urgencyChip: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  photoButton: { height: 50, borderWidth: 1, borderStyle: 'dashed', borderRadius: 14, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }, photoPreview: { height: 160, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }, photo: { width: '100%', height: '100%' }, removePhoto: { position: 'absolute', right: 8, top: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,.65)', alignItems: 'center', justifyContent: 'center' },
+  photoButton: { height: 50, borderWidth: 1, borderStyle: 'dashed', borderRadius: 14, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 14 }, photoPreview: { height: 200, borderRadius: 14, overflow: 'hidden', marginBottom: 14, backgroundColor: '#0f172a' }, photo: { width: '100%', height: '100%' }, removePhoto: { position: 'absolute', right: 8, top: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,.65)', alignItems: 'center', justifyContent: 'center' },
   submitButton: { height: 54, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, submitText: { color: '#fff', fontSize: 16, fontWeight: '800' }, disclaimer: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 10 },
   statusHeader: { flexDirection: 'row', gap: 12, alignItems: 'center' }, statusIcon: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }, cardTitle: { fontSize: 18, fontWeight: '800' }, helper: { fontSize: 13, lineHeight: 18, marginTop: 3 }, progressRow: { flexDirection: 'row', gap: 6, marginVertical: 18 }, progressSegment: { flex: 1, height: 5, borderRadius: 4 },
   summaryBox: { padding: 15, borderRadius: 15 }, summaryLabel: { fontSize: 10, fontWeight: '800', letterSpacing: .8, marginTop: 7 }, summaryValue: { fontSize: 15, fontWeight: '700', marginTop: 2 }, pin: { fontSize: 30, fontWeight: '900', letterSpacing: 7, marginTop: 4 }, actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 }, primaryButton: { flex: 1, height: 48, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }, primaryButtonText: { color: '#fff', fontWeight: '800' }, secondaryButton: { flex: 1, height: 48, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   completedSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1 },
   completedSubheading: { fontSize: 14, fontWeight: '800', marginBottom: 6 },
-  completedEvidenceImage: { width: '100%', height: 160, borderRadius: 12, marginTop: 4 },
+  completedEvidenceImage: { width: '100%', height: 180, borderRadius: 12, marginTop: 4, backgroundColor: '#0f172a' },
   paymentCard: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14 },
   paymentAmount: { fontSize: 20, fontWeight: '900', marginVertical: 4 },
   paymentSuccessBox: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, backgroundColor: 'rgba(46, 204, 113, 0.1)', marginTop: 8 },
-  voucherThumbnail: { width: 44, height: 44, borderRadius: 8 },
+  voucherThumbnail: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#0f172a' },
   paymentMethodsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   paymentMethodChip: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  voucherPreview: { height: 120, borderRadius: 10, overflow: 'hidden', marginVertical: 6, position: 'relative' },
+  voucherPreview: { height: 180, borderRadius: 10, overflow: 'hidden', marginVertical: 6, position: 'relative', backgroundColor: '#0f172a' },
   voucherImage: { width: '100%', height: '100%' },
   removeVoucherBtn: { position: 'absolute', right: 6, top: 6, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' },
   voucherButton: { height: 42, borderWidth: 1, borderStyle: 'dashed', borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginVertical: 6 },

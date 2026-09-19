@@ -52,7 +52,7 @@ export default function ProviderHistoryScreen() {
             const q = query(
                 collection(db, 'service_requests'),
                 where('providerId', '==', user.uid),
-                where('status', 'in', ['COMPLETED', 'ARCHIVED']),
+                where('status', 'in', ['COMPLETED', 'ARCHIVED', 'VALIDATED']),
                 orderBy('createdAt', 'desc')
             );
 
@@ -88,7 +88,7 @@ export default function ProviderHistoryScreen() {
     }, 0);
 
     const renderItem = ({ item }: { item: any }) => {
-        const isArchived = item.status === 'ARCHIVED';
+        const isArchived = item.status === 'ARCHIVED' || item.status === 'VALIDATED';
 
         return (
             <View style={[styles.card, { backgroundColor: colors.card, shadowColor: colors.shadow }]}>

@@ -35,6 +35,7 @@ import { ProviderDashboard } from '../../src/components/ProviderDashboard';
 import { auth, db } from '../../src/config/firebase';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useSession } from '../../src/context/SessionContext';
+import { transitionServiceStatus } from '../../src/domain/serviceRequestTransition';
 import { uploadServiceImage } from '../../src/services/mediaStorage';
 import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
 import { confirmProviderPayment } from '../../src/services/payment';
@@ -64,6 +65,7 @@ export default function ProviderHome() {
   const [incomingRequest, setIncomingRequest] = useState<any>(null);
   const [currentJob, setCurrentJob] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadingInitial, setUploadingInitial] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [inputPin, setInputPin] = useState('');
@@ -149,7 +151,7 @@ export default function ProviderHome() {
 
   // ── Aceptar trabajo ─────────────────────
   const acceptJob = async () => {
-    if (!incomingRequest || accepting) return;
+    if (!incomingRequest || accepting || !user) return;
     isAcceptingRef.current = true;
     setAccepting(true);
     const targetRequest = incomingRequest;
@@ -160,6 +162,17 @@ export default function ProviderHome() {
         const snapshot = await transaction.get(ref);
         if (snapshot.data()?.status !== 'PENDING' || snapshot.data()?.providerId !== user?.uid) throw new Error('La asignación ya no está disponible.');
         transaction.update(ref, { status: 'ACCEPTED', acceptedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+
+        // Registrar hito inmutable en status_history
+        const historyRef = doc(collection(ref, 'status_history'));
+        transaction.set(historyRef, {
+          fromStatus: 'PENDING',
+          toStatus: 'ACCEPTED',
+          actorId: user.uid,
+          actorRole: 'PROVIDER',
+          timestamp: serverTimestamp(),
+          notes: 'Trabajo aceptado por el técnico',
+        });
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: 'Trabajo aceptado', text2: 'Consulta el destino y valida el PIN al llegar.' });
@@ -203,13 +216,21 @@ export default function ProviderHome() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await updateDoc(doc(db, 'service_requests', incomingRequest.id), {
-                status: 'REQUIRES_REASSIGNMENT',
-                rejectedProviderIds: arrayUnion(user.uid),
-                rejectionReason: 'TECHNICIAN_UNAVAILABLE',
-                rejectedAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              });
+              await transitionServiceStatus(
+                db,
+                incomingRequest.id,
+                'REQUIRES_REASSIGNMENT',
+                { uid: user.uid, role: 'PROVIDER' },
+                {
+                  fromStatus: 'PENDING',
+                  notes: 'Técnico rechazó la asignación',
+                  extraFields: {
+                    rejectedProviderIds: arrayUnion(user.uid),
+                    rejectionReason: 'TECHNICIAN_UNAVAILABLE',
+                    rejectedAt: serverTimestamp(),
+                  },
+                }
+              );
 
               setIncomingRequest(null);
               void notifyCentral(incomingRequest.id, 'Servicio requiere reasignación', 'Un trabajador devolvió su asignación. Revisa la bandeja.', 'REQUIRES_REASSIGNMENT');
@@ -238,13 +259,22 @@ export default function ProviderHome() {
             setCancelling(true);
             try {
               const clientTokens = currentJob.notificationTokens?.client;
-              await updateDoc(doc(db, 'service_requests', currentJob.id), {
-                status: 'REQUIRES_REASSIGNMENT',
-                serviceStarted: false,
-                rejectedProviderIds: arrayUnion(user.uid),
-                rejectionReason: 'TECHNICIAN_UNAVAILABLE',
-                rejectedAt: serverTimestamp(), updatedAt: serverTimestamp(),
-              });
+              await transitionServiceStatus(
+                db,
+                currentJob.id,
+                'REQUIRES_REASSIGNMENT',
+                { uid: user.uid, role: 'PROVIDER' },
+                {
+                  fromStatus: currentJob.status,
+                  notes: 'Técnico abortó la atención en camino',
+                  extraFields: {
+                    serviceStarted: false,
+                    rejectedProviderIds: arrayUnion(user.uid),
+                    rejectionReason: 'TECHNICIAN_UNAVAILABLE',
+                    rejectedAt: serverTimestamp(),
+                  },
+                }
+              );
 
               if (clientTokens && clientTokens.length > 0) {
                 sendDemoPushNotification(
@@ -280,7 +310,7 @@ export default function ProviderHome() {
   // ── Validar PIN de Inicio Presencial (HU-18: Límite de 3 intentos y bloqueo) ──
   const validatePin = async () => {
     Keyboard.dismiss();
-    if (!currentJob) return;
+    if (!currentJob || !user) return;
     if (lockoutSeconds > 0) {
       Alert.alert(
         'Ingreso Temporalmente Bloqueado 🔒',
@@ -322,13 +352,21 @@ export default function ProviderHome() {
     }
     setVerifyingPin(true);
     try {
-      await updateDoc(doc(db, 'service_requests', currentJob.id), {
-        serviceStarted: true,
-        status: 'IN_PROGRESS',
-        pinValidatedAt: serverTimestamp(),
-        startedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      await transitionServiceStatus(
+        db,
+        currentJob.id,
+        'IN_PROGRESS',
+        { uid: user.uid, role: 'PROVIDER' },
+        {
+          fromStatus: 'ACCEPTED',
+          notes: 'Inicio presencial verificado mediante validación de PIN',
+          extraFields: {
+            serviceStarted: true,
+            pinValidatedAt: serverTimestamp(),
+            startedAt: serverTimestamp(),
+          },
+        }
+      );
       setPinAttempts(0);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: '¡PIN VALIDADO! 🚀', text2: 'Inicio presencial verificado.' });
@@ -362,69 +400,147 @@ export default function ProviderHome() {
     }
   };
 
+  // ── Selector optimizado de foto completa (Cámara o Galería sin recorte) ──
+  const pickPhotoForService = async (title: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      Alert.alert(
+        title,
+        'Selecciona el origen de la imagen (se conservará completa y sin recortes):',
+        [
+          {
+            text: 'Cámara 📷',
+            onPress: async () => {
+              const perm = await ImagePicker.requestCameraPermissionsAsync();
+              if (!perm.granted) {
+                Alert.alert('Permiso denegado', 'Se requiere acceso a la cámara.');
+                resolve(null);
+                return;
+              }
+              const res = await ImagePicker.launchCameraAsync({
+                mediaTypes: ['images'],
+                quality: 0.7,
+                base64: true,
+                allowsEditing: false,
+              });
+              if (!res.canceled && res.assets?.[0]?.base64) {
+                resolve(res.assets[0].base64);
+              } else {
+                resolve(null);
+              }
+            },
+          },
+          {
+            text: 'Galería 🖼️',
+            onPress: async () => {
+              const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (!perm.granted) {
+                Alert.alert('Permiso denegado', 'Se requiere acceso a la galería.');
+                resolve(null);
+                return;
+              }
+              const res = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                quality: 0.7,
+                base64: true,
+                allowsEditing: false,
+              });
+              if (!res.canceled && res.assets?.[0]?.base64) {
+                resolve(res.assets[0].base64);
+              } else {
+                resolve(null);
+              }
+            },
+          },
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
+        ]
+      );
+    });
+  };
+
+  // ── Registrar foto inicial (Antes) ────────
+  const takeInitialPhoto = async () => {
+    if (!currentJob || !user || uploadingInitial || currentJob.status !== 'IN_PROGRESS') return;
+    const base64 = await pickPhotoForService('Foto de Estado Inicial (Antes)');
+    if (!base64) return;
+
+    setUploadingInitial(true);
+    try {
+      const issuePhoto = await uploadServiceImage(currentJob.id, user.uid, base64, 'issue');
+      if (issuePhoto) {
+        await updateDoc(doc(db, 'service_requests', currentJob.id), {
+          issuePhoto,
+          issue_photo: issuePhoto,
+          updatedAt: serverTimestamp(),
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Toast.show({
+          type: 'success',
+          text1: 'Foto inicial guardada 📸',
+          text2: 'Se registró el estado del problema (Antes) para auditoría y garantía.',
+        });
+      }
+    } catch (err: any) {
+      console.error('Error guardando foto inicial:', err);
+      Alert.alert('Error', err.message || 'No se pudo subir la foto inicial. Inténtalo nuevamente.');
+    } finally {
+      setUploadingInitial(false);
+    }
+  };
+
   // ── Finalizar job ───────────────────────
   const finishJob = async () => {
     if (!currentJob || !user || uploading || currentJob.status !== 'IN_PROGRESS') return;
-    const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permiso denegado', 'Necesitas la cámara.');
-      return;
-    }
+    const base64 = await pickPhotoForService('Evidencia de Finalización (Después)');
+    if (!base64) return;
 
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.15,
-      base64: true,
-      allowsEditing: true,
-      aspect: [4, 3],
-    });
+    setUploading(true);
+    try {
+      const evidencePhoto = await uploadServiceImage(currentJob.id, user.uid, base64, 'completion');
 
-    if (!result.canceled && result.assets?.length) {
-      const asset = result.assets[0];
-      if (!asset.base64) {
-        Alert.alert('Error', 'No se pudo procesar la imagen capturada.');
-        return;
-      }
-
-      setUploading(true);
-      try {
-        const evidencePhoto = await uploadServiceImage(currentJob.id, user.uid, asset.base64, 'completion');
-
-        await updateDoc(doc(db, 'service_requests', currentJob.id), {
-          status: 'COMPLETED',
-          ...(evidencePhoto ? { evidence_photo: evidencePhoto } : {}),
-          finished_at: serverTimestamp(),
-        });
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-        // Notificar al cliente
-        const clientTokens = currentJob.notificationTokens?.client;
-        if (clientTokens && clientTokens.length > 0) {
-          const providerName = user?.displayName || 'El técnico';
-          sendDemoPushNotification(
-            clientTokens,
-            'Trabajo culminado 🎉',
-            `${providerName} ha completado el trabajo.`,
-            {
-              requestId: currentJob.id,
-              screen: 'client_home',
-              type: 'COMPLETED',
-            },
-            {
-              requestId: currentJob.id,
-              eventType: 'COMPLETED',
-            }
-          ).catch(() => {});
+      await transitionServiceStatus(
+        db,
+        currentJob.id,
+        'COMPLETED',
+        { uid: user.uid, role: 'PROVIDER' },
+        {
+          fromStatus: 'IN_PROGRESS',
+          notes: 'Evidencia fotográfica registrada y trabajo culminado',
+          extraFields: {
+            ...(evidencePhoto ? { evidence_photo: evidencePhoto, evidencePhoto } : {}),
+            finished_at: serverTimestamp(),
+            finishedAt: serverTimestamp(),
+          },
         }
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-        void notifyCentral(currentJob.id, 'Servicio por validar', 'El trabajador guardó la evidencia y terminó el servicio.', 'COMPLETED');
-        Toast.show({ type: 'success', text1: 'Servicio completado', text2: 'Evidencia guardada. Esperando pago y validación.' });
-      } catch (err: any) {
-        console.error('Error guardando evidencia:', err);
-        Alert.alert('No se finalizó el servicio', err.message || 'No se pudo guardar la evidencia. Intenta nuevamente.');
-      } finally {
-        setUploading(false);
+      // Notificar al cliente
+      const clientTokens = currentJob.notificationTokens?.client;
+      if (clientTokens && clientTokens.length > 0) {
+        const providerName = user?.displayName || 'El técnico';
+        sendDemoPushNotification(
+          clientTokens,
+          'Trabajo culminado 🎉',
+          `${providerName} ha completado el trabajo.`,
+          {
+            requestId: currentJob.id,
+            screen: 'client_home',
+            type: 'COMPLETED',
+          },
+          {
+            requestId: currentJob.id,
+            eventType: 'COMPLETED',
+          }
+        ).catch(() => {});
       }
+
+      void notifyCentral(currentJob.id, 'Servicio por validar', 'El trabajador guardó la evidencia y terminó el servicio.', 'COMPLETED');
+      Toast.show({ type: 'success', text1: 'Servicio completado', text2: 'Evidencia guardada. Esperando pago y validación.' });
+    } catch (err: any) {
+      console.error('Error guardando evidencia:', err);
+      Alert.alert('No se finalizó el servicio', err.message || 'No se pudo guardar la evidencia. Intenta nuevamente.');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -561,6 +677,6 @@ export default function ProviderHome() {
     );
   }
 
-  return <View style={{ flex: 1 }}>{profileError || requestError ? <View style={{ padding: 12, paddingTop: 40, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{profileError || requestError}</Text><TouchableOpacity onPress={() => { retry(); setRequestAttempt((value) => value + 1); }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}<ProviderDashboard {...{ currentJob, incomingRequest, location, providerName, specialty, totalRating, jobsCompleted, isVerified, isActive, inputPin, setInputPin, validatePin, verifyingPin, finishJob, uploading, cancelJobAsProvider, cancelling, acceptJob, accepting, rejectJob, toggleSwitch, setSpecialty, serviceRadius, setServiceRadius, handleLogout, confirmPayment: handleConfirmPayment, confirmingPayment, dismissJob: handleDismissJob, lockoutSeconds }} onError={(message: string) => Alert.alert('Aviso', message)} /></View>;
+  return <View style={{ flex: 1 }}>{profileError || requestError ? <View style={{ padding: 12, paddingTop: 40, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{profileError || requestError}</Text><TouchableOpacity onPress={() => { retry(); setRequestAttempt((value) => value + 1); }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}<ProviderDashboard {...{ currentJob, incomingRequest, location, providerName, specialty, totalRating, jobsCompleted, isVerified, isActive, inputPin, setInputPin, validatePin, verifyingPin, finishJob, uploading, takeInitialPhoto, uploadingInitial, cancelJobAsProvider, cancelling, acceptJob, accepting, rejectJob, toggleSwitch, setSpecialty, serviceRadius, setServiceRadius, handleLogout, confirmPayment: handleConfirmPayment, confirmingPayment, dismissJob: handleDismissJob, lockoutSeconds }} onError={(message: string) => Alert.alert('Aviso', message)} /></View>;
 }
 const styles = StyleSheet.create({ center: { flex: 1, alignItems: 'center', justifyContent: 'center' } });

@@ -80,10 +80,74 @@ export function ProviderDashboard(props: any) {
         ) : null}
 
         {job.status === 'IN_PROGRESS' ? (
-          <>
-            {button('Fotografiar evidencia y finalizar', props.finishJob, props.uploading)}
+          <View style={styles.inProgressSection}>
+            <Text style={[styles.subheading, { color: colors.text, marginBottom: 8 }]}>
+              Control de Calidad y Evidencias
+            </Text>
+            
+            {/* Foto inicial (Antes) */}
+            <View style={[styles.evidenceBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <View style={styles.evidenceHeader}>
+                <Ionicons 
+                  name={job.issuePhoto || job.issue_photo ? 'checkmark-circle' : 'camera-outline'} 
+                  size={20} 
+                  color={job.issuePhoto || job.issue_photo ? colors.success : colors.primary} 
+                />
+                <Text style={[styles.evidenceTitle, { color: colors.text }]}>
+                  1. Estado Inicial (Antes)
+                </Text>
+                {job.issuePhoto || job.issue_photo ? (
+                  <View style={[styles.pillBadge, { backgroundColor: '#DCFCE7' }]}>
+                    <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '700' }}>Registrado</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.pillBadge, { backgroundColor: '#FEF3C7' }]}>
+                    <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>Pendiente</Text>
+                  </View>
+                )}
+              </View>
+
+              {job.issuePhoto || job.issue_photo ? (
+                <View style={styles.previewContainer}>
+                  <Image 
+                    source={{ uri: job.issuePhoto || job.issue_photo }} 
+                    style={styles.evidenceThumb} 
+                    resizeMode="contain"
+                  />
+                  <View style={{ flex: 1, marginLeft: 12, justifyContent: 'center' }}>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>Foto capturada</Text>
+                    <Text style={{ color: colors.subtext, fontSize: 11 }}>Listo para auditoría SPSS (EVID_INI)</Text>
+                    <TouchableOpacity 
+                      disabled={props.uploadingInitial} 
+                      onPress={props.takeInitialPhoto}
+                      style={{ marginTop: 6 }}
+                    >
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                        {props.uploadingInitial ? 'Subiendo...' : 'Tomar otra foto'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 8 }}>
+                    Toma una foto del estado en el que encuentras el problema antes de iniciar el trabajo técnico.
+                  </Text>
+                  {button('📸 Fotografiar estado inicial (Antes)', props.takeInitialPhoto, props.uploadingInitial, true)}
+                </View>
+              )}
+            </View>
+
+            {/* Finalizar con foto de finalización (Después) */}
+            <View style={{ marginTop: 14 }}>
+              <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 6 }}>
+                Al concluir el trabajo, toma la foto de entrega (Después) para finalizar el servicio.
+              </Text>
+              {button('📸 Fotografiar evidencia y finalizar (Después)', props.finishJob, props.uploading)}
+            </View>
+
             {button('Solicitar reasignación a la central', props.cancelJobAsProvider, props.cancelling, true)}
-          </>
+          </View>
         ) : null}
 
         {job.status === 'COMPLETED' ? (
@@ -108,7 +172,7 @@ export function ProviderDashboard(props: any) {
                     {job.paymentVoucher ? (
                       <View style={styles.voucherContainer}>
                         <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 4 }}>Comprobante adjuntado:</Text>
-                        <Image source={{ uri: job.paymentVoucher }} style={styles.voucherImg} resizeMode="cover" />
+                        <Image source={{ uri: job.paymentVoucher }} style={styles.voucherImg} resizeMode="contain" />
                       </View>
                     ) : null}
                   </View>
@@ -176,6 +240,13 @@ const styles = StyleSheet.create({
   subheading: { fontSize: 15, fontWeight: '800', marginBottom: 6 },
   confirmedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, backgroundColor: 'rgba(46, 204, 113, 0.1)', marginVertical: 6 },
   voucherContainer: { marginTop: 8, marginBottom: 8 },
-  voucherImg: { width: '100%', height: 160, borderRadius: 10 },
+  voucherImg: { width: '100%', height: 180, borderRadius: 10, backgroundColor: '#0f172a' },
   ratingFeedback: { borderWidth: 1, borderRadius: 10, padding: 10, marginVertical: 10 },
+  inProgressSection: { marginTop: 14 },
+  evidenceBox: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 8 },
+  evidenceHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  evidenceTitle: { fontSize: 14, fontWeight: '700', flex: 1 },
+  pillBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  previewContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  evidenceThumb: { width: 90, height: 90, borderRadius: 10, backgroundColor: '#0f172a' },
 });

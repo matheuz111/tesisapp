@@ -434,8 +434,8 @@ export default function ChatScreen() {
       return;
     }
     const result = useCamera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.35, base64: true, allowsEditing: true, aspect: [4, 3] })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.35, base64: true, allowsEditing: true, aspect: [4, 3] });
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7, base64: true, allowsEditing: false })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, base64: true, allowsEditing: false });
 
     if (result.canceled || !result.assets?.length) return;
 
