@@ -7,7 +7,7 @@ service cloud.firestore {
 
     function isOperator() {
       return signedIn()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['OPERATOR', 'ADMIN'];
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['OPERATOR', 'ADMIN'];
     }
 
     function isParticipant(requestData) {
@@ -129,6 +129,16 @@ service cloud.firestore {
           || isParticipant(get(/databases/$(database)/documents/service_requests/$(requestId)).data);
         allow update, delete: if false;
       }
+
+      match /status_history/{historyId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if false;
+      }
+    }
+
+    match /counters/{counterId} {
+      allow read, write: if signedIn();
     }
 
     // Colección heredada: se conserva para no romper conversaciones antiguas.
