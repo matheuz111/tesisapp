@@ -9,6 +9,35 @@ export interface Coordinate {
   longitude: number;
 }
 
+export interface RouteInfo {
+  coordinates: Coordinate[];
+  distanceMeters: number;
+  durationSeconds: number;
+  distanceText: string;
+  durationText: string;
+}
+
+/**
+ * Formatea duración en segundos a texto legible (ej. "14 min" o "1 h 10 min")
+ */
+export function formatDurationText(seconds: number): string {
+  if (seconds <= 0) return 'Llegando ahora';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return '< 1 min';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMins = minutes % 60;
+  return remainingMins > 0 ? `${hours} h ${remainingMins} min` : `${hours} h`;
+}
+
+/**
+ * Formatea distancia en metros a texto legible (ej. "850 m" o "3.4 km")
+ */
+export function formatDistanceText(meters: number): string {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
 /**
  * Decodifica una polilínea codificada por Google (Overview Polyline) a un array de coordenadas.
  */
@@ -63,7 +92,7 @@ interface CachedRoute {
   origin: Coordinate;
   destination: Coordinate;
   timestamp: number;
-  route: Coordinate[];
+  routeInfo: RouteInfo;
 }
 
 let lastCachedRoute: CachedRoute | null = null;
@@ -71,21 +100,29 @@ const CACHE_VALIDITY_MS = 20000; // 20 segundos
 const MIN_DISTANCE_CHANGE_METERS = 30; // Solo recalcular si se movió más de 30m
 
 /**
- * Consulta la ruta vehicular entre dos coordenadas.
+ * Consulta la ruta vehicular completa y métricas de tiempo estimado (ETA) y distancia.
  */
-export async function fetchRouteCoordinates(
+export async function fetchRouteWithEta(
   origin: Coordinate,
   destination: Coordinate,
   googleApiKey?: string
-): Promise<Coordinate[]> {
-  if (!origin || !destination) return [];
+): Promise<RouteInfo> {
+  const emptyResult: RouteInfo = {
+    coordinates: [],
+    distanceMeters: 0,
+    durationSeconds: 0,
+    distanceText: '0 km',
+    durationText: '0 min',
+  };
+
+  if (!origin || !destination) return emptyResult;
   if (
     typeof origin.latitude !== 'number' ||
     typeof origin.longitude !== 'number' ||
     typeof destination.latitude !== 'number' ||
     typeof destination.longitude !== 'number'
   ) {
-    return [];
+    return emptyResult;
   }
 
   // Verificar si podemos usar la caché
@@ -96,7 +133,7 @@ export async function fetchRouteCoordinates(
     approximateDistanceMeters(lastCachedRoute.origin, origin) < MIN_DISTANCE_CHANGE_METERS &&
     approximateDistanceMeters(lastCachedRoute.destination, destination) < 10
   ) {
-    return lastCachedRoute.route;
+    return lastCachedRoute.routeInfo;
   }
 
   const apiKey = googleApiKey || process.env.EXPO_PUBLIC_GOOGLE_API_KEY;
@@ -108,11 +145,22 @@ export async function fetchRouteCoordinates(
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
-        if (data.status === 'OK' && data.routes?.[0]?.overview_polyline?.points) {
-          const coords = decodePolyline(data.routes[0].overview_polyline.points);
+        const route = data.routes?.[0];
+        const leg = route?.legs?.[0];
+        if (data.status === 'OK' && route?.overview_polyline?.points) {
+          const coords = decodePolyline(route.overview_polyline.points);
           if (coords.length > 0) {
-            lastCachedRoute = { origin, destination, timestamp: now, route: coords };
-            return coords;
+            const distanceMeters = leg?.distance?.value || approximateDistanceMeters(origin, destination);
+            const durationSeconds = leg?.duration?.value || Math.round((distanceMeters / 1000 / 25) * 3600);
+            const routeInfo: RouteInfo = {
+              coordinates: coords,
+              distanceMeters,
+              durationSeconds,
+              distanceText: leg?.distance?.text || formatDistanceText(distanceMeters),
+              durationText: leg?.duration?.text || formatDurationText(durationSeconds),
+            };
+            lastCachedRoute = { origin, destination, timestamp: now, routeInfo };
+            return routeInfo;
           }
         }
       }
@@ -127,13 +175,23 @@ export async function fetchRouteCoordinates(
     const osrmRes = await fetch(osrmUrl);
     if (osrmRes.ok) {
       const osrmData = await osrmRes.json();
-      if (osrmData.code === 'Ok' && osrmData.routes?.[0]?.geometry?.coordinates) {
-        const coords: Coordinate[] = osrmData.routes[0].geometry.coordinates.map(
+      const route = osrmData.routes?.[0];
+      if (osrmData.code === 'Ok' && route?.geometry?.coordinates) {
+        const coords: Coordinate[] = route.geometry.coordinates.map(
           ([lng, lat]: [number, number]) => ({ latitude: lat, longitude: lng })
         );
         if (coords.length > 0) {
-          lastCachedRoute = { origin, destination, timestamp: now, route: coords };
-          return coords;
+          const distanceMeters = Math.round(route.distance || approximateDistanceMeters(origin, destination));
+          const durationSeconds = Math.round(route.duration || (distanceMeters / 1000 / 25) * 3600);
+          const routeInfo: RouteInfo = {
+            coordinates: coords,
+            distanceMeters,
+            durationSeconds,
+            distanceText: formatDistanceText(distanceMeters),
+            durationText: formatDurationText(durationSeconds),
+          };
+          lastCachedRoute = { origin, destination, timestamp: now, routeInfo };
+          return routeInfo;
         }
       }
     }
@@ -141,7 +199,28 @@ export async function fetchRouteCoordinates(
     // Si OSRM también falla (por ejemplo offline total), trazamos la línea recta origen-destino
   }
 
-  // 3. Fallback final: línea directa entre ambos puntos
-  const directLine = [origin, destination];
-  return directLine;
+  // 3. Fallback final: estimación euclidiana urbana (factor 1.3 de calles y 25 km/h)
+  const directDistance = approximateDistanceMeters(origin, destination);
+  const estimatedStreetDistance = Math.round(directDistance * 1.3);
+  const estimatedDuration = Math.max(60, Math.round((estimatedStreetDistance / 1000 / 25) * 3600));
+  const fallbackInfo: RouteInfo = {
+    coordinates: [origin, destination],
+    distanceMeters: estimatedStreetDistance,
+    durationSeconds: estimatedDuration,
+    distanceText: formatDistanceText(estimatedStreetDistance),
+    durationText: formatDurationText(estimatedDuration),
+  };
+  return fallbackInfo;
+}
+
+/**
+ * Consulta la ruta vehicular entre dos coordenadas (compatibilidad hacia atrás).
+ */
+export async function fetchRouteCoordinates(
+  origin: Coordinate,
+  destination: Coordinate,
+  googleApiKey?: string
+): Promise<Coordinate[]> {
+  const info = await fetchRouteWithEta(origin, destination, googleApiKey);
+  return info.coordinates;
 }

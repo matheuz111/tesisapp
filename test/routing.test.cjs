@@ -60,3 +60,32 @@ test('decodePolyline handles empty, null or invalid strings safely', () => {
   assert.deepEqual(decodePolyline(undefined), []);
   assert.deepEqual(decodePolyline(123), []);
 });
+
+function formatDurationText(seconds) {
+  if (seconds <= 0) return 'Llegando ahora';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return '< 1 min';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMins = minutes % 60;
+  return remainingMins > 0 ? `${hours} h ${remainingMins} min` : `${hours} h`;
+}
+
+function formatDistanceText(meters) {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+test('formatDurationText produces readable time strings', () => {
+  assert.equal(formatDurationText(0), 'Llegando ahora');
+  assert.equal(formatDurationText(20), '< 1 min');
+  assert.equal(formatDurationText(180), '3 min');
+  assert.equal(formatDurationText(3600), '1 h');
+  assert.equal(formatDurationText(4500), '1 h 15 min');
+});
+
+test('formatDistanceText produces readable distance strings', () => {
+  assert.equal(formatDistanceText(450), '450 m');
+  assert.equal(formatDistanceText(1200), '1.2 km');
+  assert.equal(formatDistanceText(10500), '10.5 km');
+});

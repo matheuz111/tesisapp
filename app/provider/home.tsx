@@ -9,6 +9,7 @@ import {
   Alert,
   Animated,
   Keyboard,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -69,7 +70,18 @@ export default function ProviderHome() {
   const [verifyingPin, setVerifyingPin] = useState(false);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [dismissedCompletedId, setDismissedCompletedId] = useState<string | null>(null);
+  const [pinAttempts, setPinAttempts] = useState(0);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const isAcceptingRef = useRef(false);
+
+  // Cuenta regresiva de bloqueo por reintentos de PIN fallidos (HU-18)
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setLockoutSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lockoutSeconds]);
 
   // Animación del toggle
   const [toggleScale] = useState(() => new Animated.Value(1));
@@ -265,21 +277,47 @@ export default function ProviderHome() {
     );
   };
 
-  // ── Validar PIN de Inicio Presencial ──
+  // ── Validar PIN de Inicio Presencial (HU-18: Límite de 3 intentos y bloqueo) ──
   const validatePin = async () => {
     Keyboard.dismiss();
     if (!currentJob) return;
+    if (lockoutSeconds > 0) {
+      Alert.alert(
+        'Ingreso Temporalmente Bloqueado 🔒',
+        `Por motivos de seguridad, espera ${lockoutSeconds} segundos antes de volver a ingresar el PIN.`
+      );
+      return;
+    }
     const cleanPin = inputPin.trim();
     if (!cleanPin) {
       Alert.alert('PIN Requerido', 'Ingresa el código de 4 dígitos que aparece en la pantalla del cliente.');
       return;
     }
     if (cleanPin !== currentJob.securityPin) {
+      const nextAttempts = pinAttempts + 1;
+      setPinAttempts(nextAttempts);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert(
-        'PIN Incorrecto ❌',
-        'El código ingresado no coincide con el del cliente. Por favor solicítale que revise su pantalla e inténtalo de nuevo.'
-      );
+
+      if (nextAttempts >= 3) {
+        setLockoutSeconds(60);
+        setPinAttempts(0);
+        void notifyCentral(
+          currentJob.id,
+          'Alerta de Seguridad: PIN Inválido',
+          `El técnico superó 3 intentos erróneos de PIN en la solicitud ${currentJob.id}.`,
+          'REQUIRES_REASSIGNMENT'
+        );
+        Alert.alert(
+          'Límite de Intentos Superado 🔒',
+          'Has ingresado un PIN incorrecto 3 veces consecutivas. Por seguridad se bloqueó el ingreso por 60 segundos y se alertó a la central.'
+        );
+      } else {
+        const remaining = 3 - nextAttempts;
+        Alert.alert(
+          'PIN Incorrecto ❌',
+          `El código no coincide. Te quedan ${remaining} ${remaining === 1 ? 'intento' : 'intentos'} antes del bloqueo temporal.`
+        );
+      }
       return;
     }
     setVerifyingPin(true);
@@ -287,9 +325,11 @@ export default function ProviderHome() {
       await updateDoc(doc(db, 'service_requests', currentJob.id), {
         serviceStarted: true,
         status: 'IN_PROGRESS',
+        pinValidatedAt: serverTimestamp(),
         startedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      setPinAttempts(0);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: '¡PIN VALIDADO! 🚀', text2: 'Inicio presencial verificado.' });
 
@@ -439,8 +479,30 @@ export default function ProviderHome() {
       if (newState) {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
+          Alert.alert('Permiso Requerido', 'Debes otorgar permisos de ubicación para recibir servicios en tu zona.');
           setIsActive(false);
           return;
+        }
+
+        try {
+          const providerStatus = await Location.getProviderStatusAsync();
+          if (!providerStatus.locationServicesEnabled) {
+            if (Platform.OS === 'android') {
+              try {
+                await Location.enableNetworkProviderAsync();
+              } catch {
+                Alert.alert('GPS Desactivado', 'Debes activar los servicios de ubicación (GPS) para recibir solicitudes.');
+                setIsActive(false);
+                return;
+              }
+            } else {
+              Alert.alert('GPS Desactivado', 'Por favor activa el GPS en los ajustes de tu dispositivo para poder conectarte.');
+              setIsActive(false);
+              return;
+            }
+          }
+        } catch (provErr) {
+          console.warn('No se pudo verificar el estado del proveedor de ubicación:', provErr);
         }
 
         const locationData = await Location.getCurrentPositionAsync({});
@@ -499,6 +561,6 @@ export default function ProviderHome() {
     );
   }
 
-  return <View style={{ flex: 1 }}>{profileError || requestError ? <View style={{ padding: 12, paddingTop: 40, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{profileError || requestError}</Text><TouchableOpacity onPress={() => { retry(); setRequestAttempt((value) => value + 1); }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}<ProviderDashboard {...{ currentJob, incomingRequest, location, providerName, specialty, totalRating, jobsCompleted, isVerified, isActive, inputPin, setInputPin, validatePin, verifyingPin, finishJob, uploading, cancelJobAsProvider, cancelling, acceptJob, accepting, rejectJob, toggleSwitch, setSpecialty, serviceRadius, setServiceRadius, handleLogout, confirmPayment: handleConfirmPayment, confirmingPayment, dismissJob: handleDismissJob }} onError={(message: string) => Alert.alert('Aviso', message)} /></View>;
+  return <View style={{ flex: 1 }}>{profileError || requestError ? <View style={{ padding: 12, paddingTop: 40, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{profileError || requestError}</Text><TouchableOpacity onPress={() => { retry(); setRequestAttempt((value) => value + 1); }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}<ProviderDashboard {...{ currentJob, incomingRequest, location, providerName, specialty, totalRating, jobsCompleted, isVerified, isActive, inputPin, setInputPin, validatePin, verifyingPin, finishJob, uploading, cancelJobAsProvider, cancelling, acceptJob, accepting, rejectJob, toggleSwitch, setSpecialty, serviceRadius, setServiceRadius, handleLogout, confirmPayment: handleConfirmPayment, confirmingPayment, dismissJob: handleDismissJob, lockoutSeconds }} onError={(message: string) => Alert.alert('Aviso', message)} /></View>;
 }
 const styles = StyleSheet.create({ center: { flex: 1, alignItems: 'center', justifyContent: 'center' } });

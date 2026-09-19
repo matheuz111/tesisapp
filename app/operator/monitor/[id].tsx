@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ServiceMap, TechnicianMapMarker } from '../../../src/components/ServiceMap';
+import { ServiceTimeline } from '../../../src/components/ServiceTimeline';
 import { auth, db } from '../../../src/config/firebase';
 import { useTheme } from '../../../src/context/ThemeContext';
 import { locationStatus, validCoordinate as coordinate } from '../../../src/services/monitoring';
@@ -82,12 +83,12 @@ export default function ServiceMonitor() {
       {!request ? <ActivityIndicator /> : <>
         <Text style={{ color: colors.subtext }}>{request.serviceLabel || request.specialty} · {request.status}</Text>
         <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 20 }}>{request.price_agreed || 'Tarifa pendiente'}</Text>
-        <Text style={{ color: colors.subtext }}>{request.pricing?.description || ''}</Text>
+        {request.pricing?.description ? <Text style={{ color: colors.subtext }}>{request.pricing.description}</Text> : null}
         <Text selectable style={{ color: colors.subtext }}>Servicio: {id}</Text>
         <View style={[styles.card, { backgroundColor: colors.card }]}>
-          <Text style={[styles.heading, { color: colors.text }]}>Ubicaciones</Text>
+          <Text style={[styles.heading, { color: colors.text }]}>Ubicaciones y Ruta en Vivo</Text>
           <Text style={{ color: colors.subtext }}>Rojo: domicilio del servicio · Verde: cliente · Azul: trabajador</Text>
-          <ServiceMap location={coordinate(request.location) ? request.location : null} technicians={markers} style={styles.map} />
+          <ServiceMap location={coordinate(request.location) ? request.location : null} technicians={markers} showEtaBadge={true} style={styles.map} />
           <Text style={{ color: colors.subtext }}>{request.address || 'Sin dirección registrada'}</Text>
           {people.map((person) => <View key={person.label} style={{ marginTop: 14 }}>
             <Text style={{ color: person.color, fontWeight: '800' }}>{person.label}: {person.name}</Text>
@@ -96,6 +97,36 @@ export default function ServiceMonitor() {
           {locationError ? <Text style={styles.warning}>{locationError}</Text> : null}
           <Text style={[styles.note, { color: colors.subtext }]}>GPS actualizado mientras cada participante comparte su ubicación con la app abierta. Una posición antigua no confirma dónde se encuentra ahora.</Text>
         </View>
+
+        {/* Galería Comparativa de Evidencias Fotográficas (HU-12) */}
+        {(request.issuePhoto || request.evidence_photo) ? (
+          <View style={[styles.card, { backgroundColor: colors.card }]}>
+            <Text style={[styles.heading, { color: colors.text }]}>Evidencias Fotográficas</Text>
+            <Text style={{ color: colors.subtext, marginBottom: 12 }}>Comparativa del problema inicial reportado y la solución realizada</Text>
+            <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
+              {request.issuePhoto ? (
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: 6 }}>Problema (Cliente):</Text>
+                  <TouchableOpacity onPress={() => setImage(request.issuePhoto)}>
+                    <Image source={{ uri: request.issuePhoto }} style={styles.thumbnail} resizeMode="cover" />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              {request.evidence_photo ? (
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: 6 }}>Evidencia de Cierre (Técnico):</Text>
+                  <TouchableOpacity onPress={() => setImage(request.evidence_photo)}>
+                    <Image source={{ uri: request.evidence_photo }} style={styles.thumbnail} resizeMode="cover" />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        {/* Línea de Tiempo de Trazabilidad y Eventos (HU-12 & HU-15) */}
+        <ServiceTimeline request={{ ...request, id }} />
+
         <View style={[styles.card, { backgroundColor: colors.card }]}>
           <Text style={[styles.heading, { color: colors.text }]}>Chat cliente ↔ trabajador</Text>
           <Text style={{ color: colors.subtext }}>En vivo · Solo lectura · Mensajes más recientes primero</Text>

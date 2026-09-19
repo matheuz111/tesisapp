@@ -14,7 +14,7 @@ import { queueDemoPushNotification as sendDemoPushNotification } from '../../src
 import { formatPrice, parsePriceCents } from '../../src/services/pricing';
 import { withTimeout } from '../../src/services/async';
 
-const QUEUE_STATUSES = ['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
+const QUEUE_STATUSES = ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
 
 function normalize(value: unknown) {
   return String(value || '').trim().toLowerCase();
@@ -41,8 +41,13 @@ function providerScore(request: any, provider: any) {
 
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
-    PENDING_ASSIGNMENT: 'Sin asignar', REQUIRES_REASSIGNMENT: 'Reasignar', PENDING: 'Esperando técnico',
-    ACCEPTED: 'En camino', IN_PROGRESS: 'En ejecución', COMPLETED: 'Por validar',
+    PENDING_ASSIGNMENT: 'Sin asignar',
+    QUOTED: 'Cotizado (espera cliente)',
+    REQUIRES_REASSIGNMENT: 'Reasignar',
+    PENDING: 'Esperando técnico',
+    ACCEPTED: 'En camino',
+    IN_PROGRESS: 'En ejecución',
+    COMPLETED: 'Por validar',
   };
   return labels[status] || status;
 }
@@ -74,16 +79,23 @@ export default function OperatorHome() {
         const ref = doc(db, 'service_requests', pricingRequest.id);
         const snapshot = await transaction.get(ref);
         const data = snapshot.data();
-        if (!data || !['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING'].includes(data.status)) throw new Error('La tarifa queda bloqueada cuando el trabajador acepta.');
+        if (!data || !['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING'].includes(data.status)) throw new Error('La tarifa queda bloqueada cuando el trabajador acepta.');
         if ((data.pricing?.version || 0) !== (pricingRequest.pricing?.version || 0)) throw new Error('Otro operador cambió la tarifa. Vuelve a abrirla.');
         const pricing = { amountCents, currency: 'PEN', description: priceDescription.trim(), assignedBy: auth.currentUser!.uid, updatedAt: serverTimestamp(), version: (data.pricing?.version || 0) + 1 };
-        transaction.update(ref, { pricing, price_agreed: formatPrice(amountCents), updatedAt: serverTimestamp() });
+        const nextStatus = data.providerId ? data.status : 'QUOTED';
+        transaction.update(ref, {
+          pricing,
+          price_agreed: formatPrice(amountCents),
+          status: nextStatus,
+          quotedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
         transaction.set(doc(collection(ref, 'price_history')), pricing);
       });
-      await sendDemoPushNotification(pricingRequest.notificationTokens?.client, 'Tarifa de tu servicio', `La central cotizó ${formatPrice(amountCents)}. Revisa el alcance en la app.`, { requestId: pricingRequest.id, screen: 'client_home', type: 'PRICED' });
+      await sendDemoPushNotification(pricingRequest.notificationTokens?.client, 'Tarifa de tu servicio', `La central cotizó ${formatPrice(amountCents)}. Revisa el alcance y confirma en la app.`, { requestId: pricingRequest.id, screen: 'client_home', type: 'PRICED' });
       if (pricingRequest.providerId) await sendDemoPushNotification(pricingRequest.notificationTokens?.provider, 'Tarifa actualizada por la central', formatPrice(amountCents), { requestId: pricingRequest.id, screen: 'provider_home', type: 'PRICED' });
       setPricingRequest(null);
-      Toast.show({ type: 'success', text1: 'Tarifa guardada por la central' });
+      Toast.show({ type: 'success', text1: 'Cotización enviada al cliente' });
     } catch (error: any) { Alert.alert('No se pudo guardar', error.message); }
     finally { setSavingPrice(false); }
   };
@@ -257,7 +269,7 @@ export default function OperatorHome() {
 
         {feedError ? <View style={{ padding: 12, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{feedError}</Text><TouchableOpacity style={{ paddingVertical: 10 }} onPress={() => setFeedAttempt((value) => value + 1)}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}
         <View style={styles.metrics}>
-          <Metric label="Sin asignar" value={requests.filter((item) => ['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT'].includes(item.status)).length} color="#E67E22" />
+          <Metric label="Sin asignar" value={requests.filter((item) => ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT'].includes(item.status)).length} color="#E67E22" />
           <Metric label="En atención" value={requests.filter((item) => ['PENDING', 'ACCEPTED', 'IN_PROGRESS'].includes(item.status)).length} color={colors.primary} />
           <Metric label="Disponibles" value={providers.filter((item) => item.is_active && item.is_verified !== false).length} color={colors.success} />
         </View>
@@ -276,9 +288,18 @@ export default function OperatorHome() {
             {request.addressReference ? <Text style={{ color: colors.subtext }}>{request.addressReference}</Text> : null}
             <Text style={[styles.cardTitle, { color: colors.primary, marginTop: 12 }]}>{request.price_agreed || 'Tarifa pendiente'}</Text>
             {request.pricing?.description ? <Text style={{ color: colors.subtext }}>{request.pricing.description}</Text> : null}
-            {['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING'].includes(request.status) ? <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => { setPricingRequest(request); setPriceInput(request.pricing ? (request.pricing.amountCents / 100).toFixed(2) : ''); setPriceDescription(request.pricing?.description || ''); }}><Text style={styles.primaryText}>{request.pricing ? 'Editar tarifa de la empresa' : 'Asignar tarifa de la empresa'}</Text></TouchableOpacity> : null}
+            {['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING'].includes(request.status) ? <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => { setPricingRequest(request); setPriceInput(request.pricing ? (request.pricing.amountCents / 100).toFixed(2) : ''); setPriceDescription(request.pricing?.description || ''); }}><Text style={styles.primaryText}>{request.pricing ? 'Editar tarifa de la empresa' : 'Asignar tarifa de la empresa'}</Text></TouchableOpacity> : null}
             <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => router.push({ pathname: '/operator/monitor/[id]' as any, params: { id: request.id } })}><Text style={styles.primaryText}>Monitorear ubicación y chat</Text></TouchableOpacity>
-            {['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT'].includes(request.status) ? <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => setSelectedRequest(request)}><Text style={styles.primaryText}>Seleccionar técnico</Text></TouchableOpacity> : null}
+            {['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT'].includes(request.status) ? (
+              <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => setSelectedRequest(request)}>
+                <Text style={styles.primaryText}>Seleccionar técnico</Text>
+              </TouchableOpacity>
+            ) : request.status === 'QUOTED' ? (
+              <View style={[styles.assignment, { backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: colors.primary, marginTop: 10 }]}>
+                <Ionicons name="time-outline" size={20} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Cotización enviada · Esperando al cliente</Text>
+              </View>
+            ) : null}
             {request.providerName ? <View style={[styles.assignment, { backgroundColor: colors.background }]}><Ionicons name="person-circle-outline" size={22} color={colors.primary} /><Text style={{ color: colors.text, fontWeight: '700' }}>{request.providerName}</Text></View> : null}
             {request.status === 'COMPLETED' ? (
               <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border }}>

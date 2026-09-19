@@ -239,7 +239,7 @@ export default function ClientHistory() {
 
                     <TouchableOpacity
                         style={[styles.actionButton, { backgroundColor: colors.primary }]}
-                        onPress={() => router.push('/client/home')}
+                        onPress={() => router.replace({ pathname: '/client/home', params: { category: item.specialty || item.serviceLabel || '' } })}
                     >
                         <Ionicons name="reload" size={18} color="#fff" />
                         <Text style={[styles.actionText, { color: '#fff' }]}>REPETIR</Text>

@@ -27,7 +27,8 @@ export function ProviderDashboard(props: any) {
       <View style={styles.header}>
         <View style={{ flex: 1 }}><Text style={[styles.brand, { color: colors.primary }]}>MAESTRO A DOMICILIO</Text><Text style={[styles.title, { color: colors.text }]}>Hola, {props.providerName || 'técnico'}</Text><Text style={{ color: colors.subtext }}>Equipo de servicios · {props.specialty || 'Completa tu especialidad'}</Text></View>
         <TouchableOpacity accessibilityLabel="Historial" style={[styles.icon, card]} onPress={() => router.push('/provider/history')}><Ionicons name="receipt-outline" size={23} color={colors.primary} /></TouchableOpacity>
-        <TouchableOpacity accessibilityLabel="Perfil y cerrar sesión" style={[styles.icon, card]} onPress={() => router.push('/profile')}><Ionicons name="person-outline" size={23} color={colors.primary} /></TouchableOpacity>
+        <TouchableOpacity accessibilityLabel="Perfil" style={[styles.icon, card]} onPress={() => router.push('/profile')}><Ionicons name="person-outline" size={23} color={colors.primary} /></TouchableOpacity>
+        <TouchableOpacity accessibilityLabel="Cerrar sesión" style={[styles.icon, card]} onPress={props.handleLogout}><Ionicons name="log-out-outline" size={23} color={colors.danger} /></TouchableOpacity>
       </View>
       <View style={styles.metrics}>{[[props.totalRating, 'Valoración'], [props.jobsCompleted, 'Servicios'], [props.isVerified ? 'Aprobado' : 'Pendiente', 'Perfil']].map(([value, label]) => <View key={label} style={[styles.metric, card]}><Text style={{ color: colors.primary, fontSize: 18, fontWeight: '800' }}>{value}</Text><Text style={{ color: colors.subtext, fontSize: 12 }}>{label}</Text></View>)}</View>
       {job ? <View style={[styles.card, card]}>
@@ -39,7 +40,12 @@ export function ProviderDashboard(props: any) {
         
         {job.status !== 'COMPLETED' ? (
           <>
-            <ServiceMap location={job.location || null} technicians={location ? [{ ...location, id: 'provider', name: 'Tu última ubicación registrada' }] : []} style={styles.map} />
+            <ServiceMap
+              location={job.location || null}
+              technicians={location ? [{ ...location, id: 'provider', name: 'Tu última ubicación registrada' }] : []}
+              showEtaBadge={job.status === 'ACCEPTED'}
+              style={styles.map}
+            />
             <Text selectable style={{ color: colors.text }}>{job.address || 'Sin dirección registrada'}</Text>
             <Text style={{ color: colors.subtext }}>{job.addressReference || ''} {job.district || ''}</Text>
             <View style={styles.row}>{button('Navegar al punto', openNavigation, !job.location, true)}{button('Abrir chat', () => router.push({ pathname: '/chat/[id]', params: { id: job.id } }))}</View>
@@ -50,8 +56,25 @@ export function ProviderDashboard(props: any) {
           <View style={[styles.pin, { backgroundColor: colors.background }]}>
             <Text style={[styles.heading, { color: colors.text }]}>Validar llegada</Text>
             <Text style={{ color: colors.subtext }}>Solicita el PIN al cliente cuando llegues. Puedes acceder a tu perfil e historial mientras esperas.</Text>
-            <TextInput accessibilityLabel="PIN del cliente" style={[styles.input, { color: colors.text, borderColor: colors.border }]} keyboardType="number-pad" maxLength={4} value={props.inputPin} onChangeText={props.setInputPin} placeholder="PIN de 4 dígitos" placeholderTextColor={colors.subtext} />
-            {button('Validar PIN e iniciar', props.validatePin, props.verifyingPin || props.inputPin.length !== 4)}
+            {props.lockoutSeconds > 0 ? (
+              <View style={{ padding: 10, borderRadius: 8, backgroundColor: '#FEE2E2', marginVertical: 8, borderWidth: 1, borderColor: '#EF4444' }}>
+                <Text style={{ color: '#B91C1C', fontWeight: '800', fontSize: 13, textAlign: 'center' }}>
+                  🔒 Bloqueo temporal por seguridad: espera {props.lockoutSeconds}s
+                </Text>
+              </View>
+            ) : null}
+            <TextInput
+              accessibilityLabel="PIN del cliente"
+              editable={!props.lockoutSeconds}
+              style={[styles.input, { color: colors.text, borderColor: colors.border, opacity: props.lockoutSeconds > 0 ? 0.5 : 1 }]}
+              keyboardType="number-pad"
+              maxLength={4}
+              value={props.inputPin}
+              onChangeText={props.setInputPin}
+              placeholder="PIN de 4 dígitos"
+              placeholderTextColor={colors.subtext}
+            />
+            {button('Validar PIN e iniciar', props.validatePin, Boolean(props.verifyingPin || props.inputPin.length !== 4 || props.lockoutSeconds > 0))}
             {button('Solicitar reasignación a la central', props.cancelJobAsProvider, props.cancelling, true)}
           </View>
         ) : null}

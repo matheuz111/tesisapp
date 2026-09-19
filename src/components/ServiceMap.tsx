@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleProp, ViewStyle } from 'react-native';
+import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import MapView, { MapPressEvent, Marker, Polyline, Region } from 'react-native-maps';
 import { toMapCoordinate } from '../services/monitoring';
-import { fetchRouteCoordinates } from '../services/routing';
+import { fetchRouteWithEta, RouteInfo } from '../services/routing';
 
 export type MapCoordinate = {
   latitude: number;
@@ -21,6 +21,8 @@ type Props = {
   technicians?: TechnicianMapMarker[];
   editable?: boolean;
   showRoute?: boolean;
+  showEtaBadge?: boolean;
+  onRouteCalculated?: (info: RouteInfo) => void;
   onLocationChange?: (coordinate: MapCoordinate) => void;
   style?: StyleProp<ViewStyle>;
 };
@@ -32,28 +34,42 @@ const LIMA_REGION: Region = {
   longitudeDelta: 0.18,
 };
 
-export function ServiceMap({ location: rawLocation, technicians = [], editable = false, showRoute = true, onLocationChange, style }: Props) {
+export function ServiceMap({
+  location: rawLocation,
+  technicians = [],
+  editable = false,
+  showRoute = true,
+  showEtaBadge = false,
+  onRouteCalculated,
+  onLocationChange,
+  style,
+}: Props) {
   const location = useMemo(() => toMapCoordinate(rawLocation), [rawLocation]);
   const mapRef = useRef<MapView>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<MapCoordinate[]>([]);
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
 
   // Trazar ruta cuando hay un destino y al menos un técnico
   useEffect(() => {
     let active = true;
     if (!showRoute || !location || technicians.length === 0) {
       setRouteCoordinates([]);
+      setRouteInfo(null);
       return;
     }
 
     const technician = technicians[0];
     if (!technician || typeof technician.latitude !== 'number' || typeof technician.longitude !== 'number') {
       setRouteCoordinates([]);
+      setRouteInfo(null);
       return;
     }
 
-    void fetchRouteCoordinates(technician, location).then((coords) => {
+    void fetchRouteWithEta(technician, location).then((info) => {
       if (!active) return;
-      setRouteCoordinates(coords);
+      setRouteCoordinates(info.coordinates);
+      setRouteInfo(info);
+      onRouteCalculated?.(info);
     });
 
     return () => {
@@ -82,10 +98,10 @@ export function ServiceMap({ location: rawLocation, technicians = [], editable =
     if (editable) onLocationChange?.(event.nativeEvent.coordinate);
   };
 
-  return (
+  const mapView = (
     <MapView
       ref={mapRef}
-      style={style}
+      style={showEtaBadge ? StyleSheet.absoluteFill : style}
       initialRegion={location ? { ...location, latitudeDelta: 0.012, longitudeDelta: 0.012 } : LIMA_REGION}
       onPress={handlePress}
       showsCompass
@@ -133,4 +149,45 @@ export function ServiceMap({ location: rawLocation, technicians = [], editable =
       ))}
     </MapView>
   );
+
+  if (!showEtaBadge) return mapView;
+
+  return (
+    <View style={[{ position: 'relative', overflow: 'hidden' }, style]}>
+      {mapView}
+      {routeInfo && routeInfo.distanceMeters > 0 ? (
+        <View style={etaStyles.etaBadge}>
+          <Text style={etaStyles.etaText}>
+            ⏱️ Llegada estimada: <Text style={{ fontWeight: '900' }}>~{routeInfo.durationText}</Text> ({routeInfo.distanceText})
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
+
+const etaStyles = StyleSheet.create({
+  etaBadge: {
+    position: 'absolute',
+    top: 12,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 10,
+  },
+  etaText: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+});
+

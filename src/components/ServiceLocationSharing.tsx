@@ -3,7 +3,7 @@ import * as Location from 'expo-location';
 import { usePathname, useRouter } from 'expo-router';
 import { collection, doc, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AppState, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebase';
 import { useSession } from '../context/SessionContext';
@@ -129,6 +129,16 @@ function LocationSessionProvider({ children, uid, role }: { children: React.Reac
       if (!permission.granted) {
         setStatus('Permiso de ubicación desactivado. Puedes habilitarlo en los ajustes del teléfono.');
         return;
+      }
+      if (Platform.OS === 'android') {
+        try {
+          const providerStatus = await Location.getProviderStatusAsync();
+          if (!providerStatus.locationServicesEnabled) {
+            await Location.enableNetworkProviderAsync();
+          }
+        } catch {
+          // Si el usuario rechaza la activación del GPS nativo
+        }
       }
       setEnabled(true);
       setStatus('Obteniendo ubicación…');

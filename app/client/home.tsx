@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { signOutWithNotifications } from '../../utils/pushNotifications';
 import { GeoPoint, collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -19,7 +20,7 @@ import { submitServiceRating, MAX_REVIEW_COMMENT_LENGTH } from '../../src/servic
 import { submitClientPayment, PAYMENT_METHODS, type PaymentMethod } from '../../src/services/payment';
 
 const ORGANIZATION_ID = 'maestro-a-domicilio';
-const ACTIVE_STATUSES = ['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
+const ACTIVE_STATUSES = ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
 const SERVICES = [
   { id: 'Gasfitero', label: 'Gasfitería', icon: 'water-outline' },
   { id: 'Electricista', label: 'Electricidad', icon: 'flash-outline' },
@@ -33,6 +34,7 @@ const SERVICES = [
 
 const STATUS_COPY: Record<string, { label: string; detail: string; step: number }> = {
   PENDING_ASSIGNMENT: { label: 'Buscando al técnico adecuado', detail: 'La central está revisando tu solicitud.', step: 1 },
+  QUOTED: { label: 'Cotización disponible', detail: 'Revisa la tarifa y el alcance propuesto por la central.', step: 1 },
   REQUIRES_REASSIGNMENT: { label: 'Reasignando técnico', detail: 'La central está buscando otra opción disponible.', step: 1 },
   PENDING: { label: 'Técnico asignado', detail: 'Esperando confirmación del técnico.', step: 2 },
   ACCEPTED: { label: 'Técnico en camino', detail: 'Tu servicio fue confirmado.', step: 3 },
@@ -42,6 +44,7 @@ const STATUS_COPY: Record<string, { label: string; detail: string; step: number 
 
 export default function ClientHome() {
   const router = useRouter();
+  const { category } = useLocalSearchParams<{ category?: string }>();
   const { colors } = useTheme();
   const { user } = useSession();
   const [activeRequest, setActiveRequest] = useState<any>(null);
@@ -50,6 +53,17 @@ export default function ClientHome() {
   const [service, setService] = useState('');
   const [visitFeePaymentMethod, setVisitFeePaymentMethod] = useState<'PLIN' | 'YAPE' | 'TRANSFERENCIA' | 'EFECTIVO'>('PLIN');
   const selectedService = useMemo(() => SERVICES.find((s) => s.id === service), [service]);
+
+  useEffect(() => {
+    if (category) {
+      const match = SERVICES.find(
+        (s) => s.id.toLowerCase() === category.toLowerCase() || s.label.toLowerCase() === category.toLowerCase()
+      );
+      if (match) {
+        setService(match.id);
+      }
+    }
+  }, [category]);
   const [description, setDescription] = useState('');
   const [district, setDistrict] = useState('');
   const [address, setAddress] = useState('');
@@ -194,8 +208,6 @@ export default function ClientHome() {
       setSubmittingRating(false);
     }
   };
-
-  const selectedService = useMemo(() => SERVICES.find((item) => item.id === service), [service]);
 
   const selectPhoto = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -363,6 +375,79 @@ export default function ClientHome() {
     ]);
   };
 
+  const handleAcceptQuote = async () => {
+    if (!activeRequest || !user) return;
+    try {
+      await updateDoc(doc(db, 'service_requests', activeRequest.id), {
+        status: 'PENDING_ASSIGNMENT',
+        quoteAcceptedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      void notifyCentral(
+        activeRequest.id,
+        'Cotización Aceptada 🎉',
+        `${user.displayName || 'El cliente'} aceptó la cotización de ${activeRequest.price_agreed || 'la empresa'}. Procede a asignar técnico.`,
+        'PENDING_ASSIGNMENT'
+      );
+      Toast.show({ type: 'success', text1: '¡Cotización Aceptada!', text2: 'La central está gestionando a tu técnico.' });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'No se pudo aceptar la cotización.');
+    }
+  };
+
+  const handleRejectQuote = async () => {
+    if (!activeRequest || !user) return;
+    Alert.alert(
+      'Rechazar Cotización',
+      '¿Deseas rechazar la tarifa propuesta y cancelar esta solicitud?',
+      [
+        { text: 'Volver', style: 'cancel' },
+        {
+          text: 'Sí, Rechazar y Cancelar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await updateDoc(doc(db, 'service_requests', activeRequest.id), {
+                status: 'CANCELLED_BY_CLIENT',
+                cancelReason: 'QUOTE_REJECTED',
+                quoteRejectedAt: serverTimestamp(),
+                cancelledAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+              void notifyCentral(
+                activeRequest.id,
+                'Cotización Rechazada',
+                `${user.displayName || 'El cliente'} rechazó la cotización de ${activeRequest.price_agreed || 'la empresa'}.`,
+                'CANCELLED_BY_CLIENT'
+              );
+              Toast.show({ type: 'info', text1: 'Cotización rechazada', text2: 'La solicitud ha sido cancelada.' });
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'No se pudo rechazar la cotización.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLogout = () => {
+    Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir de tu cuenta?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Cerrar Sesión',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOutWithNotifications();
+            router.replace('/auth/login');
+          } catch (error: any) {
+            Alert.alert('Error', error.message || 'No se pudo cerrar sesión.');
+          }
+        },
+      },
+    ]);
+  };
+
   if (loadingRequest) {
     return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.primary} /></View>;
   }
@@ -376,8 +461,9 @@ export default function ClientHome() {
             <Text style={[styles.eyebrow, { color: colors.primary }]}>MAESTRO A DOMICILIO</Text>
             <Text style={[styles.title, { color: colors.text }]}>¿Qué necesitas resolver?</Text>
           </View>
-          <TouchableOpacity style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={() => router.push('/client/history')}><Ionicons name="receipt-outline" size={23} color={colors.primary} /></TouchableOpacity>
-          <TouchableOpacity style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={() => router.push('/profile')}><Ionicons name="person-outline" size={23} color={colors.primary} /></TouchableOpacity>
+          <TouchableOpacity accessibilityLabel="Historial" style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={() => router.push('/client/history')}><Ionicons name="receipt-outline" size={23} color={colors.primary} /></TouchableOpacity>
+          <TouchableOpacity accessibilityLabel="Mi perfil" style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={() => router.push('/profile')}><Ionicons name="person-outline" size={23} color={colors.primary} /></TouchableOpacity>
+          <TouchableOpacity accessibilityLabel="Cerrar sesión" style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={handleLogout}><Ionicons name="log-out-outline" size={23} color={colors.danger} /></TouchableOpacity>
         </View>
 
         {requestError ? <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}><Text style={{ color: colors.text }}>{requestError}</Text><TouchableOpacity style={[styles.submitButton, { backgroundColor: colors.primary, marginTop: 12 }]} onPress={() => setRequestAttempt((value) => value + 1)}><Text style={styles.submitText}>Volver a intentar</Text></TouchableOpacity></View> : activeRequest && status ? (
@@ -387,13 +473,59 @@ export default function ClientHome() {
               <View style={{ flex: 1 }}><Text style={[styles.cardTitle, { color: colors.text }]}>{status.label}</Text><Text style={[styles.helper, { color: colors.subtext }]}>{status.detail}</Text></View>
             </View>
             <View style={styles.progressRow}>{[1, 2, 3, 4].map((step) => <View key={step} style={[styles.progressSegment, { backgroundColor: step <= status.step ? colors.primary : colors.border }]} />)}</View>
+
+            {/* Tarjeta de Aceptación / Rechazo de Cotización (HU-06) */}
+            {activeRequest.status === 'QUOTED' ? (
+              <View style={{ marginVertical: 12, padding: 14, borderRadius: 14, backgroundColor: `${colors.primary}12`, borderWidth: 1.5, borderColor: colors.primary }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <Ionicons name="pricetag" size={22} color={colors.primary} />
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text }}>Cotización de la Empresa</Text>
+                </View>
+                <Text style={{ fontSize: 13, color: colors.subtext, lineHeight: 18, marginBottom: 10 }}>
+                  La central ha evaluado tu solicitud y fijó el costo oficial del servicio:
+                </Text>
+                <View style={{ backgroundColor: colors.card, padding: 12, borderRadius: 12, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 24, fontWeight: '900', color: colors.primary }}>{activeRequest.price_agreed}</Text>
+                  {activeRequest.pricing?.description ? (
+                    <Text style={{ fontSize: 13, color: colors.text, marginTop: 4 }}>
+                      <Text style={{ fontWeight: '700' }}>Alcance: </Text>{activeRequest.pricing.description}
+                    </Text>
+                  ) : null}
+                  <Text style={{ fontSize: 11, color: colors.subtext, marginTop: 6 }}>
+                    * Tarifa fija con visita técnica diagnóstica deducible.
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    style={[styles.submitButton, { flex: 1.2, backgroundColor: colors.success, marginTop: 0 }]}
+                    onPress={handleAcceptQuote}
+                  >
+                    <Text style={styles.submitText}>✓ Aceptar Tarifa</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.submitButton, { flex: 0.8, backgroundColor: colors.danger, marginTop: 0 }]}
+                    onPress={handleRejectQuote}
+                  >
+                    <Text style={styles.submitText}>✕ Rechazar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+
             <View style={[styles.summaryBox, { backgroundColor: colors.background }]}>
               <Text style={[styles.summaryLabel, { color: colors.subtext }]}>SERVICIO</Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>{activeRequest.serviceLabel || activeRequest.specialty}</Text>
               <Text style={[styles.summaryLabel, { color: colors.subtext }]}>TARIFA DE LA EMPRESA</Text><Text style={[styles.summaryValue, { color: colors.text }]}>{activeRequest.price_agreed || 'Pendiente de cotización por la central'}</Text>
               {activeRequest.pricing?.description ? <Text style={{ color: colors.subtext }}>{activeRequest.pricing.description}</Text> : null}
               <Text style={[styles.summaryLabel, { color: colors.subtext }]}>DESTINO CONFIRMADO</Text><Text style={{ color: colors.text }}>{activeRequest.address} {activeRequest.addressReference || ''}</Text>
-              <View style={[styles.mapFrame, { marginTop: 10, borderColor: colors.border }]}><ServiceMap location={activeRequest.location || null} technicians={providerLocation ? [providerLocation] : []} style={styles.map} /></View>
+              <View style={[styles.mapFrame, { marginTop: 10, borderColor: colors.border }]}>
+                <ServiceMap
+                  location={activeRequest.location || null}
+                  technicians={providerLocation ? [providerLocation] : []}
+                  showEtaBadge={['ACCEPTED', 'IN_PROGRESS'].includes(activeRequest.status)}
+                  style={styles.map}
+                />
+              </View>
               {activeRequest.providerName ? <><Text style={[styles.summaryLabel, { color: colors.subtext }]}>TÉCNICO ASIGNADO</Text><Text style={[styles.summaryValue, { color: colors.text }]}>{activeRequest.providerName}</Text></> : null}
               {activeRequest.status === 'ACCEPTED' ? <><Text style={[styles.summaryLabel, { color: colors.subtext }]}>PIN DE SEGURIDAD</Text><Text style={[styles.pin, { color: colors.primary }]}>{activeRequest.securityPin}</Text></> : null}
             </View>
