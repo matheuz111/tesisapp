@@ -357,8 +357,8 @@ body {
 
 .dashboard-content {
   flex: 1;
-  padding: 24px 28px;
-  max-width: 1440px;
+  padding: 20px 24px;
+  max-width: 1680px;
   width: 100%;
   margin: 0 auto;
 }
@@ -546,7 +546,17 @@ body {
   border-radius: 6px;
   font-family: monospace;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11.5px;
+  white-space: nowrap !important;
+  display: inline-block;
+  letter-spacing: 0.3px;
+}
+
+.date-cell {
+  white-space: nowrap !important;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  display: inline-block;
 }
 
 .channel-pill {
@@ -556,6 +566,8 @@ body {
   border-radius: 12px;
   background: #f1f5f9;
   color: #334155;
+  white-space: nowrap !important;
+  display: inline-block;
 }
 
 .client-cell, .service-cell {
@@ -563,20 +575,29 @@ body {
   flex-direction: column;
 }
 
-.client-name, .service-name {
+.client-name {
   font-weight: 600;
   color: var(--text-main);
+  white-space: nowrap;
+}
+
+.service-name {
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
 }
 
 .client-sub, .service-district {
   font-size: 11px;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .price-tag {
   font-weight: 700;
   color: var(--primary);
   font-size: 12px;
+  white-space: nowrap !important;
 }
 
 .status-badge {
@@ -1709,10 +1730,12 @@ body {
 .btn-map-track {
   background-color: #0284c7;
   color: #fff;
-  border: none;
+  border: 1px solid #0284c7;
+  border-radius: 8px;
 }
 .btn-map-track:hover {
   background-color: #0369a1;
+  border-color: #0369a1;
 }
 
 
@@ -2408,4 +2431,1432 @@ body {
   width: fit-content;
 }
 
+/* ══════════════════════════════════════════════════
+   DISEÑO MINIMALISTA Y ESTRUCTURADO (EXECUTIVE UI)
+   ══════════════════════════════════════════════════ */
+
+/* ── Ribbon Unificado de 4 KPIs Limpios ── */
+.kpi-grid-minimal {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 1024px) {
+  .kpi-grid-minimal {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .kpi-grid-minimal {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kpi-card-clean {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kpi-card-clean:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.kpi-clean-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.kpi-clean-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kpi-clean-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.kpi-clean-value-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kpi-clean-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.kpi-clean-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ── Grilla Analítica 2x2 Minimalista ── */
+.analytics-grid-2x2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 900px) {
+  .analytics-grid-2x2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.analytics-section {
+  margin-bottom: 24px;
+}
+
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-header-title h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.2px;
+}
+
+.chart-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.chart-wrapper {
+  width: 100%;
+  min-height: 210px;
+}
+
+/* ── Controles de Tabla Minimalistas ── */
+.table-controls-clean {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.search-box-clean {
+  position: relative;
+  flex: 1;
+  min-width: 280px;
+}
+
+.search-icon-clean {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.search-box-clean input {
+  width: 100%;
+  padding: 9px 12px 9px 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-box-clean input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.filter-group-clean {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.segmented-tabs-clean {
+  display: flex;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.tab-btn-clean {
+  background: transparent;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn-clean:hover {
+  color: var(--text-main);
+}
+
+.tab-btn-clean.active {
+  background: var(--bg-hover);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.select-channel-clean {
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+/* ── Catálogo Baremo Técnico ── */
+.baremo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+@media (max-width: 768px) {
+  .baremo-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.baremo-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: border-color 0.15s ease;
+}
+
+.baremo-card:hover {
+  border-color: var(--primary);
+}
+
+.baremo-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.baremo-category-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--primary);
+  background: var(--primary-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.baremo-price-badge {
+  font-size: 12px;
+  font-weight: 800;
+  color: #16a34a;
+}
+
+.baremo-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.baremo-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.baremo-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  flex-wrap: wrap;
+}
+
+.baremo-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Generador Proforma / Cotización & Impresión ── */
+.proforma-document {
+  background: #ffffff;
+  color: #0f172a;
+  padding: 30px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+}
+
+[data-theme="dark"] .proforma-document {
+  background: #0f172a;
+  color: #f8fafc;
+  border-color: #334155;
+}
+
+.proforma-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.proforma-company {
+  font-size: 18px;
+  font-weight: 800;
+  color: #2563eb;
+  letter-spacing: -0.3px;
+}
+
+.proforma-sub {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.proforma-doc-info {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.proforma-badge {
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.proforma-number {
+  font-size: 14px;
+  font-weight: 800;
+  font-family: monospace;
+}
+
+.proforma-date {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.proforma-divider {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 16px 0;
+}
+
+.proforma-grid-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.proforma-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 12px;
+}
+
+.proforma-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+[data-theme="dark"] .proforma-table th {
+  background: #1e293b;
+  color: #cbd5e1;
+  border-color: #334155;
+}
+
+.proforma-table td {
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+}
+
+[data-theme="dark"] .proforma-table td {
+  border-color: #334155;
+}
+
+.proforma-totals-wrap {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+  margin-top: 16px;
+}
+
+.proforma-notes {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.proforma-notes-edit {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 11px;
+}
+
+.proforma-totals-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proforma-total-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.proforma-total-final {
+  border-top: 2px solid #2563eb;
+  padding-top: 6px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #2563eb;
+}
+
+.proforma-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+.stamp-circle {
+  width: 90px;
+  height: 90px;
+  border: 2px dashed #16a34a;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #16a34a;
+  text-align: center;
+  transform: rotate(-10deg);
+}
+
+.proforma-sign {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.sign-line {
+  width: 160px;
+  border-top: 1px solid #64748b;
+  margin-bottom: 6px;
+}
+
+/* ── Certificado de Garantía ── */
+.warranty-certificate {
+  background: #ffffff;
+  color: #0f172a;
+  padding: 20px;
+}
+
+[data-theme="dark"] .warranty-certificate {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.cert-border-wrap {
+  border: 3px double #0284c7;
+  border-radius: 12px;
+  padding: 30px;
+}
+
+.cert-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.cert-title {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #0284c7;
+  margin-top: 10px;
+}
+
+.cert-subtitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.5px;
+}
+
+.cert-code {
+  display: inline-block;
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
+  font-weight: 800;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  margin-top: 8px;
+  font-family: monospace;
+}
+
+.cert-statement {
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  max-width: 600px;
+  margin: 0 auto 20px;
+}
+
+.cert-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 20px;
+  font-size: 12px;
+}
+
+[data-theme="dark"] .cert-grid {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.cert-validity-box {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 20px;
+}
+
+.cert-validity-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cert-clauses {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 24px;
+}
+
+.clause-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cert-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 16px;
+}
+
+.qr-box {
+  width: 80px;
+  height: 80px;
+  border: 2px solid #0f172a;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  text-align: center;
+  padding: 4px;
+}
+
+[data-theme="dark"] .qr-box {
+  border-color: #94a3b8;
+}
+
+/* ── Reglas de Impresión (@media print) ── */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-proforma-container,
+  .printable-proforma-container * {
+    visibility: visible;
+  }
+  .printable-proforma-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .modal-backdrop {
+    background: transparent !important;
+    position: static !important;
+  }
+}
+
+/* ── Estilos Limpios para Exportador SPSS ── */
+.info-box-clean {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.checkbox-label-clean {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label-clean input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.progress-box-clean {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+
+.progress-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #38bdf8);
+  border-radius: 4px;
+  transition: width 0.2s ease-in-out;
+}
+
+/* ==========================================================================
+   ANGULAR MATERIAL DESIGN 3 / DESIGN SYSTEM TOKENS (Tables, Search, Chips, Cards)
+   ========================================================================== */
+
+/* ── Material Elevation & Surface Tokens ── */
+:root {
+  --mat-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --mat-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --mat-elevation-3: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --mat-primary-tonal: #e0f2fe;
+  --mat-primary-tonal-text: #0369a1;
+  --mat-surface: #ffffff;
+  --mat-surface-variant: #f8fafc;
+  --mat-outline: #cbd5e1;
+  --mat-outline-variant: #e2e8f0;
+}
+
+[data-theme="dark"] {
+  --mat-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
+  --mat-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
+  --mat-elevation-3: 0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.6);
+  --mat-primary-tonal: rgba(56, 189, 248, 0.15);
+  --mat-primary-tonal-text: #38bdf8;
+  --mat-surface: #131d38;
+  --mat-surface-variant: #1c294d;
+  --mat-outline: #334155;
+  --mat-outline-variant: #233055;
+}
+
+/* ── Material Search Input (MatFormField Outlined Pill) ── */
+.mat-search-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 260px;
+  background: var(--mat-surface);
+  border: 1.5px solid var(--mat-outline);
+  border-radius: 28px;
+  padding: 2px 14px 2px 16px;
+  box-shadow: var(--mat-elevation-1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mat-search-container:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18), var(--mat-elevation-2);
+  background: var(--mat-surface);
+}
+
+.mat-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-right: 10px;
+  transition: color 0.2s ease;
+}
+
+.mat-search-container:focus-within .mat-search-icon {
+  color: var(--primary);
+}
+
+.mat-search-input {
+  flex: 1;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-size: 13.5px;
+  color: var(--text-main);
+  padding: 9px 0 !important;
+  font-weight: 500;
+}
+
+.mat-search-input::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.mat-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.mat-search-clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .mat-search-clear:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Material Filter Chips (MatChipListbox / MatFilterChip) ── */
+.mat-chip-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mat-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--mat-outline);
+  background: var(--mat-surface);
+  color: var(--text-main);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--mat-elevation-1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.mat-filter-chip:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.mat-filter-chip.mat-chip-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
+}
+
+.mat-chip-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.mat-chip-check {
+  margin-left: 2px;
+  stroke-width: 3;
+}
+
+/* ── Material Segmented Button Group ── */
+.mat-segmented-group {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-hover);
+  border: 1px solid var(--mat-outline-variant);
+  border-radius: 24px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.mat-segmented-btn {
+  border: none;
+  background: transparent;
+  padding: 7px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.mat-segmented-btn:hover:not(.active) {
+  color: var(--text-main);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.mat-segmented-btn.active {
+  background: var(--mat-surface);
+  color: var(--primary);
+  box-shadow: var(--mat-elevation-1);
+  font-weight: 700;
+}
+
+[data-theme="dark"] .mat-segmented-btn.active {
+  background: var(--bg-card);
+  color: var(--primary);
+}
+
+/* ── Material Baremo Cards Grid (MatCard) ── */
+.baremo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  padding: 4px 2px;
+}
+
+.baremo-card {
+  background: var(--mat-surface);
+  border: 1px solid var(--mat-outline-variant);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--mat-elevation-1);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.baremo-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--mat-elevation-3);
+  border-color: rgba(2, 132, 199, 0.4);
+}
+
+.baremo-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.baremo-category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+/* Tonal Category Palette */
+.cat-gasfiteria {
+  background: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.2);
+}
+.cat-electricidad {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+.cat-cerrajeria {
+  background: #ccfbf1;
+  color: #0f766e;
+  border: 1px solid rgba(20, 184, 166, 0.25);
+}
+.cat-linea-blanca {
+  background: #e0e7ff;
+  color: #4338ca;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+.cat-pintura {
+  background: #f3e8ff;
+  color: #7e22ce;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+}
+.cat-albanileria {
+  background: #ffedd5;
+  color: #c2410c;
+  border: 1px solid rgba(249, 115, 22, 0.25);
+}
+
+[data-theme="dark"] .cat-gasfiteria { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+[data-theme="dark"] .cat-electricidad { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+[data-theme="dark"] .cat-cerrajeria { background: rgba(45, 212, 191, 0.15); color: #2dd4bf; }
+[data-theme="dark"] .cat-linea-blanca { background: rgba(129, 140, 248, 0.15); color: #818cf8; }
+[data-theme="dark"] .cat-pintura { background: rgba(192, 132, 252, 0.15); color: #c084fc; }
+[data-theme="dark"] .cat-albanileria { background: rgba(251, 146, 60, 0.15); color: #fb923c; }
+
+.baremo-price-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 12.5px;
+  font-weight: 800;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+[data-theme="dark"] .baremo-price-badge {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.baremo-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+.baremo-desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.baremo-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--mat-outline-variant);
+  margin-bottom: 12px;
+}
+
+.baremo-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--mat-outline-variant);
+}
+
+.baremo-select-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--mat-primary-tonal);
+  color: var(--mat-primary-tonal-text);
+  border: 1px solid rgba(2, 132, 199, 0.2);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.baremo-select-btn:hover {
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(2, 132, 199, 0.3);
+}
+
+/* ── Angular Material Data Table (MatTable) ── */
+.table-container {
+  background: var(--mat-surface);
+  border: 1px solid var(--mat-outline-variant);
+  border-radius: 16px;
+  box-shadow: var(--mat-elevation-1);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+  width: 100%;
+}
+
+.table-container:hover {
+  box-shadow: var(--mat-elevation-2);
+}
+
+.table-scroll-wrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 270px);
+  min-height: 420px;
+  scrollbar-width: thin;
+}
+
+.table-scroll-wrap::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.table-scroll-wrap::-webkit-scrollbar-thumb {
+  background: var(--mat-outline);
+  border-radius: 4px;
+}
+
+.data-table {
+  width: 100%;
+  min-width: 1200px;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 12.5px;
+}
+
+.data-table thead tr {
+  background: var(--bg-hover);
+}
+
+.data-table th {
+  padding: 13px 16px;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap !important;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-hover);
+  border-bottom: 2px solid var(--mat-outline-variant);
+}
+
+[data-theme="dark"] .data-table th {
+  background: #1c294d;
+}
+
+.data-table tbody tr {
+  transition: background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table td {
+  padding: 11px 16px;
+  color: var(--text-main);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--mat-outline-variant);
+}
+
+.data-table tbody tr:hover {
+  background-color: rgba(2, 132, 199, 0.04);
+}
+
+[data-theme="dark"] .data-table tbody tr:hover {
+  background-color: rgba(56, 189, 248, 0.06);
+}
+
+/* ── Material Paginator (MatPaginator) ── */
+.mat-paginator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: var(--mat-surface);
+  border-top: 1px solid var(--mat-outline-variant);
+  border-radius: 0 0 16px 16px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mat-paginator-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mat-paginator-select {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--mat-outline);
+  background: var(--mat-surface);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.mat-paginator-select:focus {
+  border-color: var(--primary);
+}
+
+.mat-paginator-range {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.mat-paginator-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mat-paginator-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--mat-outline-variant);
+  background: var(--mat-surface);
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mat-paginator-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.mat-paginator-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: transparent;
+}
+
+/* ── Material Action Buttons Cluster (MatStrokedButton / MatIconButton) ── */
+.table-actions-cluster {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.mat-btn-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid var(--mat-outline-variant);
+  background: var(--mat-surface);
+  color: var(--text-main);
+  cursor: pointer;
+  white-space: nowrap !important;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  line-height: 1.4;
+  user-select: none;
+}
+
+.mat-btn-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+}
+
+.mat-btn-action:active {
+  transform: translateY(0);
+}
+
+/* Detalle: neutral tonal with crisp border */
+.mat-btn-action.mat-btn-detail {
+  background: #f8fafc;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+.mat-btn-action.mat-btn-detail:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+/* Cotizar: tonal blue */
+.mat-btn-action.mat-btn-quote {
+  background: #f0f9ff;
+  color: #0284c7;
+  border-color: rgba(2, 132, 199, 0.28);
+}
+
+.mat-btn-action.mat-btn-quote:hover {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #0284c7;
+}
+
+/* Garantía: tonal emerald */
+.mat-btn-action.mat-btn-warranty {
+  background: #f0fdf4;
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.28);
+}
+
+.mat-btn-action.mat-btn-warranty:hover {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #16a34a;
+}
+
+/* Ruta: corporate primary blue filled badge */
+.mat-btn-action.mat-btn-route,
+.mat-btn-action.btn-map-track {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border: 1px solid #0284c7 !important;
+  box-shadow: 0 2px 5px rgba(2, 132, 199, 0.3) !important;
+}
+
+.mat-btn-action.mat-btn-route:hover,
+.mat-btn-action.btn-map-track:hover {
+  background: #0369a1 !important;
+  border-color: #0369a1 !important;
+  box-shadow: 0 4px 10px rgba(2, 132, 199, 0.4) !important;
+}
+
+/* Asignar: energetic amber badge */
+.mat-btn-action.mat-btn-assign,
+.mat-btn-action.btn-assign-action {
+  background: #fff7ed;
+  color: #ea580c;
+  border-color: rgba(234, 88, 12, 0.3);
+}
+
+.mat-btn-action.mat-btn-assign:hover,
+.mat-btn-action.btn-assign-action:hover {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #ea580c;
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.35);
+}
+
+/* Chat icon button */
+.mat-icon-btn-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0284c7;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.mat-icon-btn-action:hover {
+  border-color: #0284c7;
+  color: #0369a1;
+  background: #e0f2fe;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Dark Mode Overrides for Table Action Buttons ── */
+[data-theme="dark"] .mat-btn-action.mat-btn-detail {
+  background: #1e293b;
+  color: #cbd5e1;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .mat-btn-action.mat-btn-detail:hover {
+  background: #334155;
+  color: #ffffff;
+  border-color: #475569;
+}
+
+[data-theme="dark"] .mat-btn-action.mat-btn-quote {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+[data-theme="dark"] .mat-btn-action.mat-btn-quote:hover {
+  background: rgba(56, 189, 248, 0.22);
+  color: #7dd3fc;
+  border-color: #38bdf8;
+}
+
+[data-theme="dark"] .mat-btn-action.mat-btn-warranty {
+  background: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+[data-theme="dark"] .mat-btn-action.mat-btn-warranty:hover {
+  background: rgba(74, 222, 128, 0.22);
+  color: #86efac;
+  border-color: #4ade80;
+}
+
+[data-theme="dark"] .mat-btn-action.mat-btn-assign,
+[data-theme="dark"] .mat-btn-action.btn-assign-action {
+  background: rgba(251, 146, 60, 0.12);
+  color: #fb923c;
+  border-color: rgba(251, 146, 60, 0.3);
+}
+
+[data-theme="dark"] .mat-icon-btn-action {
+  background: #1e293b;
+  border-color: #334155;
+  color: #38bdf8;
+}
+
+[data-theme="dark"] .mat-icon-btn-action:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #7dd3fc;
+}
 

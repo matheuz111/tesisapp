@@ -373,6 +373,7 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
   if (!request) return null;
 
   const workerName = request.providerName || workerData?.full_name || workerData?.name || 'Técnico Especialista';
+  const workerPhone = workerData?.phone || request.providerPhone;
   const workerPhoto =
     workerData?.photoUrl ||
     workerData?.avatar ||
@@ -381,16 +382,16 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card indrive-modal" onClick={(e) => e.stopPropagation()}>
-        {/* Encabezado del Modal */}
+        {/* Encabezado del Modal Corporativo */}
         <div className="modal-header" style={{ padding: '12px 18px' }}>
           <div className="modal-title-wrap">
             <div className="kpi-icon-wrap icon-blue" style={{ width: 34, height: 34 }}>
               <Navigation size={18} />
             </div>
             <div>
-              <h2 style={{ fontSize: 16 }}>Monitoreo en Vivo tipo inDrive</h2>
+              <h2 style={{ fontSize: 16 }}>Centro de Control y Despacho en Ruta</h2>
               <span className="modal-subtitle">
-                Solicitud {request.code || request.id.slice(0, 8)} · {request.serviceLabel || request.specialty}
+                Solicitud {request.code || request.id.slice(0, 8)} · {request.serviceLabel || request.specialty} · {request.district || 'Lima'}
               </span>
             </div>
           </div>
@@ -399,9 +400,9 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
           </button>
         </div>
 
-        {/* Contenedor del Mapa con elementos flotantes inDrive */}
+        {/* Contenedor del Mapa con elementos flotantes */}
         <div className="indrive-map-wrapper">
-          {/* Tarjeta Flotante Superior Estilo inDrive */}
+          {/* Tarjeta Flotante Superior de Telemetría */}
           <div className="indrive-floating-header">
             <div className="indrive-worker-info">
               <img src={workerPhoto} alt={workerName} className="indrive-worker-photo" />
@@ -409,13 +410,25 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
                 <span className="indrive-worker-name">{workerName}</span>
                 <span className="indrive-worker-sub">
                   <Wrench size={12} /> {request.specialty || 'Servicios'} ·{' '}
-                  <ShieldCheck size={12} color="#38bdf8" /> Verificado
+                  <ShieldCheck size={12} color="#38bdf8" /> Cuadrilla Certificada
                 </span>
               </div>
             </div>
 
-            {/* Panel de Distancia y Tiempo de Llegada (ETA) */}
+            {/* Panel de Distancia, PIN y Tiempo de Llegada (ETA) */}
             <div className="indrive-eta-panel">
+              {/* PIN de Seguridad */}
+              {request.securityPin && (
+                <div
+                  className="indrive-eta-pill"
+                  style={{ background: 'rgba(2, 132, 199, 0.25)', border: '1px solid #0284c7', color: '#38bdf8' }}
+                  title="PIN de seguridad para validar llegada al domicilio"
+                >
+                  <ShieldCheck size={14} color="#38bdf8" />
+                  <span>PIN: <strong>{request.securityPin}</strong></span>
+                </div>
+              )}
+
               {loadingRoute ? (
                 <div className="indrive-eta-pill" style={{ background: '#0284c7' }}>
                   <Clock size={15} className="spinner" />
@@ -439,16 +452,28 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
                 </div>
               )}
 
-              {workerData?.phone && (
-                <a
-                  href={`tel:${workerData.phone}`}
-                  className="indrive-dist-pill"
-                  style={{ textDecoration: 'none', background: 'rgba(34, 197, 94, 0.2)', color: '#4ade80' }}
-                  title="Llamar al técnico"
-                >
-                  <Phone size={14} />
-                  <span>{workerData.phone}</span>
-                </a>
+              {workerPhone && (
+                <>
+                  <a
+                    href={`https://wa.me/51${workerPhone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${workerName}, te contactamos desde la central respecto a la solicitud ${request.code || ''}.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="indrive-dist-pill"
+                    style={{ textDecoration: 'none', background: 'rgba(34, 197, 94, 0.25)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.4)' }}
+                    title="Enviar WhatsApp al técnico"
+                  >
+                    <span>💬 WhatsApp</span>
+                  </a>
+                  <a
+                    href={`tel:${workerPhone}`}
+                    className="indrive-dist-pill"
+                    style={{ textDecoration: 'none', background: 'rgba(34, 197, 94, 0.2)', color: '#4ade80' }}
+                    title="Llamar al técnico"
+                  >
+                    <Phone size={14} />
+                    <span>{workerPhone}</span>
+                  </a>
+                </>
               )}
             </div>
           </div>
@@ -505,13 +530,15 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
           </div>
         </div>
 
-        {/* Pie de modal con estado de telemetría */}
+        {/* Pie de modal con datos de destino y cliente */}
         <div className="modal-footer" style={{ justifyContent: 'space-between', padding: '10px 18px', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
             <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} />
             <span>
-              Destino: <strong>{request.address || request.district || 'Lima'}</strong> · Cliente:{' '}
-              {request.clientName || 'Cliente'}
+              Destino: <strong>{request.address || request.district || 'Lima'}</strong>{' '}
+              {request.addressReference && <span style={{ color: '#64748b' }}>({request.addressReference})</span>} · Cliente:{' '}
+              <strong>{request.clientName || 'Cliente'}</strong>
+              {request.clientPhone && <span> · Tel: {request.clientPhone}</span>}
             </span>
             {routeError && (
               <span style={{ color: '#f59e0b', display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
@@ -522,7 +549,7 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
 
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Cerrar Vista de Monitoreo
+              Cerrar Panel de Control
             </button>
           </div>
         </div>

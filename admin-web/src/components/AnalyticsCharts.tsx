@@ -13,32 +13,33 @@ import {
   CartesianGrid,
 } from 'recharts';
 import type { ServiceRequest } from '../types';
-import { BarChart3, PieChart as PieIcon, Activity, Layers, CheckCircle, Zap, Clock, ShieldCheck } from 'lucide-react';
+import { Activity, Layers, Clock, TrendingUp } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface Props {
   requests: ServiceRequest[];
 }
 
-const PALETTE = ['#0284c7', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
+// Paleta ejecutiva minimalista (azul pizarra, índigo suave, verde esmeralda sutil, ámbar suave)
+const MINIMAL_PALETTE = ['#2563eb', '#10b981', '#f59e0b', '#6366f1', '#64748b', '#06b6d4'];
 
-const STATUS_COLORS: Record<string, string> = {
+const STATUS_MINIMAL_COLORS: Record<string, string> = {
   'Por Asignar': '#f59e0b',
-  'En Curso': '#6366f1',
+  'En Curso': '#3b82f6',
   'Culminado': '#10b981',
-  'Cancelado': '#ef4444',
+  'Cancelado': '#94a3b8',
 };
 
 export const AnalyticsCharts = ({ requests }: Props) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
-  const gridColor = isDark ? '#233055' : '#e2e8f0';
+  const gridColor = isDark ? '#1e293b' : '#f1f5f9';
   const textColor = isDark ? '#94a3b8' : '#64748b';
-  const tooltipBg = isDark ? '#131d38' : '#ffffff';
-  const tooltipBorder = isDark ? '#233055' : '#cbd5e1';
+  const tooltipBg = isDark ? '#0f172a' : '#ffffff';
+  const tooltipBorder = isDark ? '#334155' : '#e2e8f0';
 
-  // 1. Datos por Estado
+  // 1. Datos por Estado Operativo
   const statusData = useMemo(() => {
     let pending = 0;
     let inProgress = 0;
@@ -53,10 +54,10 @@ export const AnalyticsCharts = ({ requests }: Props) => {
     });
 
     return [
-      { name: 'Por Asignar', cantidad: pending, color: STATUS_COLORS['Por Asignar'] },
-      { name: 'En Curso', cantidad: inProgress, color: STATUS_COLORS['En Curso'] },
-      { name: 'Culminado', cantidad: completed, color: STATUS_COLORS['Culminado'] },
-      { name: 'Cancelado', cantidad: cancelled, color: STATUS_COLORS['Cancelado'] },
+      { name: 'Por Asignar', cantidad: pending, color: STATUS_MINIMAL_COLORS['Por Asignar'] },
+      { name: 'En Curso', cantidad: inProgress, color: STATUS_MINIMAL_COLORS['En Curso'] },
+      { name: 'Culminado', cantidad: completed, color: STATUS_MINIMAL_COLORS['Culminado'] },
+      { name: 'Cancelado', cantidad: cancelled, color: STATUS_MINIMAL_COLORS['Cancelado'] },
     ];
   }, [requests]);
 
@@ -94,7 +95,7 @@ export const AnalyticsCharts = ({ requests }: Props) => {
     return Object.entries(counts)
       .map(([name, cantidad]) => ({ name, cantidad }))
       .sort((a, b) => b.cantidad - a.cantidad)
-      .slice(0, 6);
+      .slice(0, 5);
   }, [requests]);
 
   // 4. Desglose de 5 Fases Operativas en Minutos (Métricas SPSS)
@@ -156,115 +157,50 @@ export const AnalyticsCharts = ({ requests }: Props) => {
     });
 
     return [
-      { metrica: '1. Respuesta (T_RSP)', minutos: rspCount ? Number((rspSum / rspCount).toFixed(1)) : 0, color: '#0284c7' },
-      { metrica: '2. Asignación (T_ASG)', minutos: asgCount ? Number((asgSum / asgCount).toFixed(1)) : 0, color: '#6366f1' },
-      { metrica: '3. En Ruta / PIN (T_LLE)', minutos: lleCount ? Number((lleSum / lleCount).toFixed(1)) : 0, color: '#f59e0b' },
+      { metrica: '1. Contacto (T_RSP)', minutos: rspCount ? Number((rspSum / rspCount).toFixed(1)) : 0, color: '#3b82f6' },
+      { metrica: '2. Asignación (T_ASG)', minutos: asgCount ? Number((asgSum / asgCount).toFixed(1)) : 0, color: '#2563eb' },
+      { metrica: '3. Traslado (T_LLE)', minutos: lleCount ? Number((lleSum / lleCount).toFixed(1)) : 0, color: '#f59e0b' },
       { metrica: '4. Ejecución (T_EJE)', minutos: ejeCount ? Number((ejeSum / ejeCount).toFixed(1)) : 0, color: '#10b981' },
-      { metrica: '5. Cierre (T_VAL)', minutos: valCount ? Number((valSum / valCount).toFixed(1)) : 0, color: '#8b5cf6' },
-      { metrica: 'Total Ciclo (T_TOT)', minutos: totCount ? Number((totSum / totCount).toFixed(1)) : 0, color: '#ec4899' },
+      { metrica: '5. Cierre (T_VAL)', minutos: valCount ? Number((valSum / valCount).toFixed(1)) : 0, color: '#6366f1' },
+      { metrica: 'Ciclo Total (T_TOT)', minutos: totCount ? Number((totSum / totCount).toFixed(1)) : 0, color: '#0f172a' },
     ];
   }, [requests]);
-
-  // 5. Métricas de Resumen Ejecutivo (KPI Pills)
-  const summaryKPIs = useMemo(() => {
-    const total = requests.length;
-    if (total === 0) return null;
-
-    const completed = requests.filter((r) => ['COMPLETED', 'VALIDATED'].includes(r.status)).length;
-    const completionRate = total > 0 ? ((completed / total) * 100).toFixed(0) : '0';
-
-    const photoEvidences = requests.filter((r) => r.issuePhoto || r.evidencePhoto || (r as any).evidence_photo).length;
-    const auditRate = total > 0 ? ((photoEvidences / total) * 100).toFixed(0) : '0';
-
-    const topChannel = channelData.length > 0
-      ? channelData.reduce((prev, curr) => (curr.valor > prev.valor ? curr : prev), channelData[0])
-      : { name: 'App Móvil', valor: 0 };
-
-    return {
-      completionRate: `${completionRate}%`,
-      auditRate: `${auditRate}%`,
-      topChannelName: topChannel.name,
-      topChannelShare: total > 0 ? `${((topChannel.valor / total) * 100).toFixed(0)}%` : '0%',
-      totalCount: total,
-    };
-  }, [requests, channelData]);
 
   if (requests.length === 0) return null;
 
   return (
     <div className="analytics-section">
-      {/* Píldoras de Resumen Analítico */}
-      {summaryKPIs && (
-        <div className="analytics-summary-pills">
-          <div className="summary-pill">
-            <div className="pill-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
-              <CheckCircle size={18} />
-            </div>
-            <div className="pill-info">
-              <span className="pill-label">Tasa de Culminación</span>
-              <span className="pill-value">{summaryKPIs.completionRate}</span>
-            </div>
-          </div>
-
-          <div className="summary-pill">
-            <div className="pill-icon" style={{ background: 'rgba(2, 132, 199, 0.15)', color: '#0284c7' }}>
-              <Zap size={18} />
-            </div>
-            <div className="pill-info">
-              <span className="pill-label">Canal Principal</span>
-              <span className="pill-value">{summaryKPIs.topChannelName} ({summaryKPIs.topChannelShare})</span>
-            </div>
-          </div>
-
-          <div className="summary-pill">
-            <div className="pill-icon" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}>
-              <ShieldCheck size={18} />
-            </div>
-            <div className="pill-info">
-              <span className="pill-label">Auditoría con Evidencias</span>
-              <span className="pill-value">{summaryKPIs.auditRate} con fotos</span>
-            </div>
-          </div>
-
-          <div className="summary-pill">
-            <div className="pill-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
-              <Clock size={18} />
-            </div>
-            <div className="pill-info">
-              <span className="pill-label">Tiempo Total Promedio</span>
-              <span className="pill-value">{avgTimesData[5]?.minutos || 0} min</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="analytics-grid">
+      {/* Grilla Minimalista 2x2: Espaciosa, limpia y enfocada */}
+      <div className="analytics-grid-2x2">
         {/* Gráfico 1: Estado del Flujo */}
         <div className="chart-card">
           <div className="chart-header">
             <div className="chart-header-title">
-              <Layers size={18} color="#0284c7" />
-              <h3>Distribución por Estado Operativo</h3>
+              <Layers size={16} color="#2563eb" />
+              <h3>Flujo de Estados Operativos</h3>
             </div>
-            <span className="chart-badge">Flujo en Vivo</span>
+            <span className="chart-badge">En Tiempo Real</span>
           </div>
+
           <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={statusData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={statusData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: textColor }} stroke={gridColor} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: textColor }} stroke={gridColor} />
+                <XAxis dataKey="name" stroke={textColor} fontSize={11} tickLine={false} />
+                <YAxis stroke={textColor} fontSize={11} tickLine={false} allowDecimals={false} />
                 <Tooltip
-                  formatter={(val: any) => [`${val} solicitudes`, 'Total']}
+                  cursor={{ fill: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}
                   contentStyle={{
-                    borderRadius: 10,
                     backgroundColor: tooltipBg,
                     borderColor: tooltipBorder,
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     color: isDark ? '#f8fafc' : '#0f172a',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   }}
+                  formatter={(value: any) => [`${value} pedidos`, 'Cantidad']}
                 />
-                <Bar dataKey="cantidad" radius={[6, 6, 0, 0]}>
+                <Bar dataKey="cantidad" radius={[4, 4, 0, 0]} maxBarSize={42}>
                   {statusData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
@@ -274,110 +210,118 @@ export const AnalyticsCharts = ({ requests }: Props) => {
           </div>
         </div>
 
-        {/* Gráfico 2: Multicanalidad */}
+        {/* Gráfico 2: Tiempos de Gestión SPSS */}
         <div className="chart-card">
           <div className="chart-header">
             <div className="chart-header-title">
-              <PieIcon size={18} color="#10b981" />
-              <h3>Canales de Ingreso (Multicanal)</h3>
+              <Clock size={16} color="#2563eb" />
+              <h3>Tiempos Medios de Gestión por Etapa (Minutos)</h3>
             </div>
-            <span className="chart-badge">Origen</span>
+            <span className="chart-badge">SPSS Deltas</span>
           </div>
-          <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={channelData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={4}
-                  dataKey="valor"
-                  label={({ name, percent }: any) => (percent > 0 ? `${name} (${(percent * 100).toFixed(0)}%)` : '')}
-                  labelLine={false}
-                >
-                  {channelData.map((_entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PALETTE[index % PALETTE.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(val: any) => [`${val} pedidos`, 'Volumen']}
-                  contentStyle={{
-                    borderRadius: 10,
-                    backgroundColor: tooltipBg,
-                    borderColor: tooltipBorder,
-                    color: isDark ? '#f8fafc' : '#0f172a',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  }}
-                />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, color: textColor }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
 
-        {/* Gráfico 3: Especialidades Más Solicitadas */}
-        <div className="chart-card">
-          <div className="chart-header">
-            <div className="chart-header-title">
-              <BarChart3 size={18} color="#8b5cf6" />
-              <h3>Demanda por Especialidad Técnica</h3>
-            </div>
-            <span className="chart-badge">Top Rubros</span>
-          </div>
           <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={specialtyData} layout="vertical" margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridColor} />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: textColor }} stroke={gridColor} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: textColor }} width={90} stroke={gridColor} />
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={avgTimesData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+                <XAxis dataKey="metrica" stroke={textColor} fontSize={10} tickLine={false} />
+                <YAxis stroke={textColor} fontSize={11} tickLine={false} />
                 <Tooltip
-                  formatter={(val: any) => [`${val} atenciones`, 'Servicios']}
+                  cursor={{ fill: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}
                   contentStyle={{
-                    borderRadius: 10,
                     backgroundColor: tooltipBg,
                     borderColor: tooltipBorder,
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     color: isDark ? '#f8fafc' : '#0f172a',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   }}
+                  formatter={(value: any) => [`${value} minutos`, 'Promedio']}
                 />
-                <Bar dataKey="cantidad" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
+                <Bar dataKey="minutos" radius={[4, 4, 0, 0]} maxBarSize={38}>
+                  {avgTimesData.map((entry, index) => (
+                    <Cell key={`time-cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Gráfico 4: Tiempos Medios de Gestión (Fases SPSS) */}
+        {/* Gráfico 3: Multicanalidad */}
         <div className="chart-card">
           <div className="chart-header">
             <div className="chart-header-title">
-              <Activity size={18} color="#ec4899" />
-              <h3>Tiempos Medios de Gestión por Etapa (Minutos)</h3>
+              <Activity size={16} color="#10b981" />
+              <h3>Canales de Ingreso (Multicanalidad)</h3>
             </div>
-            <span className="chart-badge">SPSS Deltas</span>
+            <span className="chart-badge">Origen</span>
           </div>
-          <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={avgTimesData} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
-                <XAxis dataKey="metrica" tick={{ fontSize: 9.5, fill: textColor }} stroke={gridColor} />
-                <YAxis tick={{ fontSize: 11, fill: textColor }} stroke={gridColor} />
+
+          <div className="chart-wrapper" style={{ display: 'flex', alignItems: 'center' }}>
+            <ResponsiveContainer width="100%" height={210}>
+              <PieChart>
                 <Tooltip
-                  formatter={(val: any) => [`${val} minutos`, 'Promedio']}
                   contentStyle={{
-                    borderRadius: 10,
                     backgroundColor: tooltipBg,
                     borderColor: tooltipBorder,
+                    borderRadius: '8px',
+                    fontSize: '12px',
                     color: isDark ? '#f8fafc' : '#0f172a',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   }}
                 />
-                <Bar dataKey="minutos" radius={[6, 6, 0, 0]}>
-                  {avgTimesData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                <Pie
+                  data={channelData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={55}
+                  outerRadius={80}
+                  paddingAngle={3}
+                  dataKey="valor"
+                >
+                  {channelData.map((_, index) => (
+                    <Cell key={`channel-cell-${index}`} fill={MINIMAL_PALETTE[index % MINIMAL_PALETTE.length]} />
                   ))}
-                </Bar>
+                </Pie>
+                <Legend
+                  verticalAlign="bottom"
+                  height={30}
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: '11px', color: textColor }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Gráfico 4: Demanda por Especialidad */}
+        <div className="chart-card">
+          <div className="chart-header">
+            <div className="chart-header-title">
+              <TrendingUp size={16} color="#6366f1" />
+              <h3>Demanda por Especialidad Técnica</h3>
+            </div>
+            <span className="chart-badge">Top Rubros</span>
+          </div>
+
+          <div className="chart-wrapper">
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart layout="vertical" data={specialtyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridColor} />
+                <XAxis type="number" stroke={textColor} fontSize={11} tickLine={false} allowDecimals={false} />
+                <YAxis dataKey="name" type="category" stroke={textColor} fontSize={11} tickLine={false} width={85} />
+                <Tooltip
+                  cursor={{ fill: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}
+                  contentStyle={{
+                    backgroundColor: tooltipBg,
+                    borderColor: tooltipBorder,
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                  }}
+                  formatter={(value: any) => [`${value} solicitudes`, 'Demanda']}
+                />
+                <Bar dataKey="cantidad" fill="#6366f1" radius={[0, 4, 4, 0]} maxBarSize={18} />
               </BarChart>
             </ResponsiveContainer>
           </div>

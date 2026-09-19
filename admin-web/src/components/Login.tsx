@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
+import { BrandLogo } from './BrandLogo';
 
 export const Login = () => {
   const { login, error, clearError } = useAuth();
@@ -31,11 +32,15 @@ export const Login = () => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
-          <div className="login-icon-badge">
-            <ShieldCheck size={36} color="#0284c7" />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
+            <BrandLogo height={42} />
           </div>
-          <h1 className="login-title">MAESTRO A DOMICILIO</h1>
-          <p className="login-subtitle">Panel Central de Operaciones y Monitoreo</p>
+          <p className="login-subtitle" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>
+            Panel Central de Operaciones & Telemetría Técnica
+          </p>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34, 197, 94, 0.1)', color: '#16a34a', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, marginTop: 8 }}>
+            <span>📞 Central Oficial WhatsApp: 924-167-911</span>
+          </div>
         </div>
 
         {(error || localError) && (

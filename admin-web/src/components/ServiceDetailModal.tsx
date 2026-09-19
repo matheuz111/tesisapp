@@ -316,16 +316,16 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
 
         <div className="modal-footer" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {/* Botón de Mapa en Vivo tipo inDrive */}
+            {/* Botón de Despacho y Telemetría en Ruta */}
             <button
               type="button"
               className="btn btn-primary"
               style={{ background: '#0284c7' }}
               onClick={() => setIsLiveMapOpen(true)}
-              title="Abrir mapa de seguimiento en vivo con trazado de ruta"
+              title="Abrir panel de control y seguimiento en ruta en tiempo real"
             >
               <Navigation size={16} />
-              <span>🗺️ Ver Mapa inDrive</span>
+              <span>🗺️ Despacho en Ruta</span>
             </button>
 
             {/* Botón de Chat en Vivo Cliente ↔ Trabajador */}

@@ -167,17 +167,26 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned }: Props) => {
             </div>
           </div>
 
-          {/* Buscador de técnicos */}
-          <div style={{ position: 'relative', marginTop: 8 }}>
-            <Search size={16} className="search-icon" style={{ left: 12 }} />
+          {/* Buscador de técnicos Material 3 */}
+          <div className="mat-search-container" style={{ marginTop: 8 }}>
+            <Search size={18} className="mat-search-icon" />
             <input
               type="text"
-              className="worker-search-input"
-              style={{ paddingLeft: 38 }}
+              className="mat-search-input"
               placeholder="Buscar trabajador por nombre, especialidad o teléfono..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            {searchTerm && (
+              <button
+                type="button"
+                className="mat-search-clear"
+                onClick={() => setSearchTerm('')}
+                title="Limpiar búsqueda"
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
 
           {/* Lista de técnicos */}
