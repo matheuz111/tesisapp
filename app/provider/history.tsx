@@ -163,7 +163,7 @@ export default function ProviderHistoryScreen() {
                         {item.review_comment ? (
                             <View style={[styles.reviewCommentBox, { borderTopColor: isDark ? '#333' : '#F0E68C' }]}>
                                 <Text style={[styles.reviewCommentText, { color: colors.text }]}>
-                                    "{item.review_comment}"
+                                    &quot;{item.review_comment}&quot;
                                 </Text>
                             </View>
                         ) : null}

@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { collection, getDocs, orderBy, query } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Download, FileSpreadsheet, X, Loader2, CheckCircle2, AlertCircle, Zap, FileText } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import type { SpssRow } from '../types';
+import { getDefaultVisitFee } from '../services/pricingPolicyService';
 
 interface Props {
   isOpen: boolean;
@@ -161,7 +161,7 @@ export const SpssExporterModal = ({ isOpen, onClose }: Props) => {
             SERVICIO: (data.serviceLabel || data.specialty || 'GENERAL').toUpperCase(),
             PRIORIDAD: data.priority === 'HIGH' ? 'URGENTE' : 'NORMAL',
             REQ_VIS: data.technicalVisitFee ? 'SI' : 'NO',
-            TARIFA_VIS: Number(data.technicalVisitFee || 50.00),
+            TARIFA_VIS: Number(data.technicalVisitFee || getDefaultVisitFee(data.zone, data.specialty)),
             COT_EMIT: Number(data.pricing?.price || (typeof data.price_agreed === 'number' ? data.price_agreed : 0)),
             COT_APROB: cotAprob,
             REG_CORR: regCorr,
@@ -211,6 +211,9 @@ export const SpssExporterModal = ({ isOpen, onClose }: Props) => {
 
       setProgressPercent(98);
       setProgressText('Formateando columnas y generando libro Excel...');
+
+      // Carga dinámica diferida de biblioteca pesada xlsx
+      const XLSX = await import('xlsx');
 
       // 1. Crear libro de trabajo
       const wb = XLSX.utils.book_new();

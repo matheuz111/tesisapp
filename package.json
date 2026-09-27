@@ -12,6 +12,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test": "node --test test/dataContract.test.cjs test/demoPushService.test.js test/locationPublisher.test.cjs test/monitoring.test.js test/payment.test.cjs test/pricing.test.cjs test/push-session.test.cjs test/ratings.test.cjs test/routing.test.cjs test/session.test.cjs test/notifications.integration.test.cjs test/canonicalPricing.test.cjs test/operationalZones.test.cjs test/pricingPolicies.test.cjs test/providerPresenceContract.test.cjs",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test test/firestore.rules.test.cjs\"",
     "admin:dev": "npm --prefix admin-web run dev",
     "admin:build": "npm --prefix admin-web run build"
   },
@@ -42,6 +44,7 @@
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.2",
     "expo-system-ui": "~57.0.3",
+    "expo-task-manager": "^57.0.20",
     "expo-web-browser": "~57.0.2",
     "firebase": "^12.9.0",
     "geofire-common": "^6.0.0",

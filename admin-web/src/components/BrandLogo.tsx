@@ -1,4 +1,4 @@
-import logoImg from '../assets/logo-maestro.png';
+import logoImg from '../assets/logo-maestro.webp';
 
 interface Props {
   height?: number;

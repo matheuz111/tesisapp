@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { signOutWithNotifications } from '../../utils/pushNotifications';
-import { GeoPoint, collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { GeoPoint, collection, doc, getDoc, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getNextServiceRequestCode } from '../../src/domain/counterService';
 import { createInitialStatusHistoryRecord, transitionServiceStatus } from '../../src/domain/serviceRequestTransition';
@@ -20,6 +20,8 @@ import { withTimeout } from '../../src/services/async';
 import * as Haptics from 'expo-haptics';
 import { submitServiceRating, MAX_REVIEW_COMMENT_LENGTH } from '../../src/services/ratings';
 import { submitClientPayment, PAYMENT_METHODS, type PaymentMethod } from '../../src/services/payment';
+import { getDefaultVisitFee, getFormattedVisitFee } from '../../src/services/pricingPolicyService';
+import { resolveOperationalZone } from '../../src/types/canonical';
 
 const ORGANIZATION_ID = 'maestro-a-domicilio';
 const ACTIVE_STATUSES = ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
@@ -344,6 +346,14 @@ export default function ClientHome() {
       const requestRef = doc(collection(db, 'service_requests'));
       const batch = writeBatch(db);
 
+      const clientZone = resolveOperationalZone({
+        district: district.trim(),
+        latitude: location?.latitude,
+        longitude: location?.longitude,
+      });
+      const resolvedVisitFee = getDefaultVisitFee(clientZone, service);
+      const resolvedPriceAgreed = getFormattedVisitFee(clientZone, service);
+
       batch.set(requestRef, {
         code,
         intakeChannel: 'APP',
@@ -359,6 +369,7 @@ export default function ClientHome() {
         serviceLabel: selectedService?.label || service,
         description: description.trim(),
         district: district.trim(),
+        zone: clientZone,
         address: address.trim(),
         addressReference: addressReference.trim(),
         urgency,
@@ -371,10 +382,10 @@ export default function ClientHome() {
         status: 'PENDING_ASSIGNMENT',
         priority: urgency === 'NOW' ? 'HIGH' : 'NORMAL',
         securityPin: Math.floor(1000 + Math.random() * 9000).toString(),
-        technicalVisitFee: 50.00,
+        technicalVisitFee: resolvedVisitFee,
         technicalVisitPaymentMethod: visitFeePaymentMethod,
         visitFeeDeductible: true,
-        price_agreed: 'Visita técnica: S/. 50.00 (Deducible)',
+        price_agreed: resolvedPriceAgreed,
         serviceStarted: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -746,7 +757,7 @@ export default function ClientHome() {
                       </View>
                       {activeRequest.review_comment ? (
                         <Text style={{ fontStyle: 'italic', color: colors.text, marginTop: 6, fontSize: 13 }}>
-                          "{activeRequest.review_comment}"
+                          &quot;{activeRequest.review_comment}&quot;
                         </Text>
                       ) : null}
                     </View>
@@ -862,7 +873,7 @@ export default function ClientHome() {
                       Evaluación presencial en domicilio
                     </Text>
                   </View>
-                  <Text style={[styles.visitFeeAmount, { color: colors.primary }]}>S/. 50.00</Text>
+                  <Text style={[styles.visitFeeAmount, { color: colors.primary }]}>{`S/. ${getDefaultVisitFee().toFixed(2)}`}</Text>
                 </View>
                 <View style={[styles.visitFeeNoteBox, { backgroundColor: `${colors.primary}0D` }]}>
                   <Ionicons name="information-circle-outline" size={16} color={colors.primary} />

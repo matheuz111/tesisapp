@@ -15,6 +15,8 @@ import { useSession } from '../../src/context/SessionContext';
 import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
 import { formatPrice, parsePriceCents } from '../../src/services/pricing';
 import { withTimeout } from '../../src/services/async';
+import { getDefaultVisitFee, getFormattedVisitFee } from '../../src/services/pricingPolicyService';
+import { resolveOperationalZone } from '../../src/types/canonical';
 
 const QUEUE_STATUSES = ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
 
@@ -106,6 +108,10 @@ export default function OperatorHome() {
       const batch = writeBatch(db);
       const specialtyObj = SERVICES.find((s) => s.id === expressSpecialty);
 
+      const opZone = resolveOperationalZone({ district: expressDistrict.trim() });
+      const opVisitFee = getDefaultVisitFee(opZone, expressSpecialty);
+      const opPriceAgreed = getFormattedVisitFee(opZone, expressSpecialty);
+
       batch.set(requestRef, {
         code,
         intakeChannel: expressChannel,
@@ -114,6 +120,7 @@ export default function OperatorHome() {
         clientPhone: expressClientPhone.trim() || null,
         clientId: auth.currentUser.uid,
         district: expressDistrict.trim(),
+        zone: opZone,
         address: expressAddress.trim(),
         specialty: expressSpecialty,
         serviceLabel: specialtyObj?.label || expressSpecialty,
@@ -121,8 +128,8 @@ export default function OperatorHome() {
         urgency: 'TODAY',
         status: 'PENDING_ASSIGNMENT',
         priority: 'NORMAL',
-        technicalVisitFee: 50.00,
-        price_agreed: 'Visita técnica: S/. 50.00 (Deducible)',
+        technicalVisitFee: opVisitFee,
+        price_agreed: opPriceAgreed,
         datosCompletos: true,
         securityPin: Math.floor(1000 + Math.random() * 9000).toString(),
         serviceStarted: false,
@@ -507,7 +514,7 @@ export default function OperatorHome() {
                       Calificación del cliente: {'⭐'.repeat(request.rating_given)} ({request.rating_given}/5)
                     </Text>
                     {request.review_comment ? (
-                      <Text style={{ fontSize: 12, fontStyle: 'italic', color: colors.text }}>"{request.review_comment}"</Text>
+                      <Text style={{ fontSize: 12, fontStyle: 'italic', color: colors.text }}>&quot;{request.review_comment}&quot;</Text>
                     ) : null}
                   </View>
                 ) : null}

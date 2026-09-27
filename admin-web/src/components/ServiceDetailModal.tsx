@@ -19,10 +19,21 @@ import {
   MessageCircle,
   ShieldCheck,
 } from 'lucide-react';
-import { ImageLightboxModal } from './ImageLightboxModal';
-import { AssignWorkerModal } from './AssignWorkerModal';
-import { LiveTrackingMapModal } from './LiveTrackingMapModal';
-import { RealtimeChatModal } from './RealtimeChatModal';
+import { lazy, Suspense } from 'react';
+import { resolveRequestCanonicalPricing } from '../services/pricingPolicyService';
+
+const ImageLightboxModal = lazy(() =>
+  import('./ImageLightboxModal').then((m) => ({ default: m.ImageLightboxModal }))
+);
+const AssignWorkerModal = lazy(() =>
+  import('./AssignWorkerModal').then((m) => ({ default: m.AssignWorkerModal }))
+);
+const LiveTrackingMapModal = lazy(() =>
+  import('./LiveTrackingMapModal').then((m) => ({ default: m.LiveTrackingMapModal }))
+);
+const RealtimeChatModal = lazy(() =>
+  import('./RealtimeChatModal').then((m) => ({ default: m.RealtimeChatModal }))
+);
 
 interface Props {
   request: ServiceRequest | null;
@@ -31,7 +42,7 @@ interface Props {
 
 export const ServiceDetailModal = ({ request, onClose }: Props) => {
   const [history, setHistory] = useState<StatusHistoryItem[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(() => Boolean(request?.id));
   const [inspectingImage, setInspectingImage] = useState<{ url: string; title: string } | null>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isLiveMapOpen, setIsLiveMapOpen] = useState(false);
@@ -64,11 +75,8 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
   };
 
   useEffect(() => {
-    if (!request?.id) {
-      setHistory([]);
-      return;
-    }
-    setLoadingHistory(true);
+    if (!request?.id) return;
+
     const historyRef = collection(db, 'service_requests', request.id, 'status_history');
     const q = query(historyRef, orderBy('timestamp', 'asc'));
 
@@ -205,7 +213,7 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
             <h3 className="section-subtitle"><FileText size={16} /> Tarifas y Cotización</h3>
             <div className="detail-two-col">
               <div>
-                <p><strong>Tarifa de Visita Diagnóstica:</strong> S/. {request.technicalVisitFee?.toFixed(2) || '50.00'} (Deducible)</p>
+                <p><strong>Tarifa de Visita Diagnóstica:</strong> S/. {resolveRequestCanonicalPricing(request).fee.toFixed(2)} (Deducible)</p>
                 <p><strong>Tarifa Final Acordada:</strong> {request.price_agreed || 'Pendiente de cotizar'}</p>
               </div>
               <div>
@@ -371,38 +379,37 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
         </div>
       </div>
 
-      {/* Modal Asignar Trabajador */}
-      {isAssignModalOpen && (
-        <AssignWorkerModal
-          request={request}
-          onClose={() => setIsAssignModalOpen(false)}
-        />
-      )}
+      {/* Modales Secundarios Lazy */}
+      <Suspense fallback={null}>
+        {isAssignModalOpen && (
+          <AssignWorkerModal
+            request={request}
+            onClose={() => setIsAssignModalOpen(false)}
+          />
+        )}
 
-      {/* Modal Mapa en Vivo tipo inDrive */}
-      {isLiveMapOpen && (
-        <LiveTrackingMapModal
-          request={request}
-          onClose={() => setIsLiveMapOpen(false)}
-        />
-      )}
+        {isLiveMapOpen && (
+          <LiveTrackingMapModal
+            request={request}
+            onClose={() => setIsLiveMapOpen(false)}
+          />
+        )}
 
-      {/* Modal Chat en Vivo */}
-      {isChatModalOpen && (
-        <RealtimeChatModal
-          request={request}
-          onClose={() => setIsChatModalOpen(false)}
-        />
-      )}
+        {isChatModalOpen && (
+          <RealtimeChatModal
+            request={request}
+            onClose={() => setIsChatModalOpen(false)}
+          />
+        )}
 
-      {/* Visor de Inspección con Zoom Interactivo */}
-      {inspectingImage && (
-        <ImageLightboxModal
-          imageUrl={inspectingImage.url}
-          title={inspectingImage.title}
-          onClose={() => setInspectingImage(null)}
-        />
-      )}
+        {inspectingImage && (
+          <ImageLightboxModal
+            imageUrl={inspectingImage.url}
+            title={inspectingImage.title}
+            onClose={() => setInspectingImage(null)}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };

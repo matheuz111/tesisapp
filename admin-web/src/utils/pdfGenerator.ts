@@ -1,5 +1,3 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import type { ServiceRequest } from '../types';
 import logoImg from '../assets/logo-maestro.png';
 
@@ -30,6 +28,9 @@ const loadLogo = (): Promise<HTMLImageElement | null> => {
  * Genera y descarga un PDF vectorial de alta calidad para la Proforma / Cotización con logo
  */
 export const generateProformaPDF = async (data: QuotePDFData) => {
+  const { default: jsPDF } = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
+
   const { request, items, subtotal, igv, total, notes } = data;
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -246,6 +247,8 @@ export const generateProformaPDF = async (data: QuotePDFData) => {
  * Genera y descarga un PDF vectorial oficial para el Certificado de Garantía 30 Días con logo
  */
 export const generateWarrantyPDF = async (request: ServiceRequest) => {
+  const { default: jsPDF } = await import('jspdf');
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',

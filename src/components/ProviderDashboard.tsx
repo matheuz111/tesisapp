@@ -199,7 +199,7 @@ export function ProviderDashboard(props: any) {
                   ))}
                 </View>
                 {job.review_comment ? (
-                  <Text style={{ fontStyle: 'italic', color: colors.subtext, fontSize: 13 }}>"{job.review_comment}"</Text>
+                  <Text style={{ fontStyle: 'italic', color: colors.subtext, fontSize: 13 }}>&quot;{job.review_comment}&quot;</Text>
                 ) : null}
               </View>
             ) : null}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { ServiceRequest, ProviderUser } from '../types';
@@ -58,7 +58,25 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
 
   const [workerData, setWorkerData] = useState<ProviderUser | null>(null);
   const [workerLocation, setWorkerLocation] = useState<{ lat: number; lng: number; accuracy?: number; time?: number } | null>(null);
-  const [clientCoord, setClientCoord] = useState<{ lat: number; lng: number } | null>(null);
+
+  // 1. Determinar coordenadas del cliente de forma derivada (useMemo)
+  const clientCoord = useMemo<{ lat: number; lng: number }>(() => {
+    if (!request) return { lat: -12.0464, lng: -77.0428 };
+    if (request.location && typeof request.location.latitude === 'number') {
+      return { lat: request.location.latitude, lng: request.location.longitude };
+    }
+    if (request.clientLocation && typeof request.clientLocation.latitude === 'number') {
+      return { lat: request.clientLocation.latitude, lng: request.clientLocation.longitude };
+    }
+    if (request.district) {
+      const cleanDistrict = request.district.toUpperCase().trim();
+      const coords = DISTRICT_COORDS[cleanDistrict] || [-12.0464, -77.0428];
+      return { lat: coords[0], lng: coords[1] };
+    }
+    return { lat: -12.0464, lng: -77.0428 };
+  }, [request]);
+
+  const initialCenterRef = useRef<[number, number]>([clientCoord.lat, clientCoord.lng]);
   const [eta, setEta] = useState<{ distanceKm: string; durationMin: number } | null>(null);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -73,23 +91,6 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
-
-  // 1. Determinar coordenadas del cliente
-  useEffect(() => {
-    if (!request) return;
-
-    if (request.location && typeof request.location.latitude === 'number') {
-      setClientCoord({ lat: request.location.latitude, lng: request.location.longitude });
-    } else if (request.clientLocation && typeof request.clientLocation.latitude === 'number') {
-      setClientCoord({ lat: request.clientLocation.latitude, lng: request.clientLocation.longitude });
-    } else if (request.district) {
-      const cleanDistrict = request.district.toUpperCase().trim();
-      const coords = DISTRICT_COORDS[cleanDistrict] || [-12.0464, -77.0428];
-      setClientCoord({ lat: coords[0], lng: coords[1] });
-    } else {
-      setClientCoord({ lat: -12.0464, lng: -77.0428 });
-    }
-  }, [request]);
 
   // 2. Escuchar información y GPS del trabajador
   useEffect(() => {
@@ -126,37 +127,37 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
           });
         }
       }
-    }, (err) => console.warn('Error al leer GPS del técnico:', err));
+    }, (err) => console.warn('Error al leer GPS:', err));
+
+    // C. Escuchar presencia global: provider_presence/{providerId}
+    const presenceRef = doc(db, 'provider_presence', request.providerId);
+    const unsubPresence = onSnapshot(presenceRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (typeof data.location?.latitude === 'number' && typeof data.location?.longitude === 'number') {
+          setWorkerLocation((prev) => prev || {
+            lat: data.location.latitude,
+            lng: data.location.longitude,
+            accuracy: data.accuracy || 20,
+            time: data.lastSeenAt?.toMillis ? data.lastSeenAt.toMillis() : Date.now(),
+          });
+        }
+      }
+    }, (err) => console.warn('Error al leer provider_presence:', err));
 
     return () => {
       unsubWorker();
       unsubLoc();
+      unsubPresence();
     };
   }, [request?.id, request?.providerId]);
-
-  // Si no hay GPS del técnico, estimar una posición cercana en el distrito para simular el inicio
-  useEffect(() => {
-    if (!workerLocation && clientCoord && request?.providerId) {
-      // Simular ubicación inicial desplazada a ~1.8 km para que siempre haya trazado inDrive disponible
-      setWorkerLocation({
-        lat: clientCoord.lat + 0.0125,
-        lng: clientCoord.lng - 0.0115,
-        accuracy: 25,
-        time: Date.now() - 20000,
-      });
-    }
-  }, [workerLocation, clientCoord, request?.providerId]);
 
   // 3. Inicializar Mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    const initialCenter: [number, number] = clientCoord
-      ? [clientCoord.lat, clientCoord.lng]
-      : [-12.0464, -77.0428];
-
     const map = L.map(mapContainerRef.current, {
-      center: initialCenter,
+      center: initialCenterRef.current,
       zoom: 14,
       zoomControl: false,
     });
@@ -268,10 +269,15 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
     }
   }, [workerLocation, workerData, request]);
 
+  const workerLat = workerLocation?.lat;
+  const workerLng = workerLocation?.lng;
+  const clientLat = clientCoord.lat;
+  const clientLng = clientCoord.lng;
+
   // 6. Consultar Ruta Callejera OSRM y Trazar Polilínea
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !workerLocation || !clientCoord) return;
+    if (!map || workerLat === undefined || workerLng === undefined) return;
 
     let isMounted = true;
     setLoadingRoute(true);
@@ -279,7 +285,7 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
 
     const fetchRoute = async () => {
       try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${workerLocation.lng},${workerLocation.lat};${clientCoord.lng},${clientCoord.lat}?overview=full&geometries=geojson`;
+        const url = `https://router.project-osrm.org/route/v1/driving/${workerLng},${workerLat};${clientLng},${clientLat}?overview=full&geometries=geojson`;
         const res = await fetch(url);
         if (!res.ok) throw new Error('Servidor de rutas no disponible');
         const data = await res.json();
@@ -311,8 +317,8 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
 
           // Ajustar mapa para ver ambos puntos con margen
           const bounds = L.latLngBounds([
-            [workerLocation.lat, workerLocation.lng],
-            [clientCoord.lat, clientCoord.lng],
+            [workerLat, workerLng],
+            [clientLat, clientLng],
           ]);
           map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
         }
@@ -324,8 +330,8 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
           if (routeLineRef.current) map.removeLayer(routeLineRef.current);
           routeLineRef.current = L.polyline(
             [
-              [workerLocation.lat, workerLocation.lng],
-              [clientCoord.lat, clientCoord.lng],
+              [workerLat, workerLng],
+              [clientLat, clientLng],
             ],
             { color: '#2563eb', weight: 4, dashArray: '6, 8', opacity: 0.8 }
           ).addTo(map);
@@ -340,7 +346,7 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
     return () => {
       isMounted = false;
     };
-  }, [workerLocation?.lat, workerLocation?.lng, clientCoord?.lat, clientCoord?.lng]);
+  }, [workerLat, workerLng, clientLat, clientLng]);
 
   const handleCenterFit = () => {
     const map = mapInstanceRef.current;

@@ -30,7 +30,6 @@ export const RealtimeChatModal = ({ request, onClose }: Props) => {
   // Escuchar mensajes en tiempo real
   useEffect(() => {
     if (!request?.id) return;
-    setLoading(true);
 
     const messagesRef = collection(db, 'service_requests', request.id, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'asc'));

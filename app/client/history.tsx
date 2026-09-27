@@ -206,7 +206,7 @@ export default function ClientHistory() {
                             {item.review_comment ? (
                                 <View style={[styles.commentBubble, { backgroundColor: colors.card, borderColor: colors.border }]}>
                                     <Text style={[styles.commentText, { color: colors.text }]}>
-                                        "{item.review_comment}"
+                                        &quot;{item.review_comment}&quot;
                                     </Text>
                                 </View>
                             ) : null}

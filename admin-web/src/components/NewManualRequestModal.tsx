@@ -4,6 +4,8 @@ import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { X, PlusCircle, Loader2 } from 'lucide-react';
 import type { IntakeChannel, Priority } from '../types';
+import { getDefaultVisitFee, getFormattedVisitFee } from '../services/pricingPolicyService';
+import { resolveOperationalZone } from '../types/canonical';
 
 interface Props {
   isOpen: boolean;
@@ -115,11 +117,12 @@ export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => 
           preferredDate: urgency === 'SCHEDULED' ? preferredDate : null,
           preferredTime: urgency === 'SCHEDULED' ? preferredTime : null,
           district,
+          zone: resolveOperationalZone({ district }),
           address: address.trim(),
           addressReference: addressReference.trim(),
           description: description.trim(),
-          technicalVisitFee: 50.00,
-          price_agreed: 'Visita técnica: S/. 50.00 (Deducible)',
+          technicalVisitFee: getDefaultVisitFee(resolveOperationalZone({ district }), specialty),
+          price_agreed: getFormattedVisitFee(resolveOperationalZone({ district }), specialty),
           securityPin,
           operatorId: user?.uid,
           operatorName: userName || 'Central',

@@ -72,3 +72,61 @@ test('Worker cannot change profile tariff or approve themselves', async () => {
   await assertFails(updateDoc(doc(db('worker'), 'users/worker'), { price_range: 'S/ 900' }));
   await assertFails(updateDoc(doc(db('worker'), 'users/worker'), { approval_status: 'APPROVED' }));
 });
+
+test('Provider presence: provider can publish own presence with server timestamps and valid coordinates', async () => {
+  const presenceDoc = doc(db('worker'), 'provider_presence/worker');
+  const validPayload = {
+    providerId: 'worker',
+    providerName: 'Juan Técnico',
+    providerPhone: '987654321',
+    status: 'AVAILABLE',
+    location: { latitude: -12.06, longitude: -77.04 },
+    geohash: '6mc5v1234',
+    accuracy: 15,
+    specialties: ['Plomería', 'Electricidad'],
+    zones: ['LIMA_CENTRO'],
+    district: 'LIMA',
+    lastSeenAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await assertSucceeds(setDoc(presenceDoc, validPayload));
+
+  // Operator and provider can read
+  await assertSucceeds(getDoc(doc(db('operator'), 'provider_presence/worker')));
+  await assertSucceeds(getDoc(doc(db('worker'), 'provider_presence/worker')));
+
+  // Stranger cannot read
+  await assertFails(getDoc(doc(db('stranger'), 'provider_presence/worker')));
+
+  // Worker cannot spoof another worker's presence
+  await assertFails(setDoc(doc(db('worker'), 'provider_presence/other_worker'), {
+    ...validPayload,
+    providerId: 'other_worker',
+  }));
+
+  // Client cannot write provider presence
+  await assertFails(setDoc(doc(db('client'), 'provider_presence/client'), {
+    ...validPayload,
+    providerId: 'client',
+  }));
+
+  // Disallowed admin keys are rejected by keys().hasOnly()
+  await assertFails(setDoc(presenceDoc, {
+    ...validPayload,
+    role: 'ADMIN',
+  }));
+
+  // Non-server timestamp is rejected
+  await assertFails(setDoc(presenceDoc, {
+    ...validPayload,
+    updatedAt: new Date(2020, 0, 1),
+  }));
+
+  // Out of range coordinates are rejected
+  await assertFails(setDoc(presenceDoc, {
+    ...validPayload,
+    location: { latitude: 95, longitude: -77.04 },
+  }));
+});
+

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, memo } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -30,7 +30,7 @@ const STATUS_MINIMAL_COLORS: Record<string, string> = {
   'Cancelado': '#94a3b8',
 };
 
-export const AnalyticsCharts = ({ requests }: Props) => {
+export const AnalyticsChartsComponent = ({ requests }: Props) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
@@ -38,6 +38,24 @@ export const AnalyticsCharts = ({ requests }: Props) => {
   const textColor = isDark ? '#94a3b8' : '#64748b';
   const tooltipBg = isDark ? '#0f172a' : '#ffffff';
   const tooltipBorder = isDark ? '#334155' : '#e2e8f0';
+
+  // Desactivar animaciones cuando prefers-reduced-motion está activo
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+
+  // Animar suavemente solo al inicio; desactivar en sincronizaciones continuas de Firestore
+  const [shouldAnimate, setShouldAnimate] = useState(() => !prefersReducedMotion);
+
+  useEffect(() => {
+    if (!prefersReducedMotion) {
+      const timer = setTimeout(() => {
+        setShouldAnimate(false);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [prefersReducedMotion]);
 
   // 1. Datos por Estado Operativo
   const statusData = useMemo(() => {
@@ -200,7 +218,13 @@ export const AnalyticsCharts = ({ requests }: Props) => {
                   }}
                   formatter={(value: any) => [`${value} pedidos`, 'Cantidad']}
                 />
-                <Bar dataKey="cantidad" radius={[4, 4, 0, 0]} maxBarSize={42}>
+                <Bar
+                  dataKey="cantidad"
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={42}
+                  isAnimationActive={shouldAnimate}
+                  animationDuration={shouldAnimate ? 350 : 0}
+                >
                   {statusData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
@@ -238,7 +262,13 @@ export const AnalyticsCharts = ({ requests }: Props) => {
                   }}
                   formatter={(value: any) => [`${value} minutos`, 'Promedio']}
                 />
-                <Bar dataKey="minutos" radius={[4, 4, 0, 0]} maxBarSize={38}>
+                <Bar
+                  dataKey="minutos"
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={38}
+                  isAnimationActive={shouldAnimate}
+                  animationDuration={shouldAnimate ? 350 : 0}
+                >
                   {avgTimesData.map((entry, index) => (
                     <Cell key={`time-cell-${index}`} fill={entry.color} />
                   ))}
@@ -278,6 +308,8 @@ export const AnalyticsCharts = ({ requests }: Props) => {
                   outerRadius={80}
                   paddingAngle={3}
                   dataKey="valor"
+                  isAnimationActive={shouldAnimate}
+                  animationDuration={shouldAnimate ? 350 : 0}
                 >
                   {channelData.map((_, index) => (
                     <Cell key={`channel-cell-${index}`} fill={MINIMAL_PALETTE[index % MINIMAL_PALETTE.length]} />
@@ -321,7 +353,14 @@ export const AnalyticsCharts = ({ requests }: Props) => {
                   }}
                   formatter={(value: any) => [`${value} solicitudes`, 'Demanda']}
                 />
-                <Bar dataKey="cantidad" fill="#6366f1" radius={[0, 4, 4, 0]} maxBarSize={18} />
+                <Bar
+                  dataKey="cantidad"
+                  fill="#6366f1"
+                  radius={[0, 4, 4, 0]}
+                  maxBarSize={18}
+                  isAnimationActive={shouldAnimate}
+                  animationDuration={shouldAnimate ? 350 : 0}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -330,3 +369,5 @@ export const AnalyticsCharts = ({ requests }: Props) => {
     </div>
   );
 };
+
+export const AnalyticsCharts = memo(AnalyticsChartsComponent);

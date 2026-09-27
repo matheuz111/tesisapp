@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ServiceRequest } from '../types';
 import { X, Printer, MessageCircle, FileCheck, Plus, Trash2, Download } from 'lucide-react';
 import { generateProformaPDF } from '../utils/pdfGenerator';
+import { getDefaultVisitFee } from '../services/pricingPolicyService';
 import logoImg from '../assets/logo-maestro.png';
 
 interface Props {
@@ -22,7 +23,7 @@ export const ProformaQuoteModal = ({ request, onClose }: Props) => {
       id: '1',
       description: request.serviceLabel || request.specialty || 'Servicio técnico especializado',
       quantity: 1,
-      unitPrice: request.technicalVisitFee || 50,
+      unitPrice: request.technicalVisitFee || getDefaultVisitFee(request.zone, request.specialty),
     },
   ]);
   const [newItemDesc, setNewItemDesc] = useState('');

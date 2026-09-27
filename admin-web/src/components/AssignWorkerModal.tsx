@@ -3,25 +3,26 @@ import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTim
 import { db, auth } from '../firebase';
 import type { ServiceRequest, ProviderUser } from '../types';
 import { X, Search, CheckCircle2, UserCheck, Phone, Wrench, Star, AlertCircle, Loader2 } from 'lucide-react';
+import { resolveRequestCanonicalPricing } from '../services/pricingPolicyService';
 
 interface Props {
   request: ServiceRequest | null;
   onClose: () => void;
   onAssigned?: () => void;
+  initialProviderId?: string | null;
 }
 
-export const AssignWorkerModal = ({ request, onClose, onAssigned }: Props) => {
+export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProviderId }: Props) => {
   const [workers, setWorkers] = useState<ProviderUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(initialProviderId || null);
   const [assigning, setAssigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Escuchar técnicos disponibles con rol PROVIDER
   useEffect(() => {
     if (!request) return;
-    setLoading(true);
     const q = query(collection(db, 'users'), where('role', '==', 'PROVIDER'));
 
     const unsubscribe = onSnapshot(
@@ -32,10 +33,8 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned }: Props) => {
           ...docSnap.data(),
         })) as ProviderUser[];
 
-        // Preseleccionar si ya tiene técnico
-        if (request.providerId && !selectedWorkerId) {
-          setSelectedWorkerId(request.providerId);
-        }
+        // Preseleccionar si viene preseleccionado o si ya tiene técnico
+        setSelectedWorkerId((current) => initialProviderId || current || request.providerId || null);
 
         setWorkers(list);
         setLoading(false);
@@ -48,7 +47,7 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned }: Props) => {
     );
 
     return () => unsubscribe();
-  }, [request]);
+  }, [request, initialProviderId]);
 
   if (!request) return null;
 
@@ -162,7 +161,7 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned }: Props) => {
             </div>
             <div style={{ textAlign: 'right' }}>
               <span className="price-tag" style={{ fontSize: 14 }}>
-                {request.price_agreed || `Visita: S/. ${request.technicalVisitFee?.toFixed(2) || '50.00'}`}
+                {resolveRequestCanonicalPricing(request).formatted}
               </span>
             </div>
           </div>

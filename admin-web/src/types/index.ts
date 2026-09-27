@@ -1,3 +1,6 @@
+import type { CanonicalPricing, OperationalZone } from './canonical';
+export * from './canonical';
+
 export type ServiceStatus =
   | 'PENDING_ASSIGNMENT'
   | 'QUOTED'
@@ -66,12 +69,8 @@ export interface ServiceRequest {
   preferredDate?: string;
   technicalVisitFee?: number;
   price_agreed?: string;
-  pricing?: {
-    price: number;
-    description?: string;
-    setBy?: string;
-    setAt?: any;
-  };
+  zone?: OperationalZone;
+  pricing?: CanonicalPricing;
   quoteAccepted?: boolean;
   quoteAcceptedAt?: any;
   quoteRejectedAt?: any;

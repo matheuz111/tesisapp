@@ -27,7 +27,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
-  updateDoc, runTransaction,
+  updateDoc, runTransaction, setDoc,
   where,
 } from 'firebase/firestore';
 import * as geofire from 'geofire-common';
@@ -39,6 +39,10 @@ import { transitionServiceStatus } from '../../src/domain/serviceRequestTransiti
 import { uploadServiceImage } from '../../src/services/mediaStorage';
 import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
 import { confirmProviderPayment } from '../../src/services/payment';
+import { createAdaptivePresencePublisher, updateProviderPresence } from '../../src/services/providerPresenceService';
+import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../src/services/backgroundLocationTask';
+import { FEATURE_FLAGS } from '../../src/config/featureFlags';
+import { useBackgroundLocationConsent } from '../../src/hooks/useBackgroundLocationConsent';
 
 
 // ─────────────────────────────────────────────
@@ -75,6 +79,22 @@ export default function ProviderHome() {
   const [pinAttempts, setPinAttempts] = useState(0);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const isAcceptingRef = useRef(false);
+  const bgConsent = useBackgroundLocationConsent();
+
+  // Refs de seguimiento continuo
+  const publisherRef = useRef<ReturnType<typeof createAdaptivePresencePublisher> | null>(null);
+  const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
+
+  // Limpieza al desmontar el componente
+  useEffect(() => {
+    return () => {
+      locationWatcherRef.current?.remove();
+      locationWatcherRef.current = null;
+      publisherRef.current?.dispose();
+      publisherRef.current = null;
+      void stopBackgroundLocationUpdates();
+    };
+  }, []);
 
   // Cuenta regresiva de bloqueo por reintentos de PIN fallidos (HU-18)
   useEffect(() => {
@@ -570,6 +590,25 @@ export default function ProviderHome() {
     }
   };
 
+  // ── Detención limpia de seguimiento y descarte de suscripciones ────────
+  const stopAllTracking = async (targetUid?: string) => {
+    locationWatcherRef.current?.remove();
+    locationWatcherRef.current = null;
+    publisherRef.current?.dispose();
+    publisherRef.current = null;
+    await stopBackgroundLocationUpdates();
+
+    const uid = targetUid || user?.uid;
+    if (uid) {
+      await updateDoc(doc(db, 'users', uid), { is_active: false }).catch(() => {});
+      await setDoc(doc(db, 'provider_presence', uid), {
+        status: 'OFFLINE',
+        updatedAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
+      }, { merge: true }).catch((err) => console.warn('Error al marcar presencia offline:', err));
+    }
+  };
+
   // ── Toggle online/offline ───────────────
   const toggleSwitch = async () => {
     if (!user) return;
@@ -593,6 +632,10 @@ export default function ProviderHome() {
 
     try {
       if (newState) {
+        if (FEATURE_FLAGS.ENABLE_BACKGROUND_LOCATION_CONSENT && Platform.OS !== 'web' && !bgConsent.hasConsent) {
+          await bgConsent.requestConsentAndPermissions();
+        }
+
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
           Alert.alert('Permiso Requerido', 'Debes otorgar permisos de ubicación para recibir servicios en tu zona.');
@@ -621,7 +664,7 @@ export default function ProviderHome() {
           console.warn('No se pudo verificar el estado del proveedor de ubicación:', provErr);
         }
 
-        const locationData = await Location.getCurrentPositionAsync({});
+        const locationData = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         const coords = locationData.coords;
 
         setLocation({
@@ -641,10 +684,84 @@ export default function ProviderHome() {
           geohash: hash,
         });
 
+        if (FEATURE_FLAGS.ENABLE_PROVIDER_PRESENCE) {
+          // 1. Publicar de inmediato la ubicación actual en provider_presence
+          await updateProviderPresence(db, {
+            providerId: user.uid,
+            providerName: providerName || 'Técnico',
+            providerPhone: profile?.phone || '',
+            status: currentJob ? 'BUSY' : 'AVAILABLE',
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracy: coords.accuracy,
+            specialties: specialty ? [specialty] : ['General'],
+            activeRequestId: currentJob?.id || null,
+          }).catch((err) => console.warn('Error al actualizar provider_presence inmediata:', err));
+
+          // 2. Instanciar publicador adaptativo (Heartbeat quieto cada 45s, movimiento cada 15s si >= 25m)
+          publisherRef.current = createAdaptivePresencePublisher(
+            async (c) => {
+              if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;
+              await updateProviderPresence(db, {
+                providerId: user.uid,
+                providerName: providerName || 'Técnico',
+                providerPhone: profile?.phone || '',
+                status: currentJob ? 'BUSY' : 'AVAILABLE',
+                latitude: c.latitude,
+                longitude: c.longitude,
+                accuracy: c.accuracy,
+                specialties: specialty ? [specialty] : ['General'],
+                activeRequestId: currentJob?.id || null,
+              });
+            },
+            {
+              stationaryIntervalMs: 45000,
+              motionIntervalMs: 15000,
+              motionThresholdMeters: 25,
+            }
+          );
+
+          // 3. Suscripción en primer plano con watchPositionAsync
+          locationWatcherRef.current = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              timeInterval: 10000,
+              distanceInterval: 15,
+            },
+            (sample) => {
+              setLocation({
+                latitude: sample.coords.latitude,
+                longitude: sample.coords.longitude,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              });
+              publisherRef.current?.onLocationSample(sample.coords);
+            }
+          );
+
+          // 4. Iniciar seguimiento en segundo plano con control de Expo Go
+          if (FEATURE_FLAGS.ENABLE_BACKGROUND_LOCATION_CONSENT && Platform.OS !== 'web' && bgConsent.hasConsent) {
+            const bgRes = await startBackgroundLocationUpdates({
+              providerId: user.uid,
+              providerName: providerName || 'Técnico',
+              providerPhone: profile?.phone || '',
+              specialties: specialty ? [specialty] : ['General'],
+              activeRequestId: currentJob?.id || null,
+            });
+            if (bgRes.isExpoGo) {
+              Toast.show({
+                type: 'info',
+                text1: 'Modo Expo Go',
+                text2: 'Seguimiento en primer plano activo. Background requiere build nativo/APK.',
+              });
+            }
+          }
+        }
+
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Toast.show({ type: 'success', text1: '¡Disponible!', text2: 'La central ya puede asignarte servicios cercanos.' });
       } else {
-        await updateDoc(doc(db, 'users', user.uid), { is_active: false });
+        await stopAllTracking(user.uid);
         Toast.show({ type: 'info', text1: 'Desconectado', text2: 'Ya no recibirás solicitudes.' });
       }
     } catch (error) {
@@ -660,7 +777,13 @@ export default function ProviderHome() {
         text: 'Cerrar sesión',
         style: 'destructive',
         onPress: async () => {
-          try { await signOutWithNotifications(); } catch { Alert.alert('No se pudo cerrar sesión', 'Vuelve a intentar.'); return; }
+          try {
+            await stopAllTracking(user?.uid);
+            await signOutWithNotifications();
+          } catch {
+            Alert.alert('No se pudo cerrar sesión', 'Vuelve a intentar.');
+            return;
+          }
           router.replace('/auth/login');
         },
       },
