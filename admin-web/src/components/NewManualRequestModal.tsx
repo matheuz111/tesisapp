@@ -76,6 +76,7 @@ export const NewManualRequestModal = ({ isOpen, onClose, onCreated }: Props) => 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     if (!clientName.trim() || !address.trim() || !description.trim()) {
       setError('Completa el nombre, dirección y descripción del problema.');
       return;

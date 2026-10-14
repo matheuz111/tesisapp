@@ -61,6 +61,7 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
   });
 
   const handleAssign = async () => {
+    if (assigning) return;
     if (!selectedWorkerId) {
       setError('Debes seleccionar un trabajador de la lista.');
       return;
@@ -77,12 +78,12 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
       const workerName = selectedWorker.full_name || selectedWorker.name || 'Técnico Especialista';
       const workerPhone = selectedWorker.phone || '';
 
-      // 1. Actualizar solicitud
+      // 1. Actualizar solicitud a estado canónico PENDING (asignado al técnico)
       await updateDoc(requestRef, {
         providerId: selectedWorker.id,
         providerName: workerName,
         providerPhone: workerPhone,
-        status: 'ACCEPTED',
+        status: 'PENDING',
         assignedBy: auth.currentUser?.uid || 'OPERATOR',
         assignedAt: serverTimestamp(),
         firstResponseAt: request.firstResponseAt || serverTimestamp(),
@@ -92,11 +93,11 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
       // 2. Registrar auditoría obligatoria en status_history para la tesis (CAMBIOS_EST / TRAZ_COMP)
       await addDoc(collection(db, 'service_requests', request.id, 'status_history'), {
         fromStatus: request.status,
-        toStatus: 'ACCEPTED',
+        toStatus: 'PENDING',
         actorId: auth.currentUser?.uid || 'OPERATOR',
         actorRole: 'OPERATOR',
         timestamp: serverTimestamp(),
-        notes: `Trabajador ${workerName} asignado y solicitud aceptada desde Panel Central`,
+        notes: `Trabajador ${workerName} asignado desde Central (pendiente de aceptación técnica)`,
       });
 
       // 3. Vincular servicio activo al técnico
@@ -127,7 +128,7 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
               <UserCheck size={20} />
             </div>
             <div>
-              <h2>Asignar Trabajador & Aceptar Solicitud</h2>
+              <h2>Asignar Técnico a Solicitud</h2>
               <span className="modal-subtitle">
                 Solicitud {request.code || request.id.slice(0, 8)} · Cliente: {request.clientName || 'Cliente'} ({request.district || 'Lima'})
               </span>
@@ -299,7 +300,7 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
             ) : (
               <>
                 <CheckCircle2 size={16} />
-                <span>Confirmar Asignación & Aceptar</span>
+                <span>Confirmar Asignación</span>
               </>
             )}
           </button>

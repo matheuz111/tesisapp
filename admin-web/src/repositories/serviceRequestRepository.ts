@@ -1,4 +1,4 @@
-import { collection, onSnapshot, orderBy, query, type Unsubscribe } from 'firebase/firestore';
+import { collection, limit, onSnapshot, orderBy, query, type Unsubscribe } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { ServiceRequest } from '../types';
 
@@ -8,14 +8,15 @@ import type { ServiceRequest } from '../types';
  */
 export const serviceRequestRepository = {
   /**
-   * Subscribes in real-time to service requests sorted by creation date descending.
+   * Subscribes in real-time to service requests sorted by creation date descending with safety limit.
    */
   subscribeAll(
     onData: (requests: ServiceRequest[]) => void,
-    onError?: (error: Error) => void
+    onError?: (error: Error) => void,
+    maxLimit: number = 200
   ): Unsubscribe {
     const requestsRef = collection(db, 'service_requests');
-    const q = query(requestsRef, orderBy('createdAt', 'desc'));
+    const q = query(requestsRef, orderBy('createdAt', 'desc'), limit(maxLimit));
 
     return onSnapshot(
       q,

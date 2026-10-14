@@ -125,7 +125,7 @@ export function useServiceRequests() {
 
       // 3. Operational Zone Filter
       if (zoneFilter !== 'ALL') {
-        const itemZone = r.zone || (r.district ? getZoneByDistrict(r.district) : 'LIMA_CENTRO');
+        const itemZone = r.zone || (r.district ? getZoneByDistrict(r.district) : 'UNKNOWN');
         if (itemZone !== zoneFilter) return false;
       }
 
