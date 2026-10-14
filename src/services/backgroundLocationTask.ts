@@ -61,7 +61,9 @@ export async function clearBackgroundTrackingContext(): Promise<void> {
 
 // Definición en el ámbito superior según directiva arquitectónica
 if (Platform.OS !== 'web' && !TaskManager.isTaskDefined(BACKGROUND_LOCATION_TASK_NAME)) {
-  TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) => {
+  TaskManager.defineTask(
+    BACKGROUND_LOCATION_TASK_NAME,
+    async ({ data, error }: TaskManager.TaskManagerTaskBody<{ locations?: Location.LocationObject[] }>) => {
     if (error) {
       console.warn('[BackgroundLocationTask] Error en tarea de fondo:', error.message);
       return;
