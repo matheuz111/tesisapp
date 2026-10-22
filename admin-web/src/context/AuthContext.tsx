@@ -41,7 +41,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
           if (userDoc.exists()) {
             const data = userDoc.data();
-            if (data.role === 'OPERATOR' || data.role === 'ADMIN') {
+            if ((data.role === 'OPERATOR' || data.role === 'ADMIN') && !currentUser.emailVerified) {
+              await signOut(auth);
+              setUser(null);
+              setRole(null);
+              setUserName(null);
+              setError('Correo no verificado: abre el enlace de verificación que enviamos a tu correo antes de ingresar al panel.');
+            } else if (data.role === 'OPERATOR' || data.role === 'ADMIN') {
               setUser(currentUser);
               setRole(data.role);
               setUserName(data.name || data.full_name || currentUser.email?.split('@')[0] || 'Operador');
@@ -80,6 +86,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
     try {
       const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
+      if (!cred.user.emailVerified) {
+        await signOut(auth);
+        throw new Error('Correo no verificado: abre el enlace de verificación que enviamos a tu correo antes de ingresar al panel.');
+      }
       const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
       if (!userDoc.exists() || !['OPERATOR', 'ADMIN'].includes(userDoc.data()?.role)) {
         await signOut(auth);

@@ -5,16 +5,17 @@ import { useColorScheme } from 'react-native';
 
 const Colors = {
   light: {
-    background: '#FFFFFF',
+    background: '#F7F8FA',
     card: '#FFFFFF',
-    text: '#333333',
-    subtext: '#666666',
-    primary: '#007bff',
-    border: '#EEEEEE',
+    text: '#1A202C',
+    subtext: '#5B6B7B',
+    primary: '#0F2B46',
+    accent: '#DEB11D',
+    border: '#E1E5EA',
     input: '#F9F9F9',
-    icon: '#333333',
-    success: '#28a745',
-    danger: '#dc3545',
+    icon: '#0F2B46',
+    success: '#1E9E57',
+    danger: '#DC2626',
     shadow: '#000000',
   },
   dark: {
@@ -22,7 +23,8 @@ const Colors = {
     card: '#1E1E1E',       // Gris oscuro para tarjetas
     text: '#E0E0E0',       // Blanco humo (no blanco puro para no quemar ojos)
     subtext: '#AAAAAA',
-    primary: '#4dabf5',    // Azul más claro para que resalte en negro
+    primary: '#7FB2E5',    // Azul claro derivado del primario de marca, legible sobre negro
+    accent: '#DEB11D',     // Dorado de marca
     border: '#333333',
     input: '#2C2C2C',
     icon: '#FFFFFF',

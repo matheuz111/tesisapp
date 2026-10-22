@@ -1,0 +1,29 @@
+name: CI — Pruebas y verificación
+
+on:
+  push:
+    branches: [master, 'mejoras/**', 'feature/**']
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Pruebas automatizadas (node --test)
+        run: npm test
+
+      - name: Verificación de tipos TypeScript
+        run: npx tsc --noEmit

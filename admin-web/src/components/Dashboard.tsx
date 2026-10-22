@@ -13,6 +13,7 @@ import {
   BookOpen,
   Map,
   MoreVertical,
+  UserPlus,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -32,6 +33,9 @@ const SpssExporterModal = lazy(() =>
 );
 const AssignWorkerModal = lazy(() =>
   import('./AssignWorkerModal').then((m) => ({ default: m.AssignWorkerModal }))
+);
+const CreateWorkerModal = lazy(() =>
+  import('./CreateWorkerModal').then((m) => ({ default: m.CreateWorkerModal }))
 );
 const LiveTrackingMapModal = lazy(() =>
   import('./LiveTrackingMapModal').then((m) => ({ default: m.LiveTrackingMapModal }))
@@ -76,6 +80,7 @@ export const Dashboard = () => {
 
   // Modales
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [isCreateWorkerOpen, setIsCreateWorkerOpen] = useState(false);
   const [isSpssModalOpen, setIsSpssModalOpen] = useState(false);
   const [isBaremoOpen, setIsBaremoOpen] = useState(false);
   const [isOperationalMapOpen, setIsOperationalMapOpen] = useState(false);
@@ -193,6 +198,17 @@ export const Dashboard = () => {
           >
             <PlusCircle size={15} />
             <span>Nuevo Pedido</span>
+          </button>
+
+          {/* Botón Nuevo Trabajador: la central crea las cuentas del personal técnico */}
+          <button
+            type="button"
+            className="btn btn-secondary nav-action-desktop"
+            onClick={() => setIsCreateWorkerOpen(true)}
+            title="Crear la cuenta de acceso de un trabajador contratado por la empresa"
+          >
+            <UserPlus size={15} />
+            <span>Nuevo Trabajador</span>
           </button>
 
           {/* Acciones Secundarias de Escritorio (Ocultas en pantallas pequeñas) */}
@@ -362,6 +378,13 @@ export const Dashboard = () => {
             onCreated={(code) => {
               alert(`¡Solicitud ${code} registrada exitosamente!`);
             }}
+          />
+        )}
+
+        {isCreateWorkerOpen && (
+          <CreateWorkerModal
+            isOpen={isCreateWorkerOpen}
+            onClose={() => setIsCreateWorkerOpen(false)}
           />
         )}
 

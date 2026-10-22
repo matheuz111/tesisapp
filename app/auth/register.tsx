@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { useRouter } from 'expo-router';
+import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
@@ -16,15 +16,11 @@ import {
   View,
 } from 'react-native';
 import { auth, db } from '../../src/config/firebase';
-
-type Role = 'client' | 'provider';
+import { colors } from '../../src/theme';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { role } = useLocalSearchParams();
-  const initialRole = (Array.isArray(role) ? role[0] : role) as Role | undefined;
 
-  const [selectedRole, setSelectedRole] = useState<Role>(initialRole || 'client');
   const [name, setName] = useState('');
   const [dni, setDni] = useState('');
   const [email, setEmail] = useState('');
@@ -34,8 +30,6 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const isProvider = selectedRole === 'provider';
 
   // Validación estricta de correo
   const isValidEmail = (val: string) => {
@@ -83,21 +77,10 @@ export default function RegisterScreen() {
       return;
     }
 
-    // 2. Validación de DNI (Obligatorio para técnicos, recomendado para clientes)
-    if (isProvider) {
-      if (!cleanDni) {
-        Alert.alert('DNI Requerido', 'Como profesional técnico en Lima, el DNI de 8 dígitos es obligatorio para la verificación de identidad.');
-        return;
-      }
-      if (!isValidDNI(cleanDni)) {
-        Alert.alert('DNI Inválido', 'El DNI debe contener exactamente 8 dígitos numéricos.');
-        return;
-      }
-    } else {
-      if (cleanDni && !isValidDNI(cleanDni)) {
-        Alert.alert('DNI Inválido', 'Si ingresas tu DNI, debe contener exactamente 8 dígitos numéricos.');
-        return;
-      }
+    // 2. Validación de DNI (opcional para clientes)
+    if (cleanDni && !isValidDNI(cleanDni)) {
+      Alert.alert('DNI Inválido', 'Si ingresas tu DNI, debe contener exactamente 8 dígitos numéricos.');
+      return;
     }
 
     // 3. Validación de Correo
@@ -110,21 +93,10 @@ export default function RegisterScreen() {
       return;
     }
 
-    // 4. Validación de Teléfono
-    if (isProvider) {
-      if (!cleanPhone) {
-        Alert.alert('Teléfono Requerido', 'Como profesional, necesitas registrar tu número de celular para contacto.');
-        return;
-      }
-      if (!isValidPeruvianPhone(cleanPhone)) {
-        Alert.alert('Celular Inválido', 'El celular debe tener 9 dígitos y comenzar con 9 (ejemplo: 987654321).');
-        return;
-      }
-    } else {
-      if (cleanPhone && !isValidPeruvianPhone(cleanPhone)) {
-        Alert.alert('Celular Inválido', 'El número de celular debe tener 9 dígitos y comenzar con 9.');
-        return;
-      }
+    // 4. Validación de Teléfono (opcional para clientes)
+    if (cleanPhone && !isValidPeruvianPhone(cleanPhone)) {
+      Alert.alert('Celular Inválido', 'El número de celular debe tener 9 dígitos y comenzar con 9.');
+      return;
     }
 
     // 5. Validación de Contraseña Segura (Mayúsculas, Minúsculas, Números, Símbolos, 8+ caracteres)
@@ -149,37 +121,26 @@ export default function RegisterScreen() {
       const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
       const user = userCredential.user;
 
-      const userData: any = {
+      await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
         full_name: cleanName,
         name: cleanName,
         email: cleanEmail,
         dni: cleanDni || '',
         phone: cleanPhone || '',
-        role: selectedRole.toUpperCase(),
+        role: 'CLIENT',
         created_at: serverTimestamp(),
-        is_verified: !isProvider,
-      };
+        is_verified: false,
+      });
 
-      if (isProvider) {
-        userData.specialty = '';
-        userData.price_range = '';
-        userData.rating = 0;
-        userData.total_rating = 0;
-        userData.review_count = 0;
-        userData.jobs_completed = 0;
-        userData.is_active = false;
-        userData.approval_status = 'PENDING_REVIEW';
-        userData.service_radius_km = 10;
-        userData.description = '';
-      }
-
-      await setDoc(doc(db, 'users', user.uid), userData);
+      // Verificación de correo obligatoria: sin verificar, no se puede iniciar sesión.
+      await sendEmailVerification(user);
+      await signOut(auth);
 
       Alert.alert(
         '¡Registro Exitoso! 🎉',
-        `Bienvenido a Maestro a Domicilio, ${cleanName}. Ahora puedes iniciar sesión con tu correo.`,
-        [{ text: 'Iniciar Sesión', onPress: () => router.replace('/auth/login') }]
+        `Bienvenido a Maestro a Domicilio, ${cleanName}.\n\nTe enviamos un correo de verificación a ${cleanEmail}. Abre el enlace de ese correo para activar tu cuenta y luego inicia sesión. Revisa también tu carpeta de spam.`,
+        [{ text: 'Ir a Iniciar Sesión', onPress: () => router.replace('/auth/login') }]
       );
     } catch (error: any) {
       console.error('Error en registro:', error);
@@ -206,63 +167,17 @@ export default function RegisterScreen() {
     >
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
+          <View style={styles.logoBadge}>
+            <Ionicons name="construct" size={30} color={colors.primary} />
+          </View>
           <Text style={styles.title}>Crear Cuenta Segura</Text>
-          <Text style={styles.subtitle}>Servicios coordinados y supervisados por nuestra central</Text>
-        </View>
-
-        {/* ═══ SELECTOR DE ROL ═══ */}
-        <View style={styles.roleSelector}>
-          <TouchableOpacity
-            style={[
-              styles.roleCard,
-              selectedRole === 'client' && styles.roleCardActive,
-              selectedRole === 'client' && { borderColor: '#007bff' },
-            ]}
-            onPress={() => setSelectedRole('client')}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.roleIconCircle, { backgroundColor: selectedRole === 'client' ? '#E3F2FD' : '#f5f5f5' }]}>
-              <Ionicons name="home-outline" size={28} color={selectedRole === 'client' ? '#007bff' : '#999'} />
-            </View>
-            <Text style={[styles.roleTitle, selectedRole === 'client' && { color: '#007bff' }]}>
-              Cliente
-            </Text>
-            <Text style={styles.roleDesc}>Necesito contratar servicios</Text>
-            {selectedRole === 'client' && (
-              <View style={[styles.roleCheck, { backgroundColor: '#007bff' }]}>
-                <Ionicons name="checkmark" size={14} color="#fff" />
-              </View>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.roleCard,
-              selectedRole === 'provider' && styles.roleCardActive,
-              selectedRole === 'provider' && { borderColor: '#28a745' },
-            ]}
-            onPress={() => setSelectedRole('provider')}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.roleIconCircle, { backgroundColor: selectedRole === 'provider' ? '#E8F5E9' : '#f5f5f5' }]}>
-              <Ionicons name="construct-outline" size={28} color={selectedRole === 'provider' ? '#28a745' : '#999'} />
-            </View>
-            <Text style={[styles.roleTitle, selectedRole === 'provider' && { color: '#28a745' }]}>
-              Profesional
-            </Text>
-            <Text style={styles.roleDesc}>Ofrezco mis servicios</Text>
-            {selectedRole === 'provider' && (
-              <View style={[styles.roleCheck, { backgroundColor: '#28a745' }]}>
-                <Ionicons name="checkmark" size={14} color="#fff" />
-              </View>
-            )}
-          </TouchableOpacity>
+          <Text style={styles.subtitle}>Regístrate como cliente. Servicios coordinados y supervisados por nuestra central.</Text>
         </View>
 
         {/* ═══ FORMULARIO CON VALIDACIONES ═══ */}
         {/* Nombre completo */}
         <View style={styles.inputContainer}>
-          <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
+          <Ionicons name="person-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
           <TextInput
             style={styles.input}
             placeholder="Nombre y Apellido completo"
@@ -274,10 +189,10 @@ export default function RegisterScreen() {
 
         {/* DNI */}
         <View style={styles.inputContainer}>
-          <Ionicons name="card-outline" size={20} color="#666" style={styles.inputIcon} />
+          <Ionicons name="card-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
           <TextInput
             style={styles.input}
-            placeholder={isProvider ? 'DNI (8 dígitos - Obligatorio)' : 'DNI (8 dígitos - Opcional)'}
+            placeholder="DNI (8 dígitos - Opcional)"
             value={dni}
             onChangeText={(t) => setDni(t.replace(/\D/g, '').slice(0, 8))}
             keyboardType="number-pad"
@@ -288,7 +203,7 @@ export default function RegisterScreen() {
 
         {/* Correo */}
         <View style={styles.inputContainer}>
-          <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
+          <Ionicons name="mail-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
           <TextInput
             style={styles.input}
             placeholder="Correo electrónico"
@@ -302,10 +217,10 @@ export default function RegisterScreen() {
 
         {/* Teléfono celular */}
         <View style={styles.inputContainer}>
-          <Ionicons name="call-outline" size={20} color="#666" style={styles.inputIcon} />
+          <Ionicons name="call-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
           <TextInput
             style={styles.input}
-            placeholder={isProvider ? 'Celular Perú (9 dígitos - Obligatorio)' : 'Celular (9 dígitos - Opcional)'}
+            placeholder="Celular (9 dígitos - Opcional)"
             value={phone}
             onChangeText={(t) => setPhone(t.replace(/\D/g, '').slice(0, 9))}
             keyboardType="phone-pad"
@@ -316,7 +231,7 @@ export default function RegisterScreen() {
 
         {/* Contraseña */}
         <View style={styles.inputContainer}>
-          <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
+          <Ionicons name="lock-closed-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
           <TextInput
             style={styles.input}
             placeholder="Contraseña (Mayús, minús, núm, símb)"
@@ -326,7 +241,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#999"
           />
           <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#666" />
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -336,23 +251,23 @@ export default function RegisterScreen() {
             <Text style={styles.passwordReqTitle}>Requisitos de contraseña segura:</Text>
             <View style={styles.reqGrid}>
               <View style={styles.reqItem}>
-                <Ionicons name={hasMinLength ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasMinLength ? "#28a745" : "#888"} />
+                <Ionicons name={hasMinLength ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasMinLength ? colors.success : "#888"} />
                 <Text style={[styles.reqText, hasMinLength && styles.reqTextActive]}>8+ caracteres</Text>
               </View>
               <View style={styles.reqItem}>
-                <Ionicons name={hasUpperCase ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasUpperCase ? "#28a745" : "#888"} />
+                <Ionicons name={hasUpperCase ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasUpperCase ? colors.success : "#888"} />
                 <Text style={[styles.reqText, hasUpperCase && styles.reqTextActive]}>Mayúscula (A-Z)</Text>
               </View>
               <View style={styles.reqItem}>
-                <Ionicons name={hasLowerCase ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasLowerCase ? "#28a745" : "#888"} />
+                <Ionicons name={hasLowerCase ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasLowerCase ? colors.success : "#888"} />
                 <Text style={[styles.reqText, hasLowerCase && styles.reqTextActive]}>Minúscula (a-z)</Text>
               </View>
               <View style={styles.reqItem}>
-                <Ionicons name={hasNumber ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasNumber ? "#28a745" : "#888"} />
+                <Ionicons name={hasNumber ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasNumber ? colors.success : "#888"} />
                 <Text style={[styles.reqText, hasNumber && styles.reqTextActive]}>Número (0-9)</Text>
               </View>
               <View style={styles.reqItem}>
-                <Ionicons name={hasSymbol ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasSymbol ? "#28a745" : "#888"} />
+                <Ionicons name={hasSymbol ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasSymbol ? colors.success : "#888"} />
                 <Text style={[styles.reqText, hasSymbol && styles.reqTextActive]}>Símbolo (!@#$...)</Text>
               </View>
             </View>
@@ -361,7 +276,7 @@ export default function RegisterScreen() {
 
         {/* Confirmar Contraseña */}
         <View style={styles.inputContainer}>
-          <Ionicons name="shield-checkmark-outline" size={20} color="#666" style={styles.inputIcon} />
+          <Ionicons name="shield-checkmark-outline" size={20} color={colors.textMuted} style={styles.inputIcon} />
           <TextInput
             style={styles.input}
             placeholder="Confirmar contraseña"
@@ -371,34 +286,26 @@ export default function RegisterScreen() {
             placeholderTextColor="#999"
           />
           <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-            <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#666" />
+            <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
 
-        {isProvider && (
-          <View style={styles.providerNote}>
-            <Ionicons name="shield-checkmark" size={18} color="#28a745" />
-            <Text style={styles.providerNoteText}>
-              Como profesional, tus datos de DNI y teléfono serán verificados para otorgarte la insignia de <Text style={{ fontWeight: 'bold' }}>Técnico Verificado</Text>.
-            </Text>
-          </View>
-        )}
+        <View style={styles.providerNote}>
+          <Ionicons name="information-circle" size={18} color={colors.primary} />
+          <Text style={styles.providerNoteText}>
+            ¿Eres técnico o profesional? Las cuentas de profesionales las crea la <Text style={{ fontWeight: 'bold' }}>central de operaciones</Text> tras validar tu contratación. Comunícate con la empresa para tu alta.
+          </Text>
+        </View>
 
         <TouchableOpacity
-          style={[
-            styles.buttonSuccess,
-            { backgroundColor: isProvider ? '#28a745' : '#007bff' },
-            loading && styles.buttonDisabled,
-          ]}
+          style={[styles.buttonSuccess, loading && styles.buttonDisabled]}
           onPress={handleRegister}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>
-              REGISTRARME COMO {isProvider ? 'PROFESIONAL' : 'CLIENTE'}
-            </Text>
+            <Text style={styles.buttonText}>REGISTRARME COMO CLIENTE</Text>
           )}
         </TouchableOpacity>
 
@@ -413,57 +320,25 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 60 },
 
   header: { alignItems: 'center', marginBottom: 24 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#333' },
-  subtitle: { fontSize: 15, color: '#666', marginTop: 6 },
-
-  // ── Role selector ───────────────────
-  roleSelector: { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  roleCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#e1e1e1',
-    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06)',
-    position: 'relative',
+  logoBadge: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: colors.accent,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 14,
   },
-  roleCardActive: {
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-  },
-  roleIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  roleTitle: { fontSize: 15, fontWeight: '700', color: '#333', marginBottom: 4 },
-  roleDesc: { fontSize: 11, color: '#888', textAlign: 'center' },
-  roleCheck: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  title: { fontSize: 28, fontWeight: 'bold', color: colors.primary },
+  subtitle: { fontSize: 15, color: colors.textMuted, marginTop: 6, textAlign: 'center' },
 
   // ── Inputs ──────────────────────────
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e1e1e1',
+    borderColor: colors.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     height: 56,
@@ -471,34 +346,34 @@ const styles = StyleSheet.create({
     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
   },
   inputIcon: { marginRight: 12 },
-  input: { flex: 1, fontSize: 16, color: '#333' },
+  input: { flex: 1, fontSize: 16, color: colors.text },
 
   // ── Requisitos de Contraseña ────────
   passwordReqBox: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 12,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#e1e1e1',
+    borderColor: colors.border,
   },
   passwordReqTitle: { fontSize: 12, fontWeight: '700', color: '#555', marginBottom: 8 },
   reqGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   reqItem: { flexDirection: 'row', alignItems: 'center', gap: 4, width: '48%' },
   reqText: { fontSize: 11, color: '#888' },
-  reqTextActive: { color: '#28a745', fontWeight: '700' },
+  reqTextActive: { color: colors.success, fontWeight: '700' },
 
-  // ── Provider note ───────────────────
+  // ── Nota profesionales ──────────────
   providerNote: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#E3F2FD',
+    backgroundColor: colors.accentLight,
     padding: 12,
     borderRadius: 10,
     marginBottom: 16,
     gap: 8,
   },
-  providerNoteText: { flex: 1, fontSize: 12, color: '#1565C0', lineHeight: 18 },
+  providerNoteText: { flex: 1, fontSize: 12, color: colors.primary, lineHeight: 18 },
 
   // ── Button ──────────────────────────
   buttonSuccess: {
@@ -507,12 +382,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 8,
+    backgroundColor: colors.primary,
     boxShadow: '0 4px 8px rgba(0, 0, 0, 0.3)',
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontSize: 14, fontWeight: 'bold', letterSpacing: 0.5 },
 
   footerLink: { marginTop: 24, alignItems: 'center', paddingBottom: 40 },
-  linkText: { color: '#666', fontSize: 14 },
-  linkBold: { color: '#007bff', fontWeight: 'bold' },
+  linkText: { color: colors.textMuted, fontSize: 14 },
+  linkBold: { color: colors.primary, fontWeight: 'bold' },
 });

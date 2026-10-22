@@ -15,6 +15,13 @@ export default function Index() {
   useEffect(() => {
     if (authLoading || closingRef.current) return;
     if (!user) { router.replace('/auth/login'); return; }
+    if (user.emailVerified === false) {
+      closingRef.current = true;
+      signOutWithNotifications()
+        .catch(() => {})
+        .finally(() => { closingRef.current = false; router.replace('/auth/login'); });
+      return;
+    }
     const home = getRoleHome(profile?.role);
     if (profile?.uid === user.uid && auth.currentUser?.uid === user.uid && home) router.replace(home);
   }, [user, profile, authLoading, router]);

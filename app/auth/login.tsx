@@ -4,9 +4,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 
-import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
+import { sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth } from '../../src/config/firebase';
 import { useSession } from '../../src/context/SessionContext';
+import { colors } from '../../src/theme';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -65,6 +66,42 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+
+      if (!userCredential.user.emailVerified) {
+        await signOut(auth);
+        if (mounted.current) {
+          Alert.alert(
+            'Correo no verificado ✉️',
+            `Tu cuenta aún no está verificada. Revisa el correo que enviamos a ${cleanEmail} y abre el enlace de verificación.\n\nSi no lo encuentras, revisa spam o solicita un reenvío.`,
+            [
+              {
+                text: 'Reenviar correo',
+                onPress: async () => {
+                  try {
+                    const cred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+                    await sendEmailVerification(cred.user);
+                    await signOut(auth);
+                    Toast.show({
+                      type: 'success',
+                      text1: 'Correo reenviado',
+                      text2: 'Revisa tu bandeja de entrada y verifica tu cuenta.',
+                    });
+                  } catch {
+                    Toast.show({
+                      type: 'error',
+                      text1: 'No se pudo reenviar',
+                      text2: 'Inténtalo nuevamente en unos minutos.',
+                    });
+                  }
+                },
+              },
+              { text: 'Entendido', style: 'cancel' },
+            ]
+          );
+        }
+        return;
+      }
+
       // SessionContext resolves the role from its shared listener, including cached data.
       if (mounted.current && auth.currentUser?.uid === userCredential.user.uid) router.replace('/');
 
@@ -132,7 +169,7 @@ export default function LoginScreen() {
 
         {/* HEADER */}
         <View style={styles.header}>
-          <Ionicons name="person-circle-outline" size={80} color="#007bff" />
+          <View style={styles.logoBadge}><Ionicons name="construct" size={36} color={colors.primary} /></View>
           <Text style={styles.title}>Bienvenido de nuevo</Text>
           <Text style={styles.subtitle}>Ingresa a tu cuenta</Text>
         </View>
@@ -175,7 +212,7 @@ export default function LoginScreen() {
           disabled={resettingPassword}
           style={{ alignSelf: 'flex-end', marginBottom: 16 }}
         >
-          <Text style={{ color: '#007bff', fontSize: 13, fontWeight: '600' }}>
+          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>
             {resettingPassword ? 'Enviando correo...' : '¿Olvidaste tu contraseña?'}
           </Text>
         </TouchableOpacity>
@@ -200,7 +237,7 @@ export default function LoginScreen() {
 
         {/* LINK ONBOARDING (TUTORIAL) */}
         <TouchableOpacity onPress={() => router.push('/onboarding')} style={{ marginTop: 30 }}>
-          <Text style={{ color: '#007bff', textAlign: 'center' }}>
+          <Text style={{ color: colors.primary, textAlign: 'center' }}>
             ¿Nuevo aquí? <Text style={{ fontWeight: 'bold' }}>Ver Tutorial de la App</Text>
           </Text>
         </TouchableOpacity>
@@ -211,11 +248,15 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { flex: 1, justifyContent: 'center', padding: 24 },
 
   header: { alignItems: 'center', marginBottom: 32 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#333', marginTop: 16 },
+  logoBadge: {
+    width: 72, height: 72, borderRadius: 36, backgroundColor: colors.accent,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  title: { fontSize: 28, fontWeight: 'bold', color: colors.primary, marginTop: 16 },
   subtitle: { fontSize: 16, color: '#666', marginTop: 8 },
 
   inputContainer: {
@@ -229,15 +270,15 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontSize: 16, color: '#333' },
 
   buttonPrimary: {
-    backgroundColor: '#007bff', height: 56, borderRadius: 12,
+    backgroundColor: colors.primary, height: 56, borderRadius: 12,
     justifyContent: 'center', alignItems: 'center', marginTop: 16,
-    shadowColor: '#007bff', shadowOffset: { width: 0, height: 4 },
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
   },
-  buttonDisabled: { backgroundColor: '#a0cfff' },
+  buttonDisabled: { backgroundColor: '#8FA6BC' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
 
   footerLink: { marginTop: 24, alignItems: 'center' },
   linkText: { color: '#666', fontSize: 14 },
-  linkBold: { color: '#007bff', fontWeight: 'bold' },
+  linkBold: { color: colors.primary, fontWeight: 'bold' },
 });
