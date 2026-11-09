@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { collection, onSnapshot, orderBy, query, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import type { ServiceRequest, StatusHistoryItem } from '../types';
-import { formatStatus } from '../types';
+import { SlaTrafficBadge } from './SlaTrafficBadge';
+import { StatusBadge } from './StatusBadge';
+import { SidePanel } from './SidePanel';
 import {
-  X,
   Clock,
   User,
-  CheckCircle2,
   FileText,
   Image as ImageIcon,
   ZoomIn,
@@ -18,6 +18,16 @@ import {
   MessageSquare,
   MessageCircle,
   ShieldCheck,
+  ShieldAlert,
+  Eye,
+  EyeOff,
+  Phone,
+  Mail,
+  Smartphone,
+  Globe,
+  AlertTriangle,
+  Receipt,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { resolveRequestCanonicalPricing } from '../services/pricingPolicyService';
@@ -40,7 +50,10 @@ interface Props {
   onClose: () => void;
 }
 
+type DetailTab = 'resumen' | 'trazabilidad' | 'evidencias' | 'cotizacion';
+
 export const ServiceDetailModal = ({ request, onClose }: Props) => {
+  const [activeTab, setActiveTab] = useState<DetailTab>('resumen');
   const [history, setHistory] = useState<StatusHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(() => Boolean(request?.id));
   const [inspectingImage, setInspectingImage] = useState<{ url: string; title: string } | null>(null);
@@ -48,6 +61,7 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
   const [isLiveMapOpen, setIsLiveMapOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [showPin, setShowPin] = useState(false);
 
   const handleDirectAccept = async () => {
     if (!request || accepting) return;
@@ -77,20 +91,25 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
   useEffect(() => {
     if (!request?.id) return;
 
+    setLoadingHistory(true);
     const historyRef = collection(db, 'service_requests', request.id, 'status_history');
     const q = query(historyRef, orderBy('timestamp', 'asc'));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items: StatusHistoryItem[] = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      })) as StatusHistoryItem[];
-      setHistory(items);
-      setLoadingHistory(false);
-    }, (error) => {
-      console.warn('No se pudo cargar el historial de estados:', error);
-      setLoadingHistory(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: StatusHistoryItem[] = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        })) as StatusHistoryItem[];
+        setHistory(items);
+        setLoadingHistory(false);
+      },
+      (error) => {
+        console.warn('No se pudo cargar el historial de estados:', error);
+        setLoadingHistory(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [request?.id]);
@@ -103,217 +122,485 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
     return isNaN(date.getTime()) ? '—' : date.toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'medium' });
   };
 
-  return (
-    <div className="modal-backdrop">
-      <div className="modal-card modal-large">
-        <div className="modal-header">
-          <div>
-            <span className="badge badge-code">{request.code || 'SIN CORRELATIVO'}</span>
-            <h2 style={{ marginTop: 6 }}>Detalle del Servicio</h2>
-          </div>
-          <button type="button" className="btn-close" onClick={onClose}>
-            <X size={20} />
+  // Cálculo de vigencia de garantía (Resolves Bug a)
+  const isWarrantyState = ['COMPLETED', 'VALIDATED'].includes(request.status);
+  const baseWarrantyDate = request.validatedAt || request.finishedAt || request.createdAt;
+  let isWarrantyActive = false;
+  let warrantyExpiryDate: Date | null = null;
+  if (isWarrantyState && baseWarrantyDate) {
+    const d = baseWarrantyDate.toDate ? baseWarrantyDate.toDate() : new Date(baseWarrantyDate);
+    if (!isNaN(d.getTime())) {
+      warrantyExpiryDate = new Date(d.getTime() + 30 * 24 * 60 * 60 * 1000);
+      isWarrantyActive = Date.now() <= warrantyExpiryDate.getTime();
+    }
+  }
+
+  // Tiempos métricas clave para la pestaña de trazabilidad
+  const toDate = (val: any) => {
+    if (!val) return null;
+    const d = val.toDate ? val.toDate() : new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const tCrea = toDate(request.createdAt);
+  const tResp = toDate(request.firstResponseAt);
+  const tAsig = toDate(request.assignedAt);
+  const tInic = toDate(request.startedAt);
+  const tFin = toDate(request.finishedAt);
+  const tVal = toDate(request.validatedAt);
+
+  const getDeltaMin = (end: Date | null, start: Date | null) => {
+    if (!end || !start) return '—';
+    const diff = (end.getTime() - start.getTime()) / 60000;
+    return diff >= 0 ? `${diff.toFixed(1)} min` : '—';
+  };
+
+  const canonicalPricing = resolveRequestCanonicalPricing(request);
+
+  const renderChannelIcon = (channel?: string) => {
+    switch (channel) {
+      case 'WHATSAPP':
+        return <MessageCircle size={14} color="#16a34a" />;
+      case 'PHONE':
+        return <Phone size={14} color="#0369a1" />;
+      case 'EMAIL':
+        return <Mail size={14} color="#64748b" />;
+      case 'WEB':
+        return <Globe size={14} color="#0284c7" />;
+      case 'APP':
+      default:
+        return <Smartphone size={14} color="#0369a1" />;
+    }
+  };
+
+  const panelFooter = (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ padding: '6px 12px', fontSize: '12px' }}
+          onClick={() => setIsLiveMapOpen(true)}
+          title="Abrir telemetría y despacho en ruta"
+        >
+          <Navigation size={14} />
+          <span>Despacho en Ruta</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-secondary"
+          style={{ padding: '6px 12px', fontSize: '12px' }}
+          onClick={() => setIsChatModalOpen(true)}
+          title="Ver conversación entre cliente y técnico"
+        >
+          <MessageSquare size={14} />
+          <span>Chat en Vivo</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-secondary"
+          style={{ padding: '6px 12px', fontSize: '12px' }}
+          onClick={() => setIsAssignModalOpen(true)}
+          title="Asignar o reasignar técnico para este servicio"
+        >
+          <UserCheck size={14} />
+          <span>{request.providerId ? 'Reasignar' : 'Asignar Técnico'}</span>
+        </button>
+
+        {['PENDING_ASSIGNMENT', 'PENDING', 'REQUIRES_REASSIGNMENT'].includes(request.status) && (
+          <button
+            type="button"
+            className="btn btn-success"
+            style={{ padding: '6px 12px', fontSize: '12px' }}
+            onClick={handleDirectAccept}
+            disabled={accepting}
+            title="Aceptar la solicitud de inmediato"
+          >
+            {accepting ? <Loader2 size={14} className="spinner" /> : <Check size={14} />}
+            <span>Aceptar Solicitud</span>
           </button>
-        </div>
+        )}
+      </div>
 
-        <div className="modal-body modal-scrollable">
-          {/* Fila superior: Estado e info clave */}
-          <div className="detail-grid-header">
-            <div className="detail-pill">
-              <span className="detail-label">Estado Actual</span>
-              <span className={`status-badge status-${request.status.toLowerCase()}`}>
-                {formatStatus(request.status)}
-              </span>
-            </div>
-            <div className="detail-pill">
-              <span className="detail-label">Canal de Ingreso</span>
-              <span className="detail-value font-semibold">
-                {request.intakeChannel === 'WHATSAPP' ? '💬 WhatsApp' :
-                 request.intakeChannel === 'PHONE' ? '📞 Llamada' :
-                 request.intakeChannel === 'EMAIL' ? '✉️ Correo' : '📱 App Cliente'}
-              </span>
-            </div>
-            <div className="detail-pill">
-              <span className="detail-label">Origen</span>
-              <span className="detail-value">
-                {request.origin === 'OPERATOR' ? 'Operador (Central)' : 'Cliente Directo'}
-              </span>
-            </div>
-            <div className="detail-pill">
-              <span className="detail-label">PIN de Seguridad</span>
-              <span className="detail-value font-mono font-bold" style={{ letterSpacing: 2, color: '#0284c7' }}>
-                {request.securityPin || '••••'}
-              </span>
-            </div>
-          </div>
+      <button type="button" className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={onClose}>
+        Cerrar
+      </button>
+    </div>
+  );
 
-          {/* Información del Cliente y Ubicación */}
-          <div className="detail-section">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 className="section-subtitle" style={{ margin: 0 }}><User size={16} /> Cliente y Solicitud</h3>
-              {request.clientPhone && (
-                <a
-                  href={`https://wa.me/51${request.clientPhone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${request.clientName || 'estimado(a)'}, te contactamos de la central de Multiservicios sobre tu solicitud ${request.code || ''}`)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn btn-secondary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', padding: '4px 10px', color: '#16a34a', borderColor: 'rgba(22,163,74,0.3)' }}
-                >
-                  <MessageCircle size={14} color="#16a34a" />
-                  <span>WhatsApp Cliente</span>
-                </a>
-              )}
-            </div>
-            <div className="detail-two-col">
-              <div>
-                <p><strong>Nombre:</strong> {request.clientName || 'No especificado'}</p>
-                <p><strong>Teléfono:</strong> {request.clientPhone || 'No registrado'}</p>
-                <p><strong>Especialidad:</strong> {request.serviceLabel || request.specialty}</p>
-                <p><strong>Prioridad:</strong> {request.priority === 'HIGH' ? '🚨 Alta (Urgencia)' : 'Normal'}</p>
+  return (
+    <SidePanel
+      isOpen={Boolean(request)}
+      onClose={onClose}
+      title={request.code || 'SOLICITUD'}
+      subtitle={`${request.serviceLabel || request.specialty} · ${request.district || 'Lima'}`}
+      badge={<StatusBadge status={request.status} />}
+      footer={panelFooter}
+      width="580px"
+    >
+      {/* SLA Traffic Full Banner */}
+      <div className="sla-full-banner">
+        <SlaTrafficBadge request={request} showDetails />
+      </div>
+
+      {/* Tabs Switcher */}
+      <div className="sidepanel-tabs-bar" style={{ margin: '-4px -20px 16px', padding: '6px 20px' }}>
+        <button
+          type="button"
+          className={`sidepanel-tab-btn ${activeTab === 'resumen' ? 'active' : ''}`}
+          onClick={() => setActiveTab('resumen')}
+        >
+          <FileText size={14} />
+          <span>Resumen</span>
+        </button>
+        <button
+          type="button"
+          className={`sidepanel-tab-btn ${activeTab === 'trazabilidad' ? 'active' : ''}`}
+          onClick={() => setActiveTab('trazabilidad')}
+        >
+          <Clock size={14} />
+          <span>Trazabilidad ({history.length})</span>
+        </button>
+        <button
+          type="button"
+          className={`sidepanel-tab-btn ${activeTab === 'evidencias' ? 'active' : ''}`}
+          onClick={() => setActiveTab('evidencias')}
+        >
+          <ImageIcon size={14} />
+          <span>Evidencias</span>
+        </button>
+        <button
+          type="button"
+          className={`sidepanel-tab-btn ${activeTab === 'cotizacion' ? 'active' : ''}`}
+          onClick={() => setActiveTab('cotizacion')}
+        >
+          <Receipt size={14} />
+          <span>Cotización y Pago</span>
+        </button>
+      </div>
+
+      {/* TAB 1: RESUMEN */}
+      {activeTab === 'resumen' && (
+        <div className="sidepanel-content-pane">
+          {/* Tarjeta de Diagnóstico de Cancelación (Resolves Bug d) */}
+          {request.status.startsWith('CANCELLED') && (
+            <div className="diagnostic-cancel-card">
+              <div className="diagnostic-cancel-header">
+                <AlertTriangle size={16} />
+                <span>Diagnóstico de Cancelación Operativa</span>
               </div>
-              <div>
-                <p><strong>Distrito:</strong> {request.district || 'Lima'}</p>
-                <p><strong>Dirección:</strong> {request.address || '—'}</p>
-                <p><strong>Referencia:</strong> {request.addressReference || 'Sin referencia'}</p>
-                <p><strong>Técnico Asignado:</strong> {request.providerName || (request.providerId ? 'ID: ' + request.providerId.slice(0, 8) : 'Sin asignar')}</p>
-              </div>
+              <p className="diagnostic-cancel-text">
+                <strong>Motivo Reportado:</strong> {request.cancelReason || request.rejectionReason || request.rejectionReasonText || 'Sin motivo especificado al cancelar'}<br />
+                {request.quoteRejectionReason && (
+                  <><strong>Rechazo de Cotización:</strong> {request.quoteRejectionReason}<br /></>
+                )}
+                {request.providerRejectionReason && (
+                  <><strong>Rechazo por Técnico:</strong> {request.providerRejectionReason}<br /></>
+                )}
+                {request.notes && (
+                  <><strong>Notas de Auditoría:</strong> {request.notes}</>
+                )}
+              </p>
             </div>
-            <div style={{ marginTop: 8 }}>
-              <p><strong>Descripción del Problema:</strong></p>
-              <div className="detail-box">{request.description || 'Sin descripción'}</div>
-            </div>
-          </div>
+          )}
 
-          {/* Sello de Garantía Digital 30 Días (Si está completado o validado) */}
-          {['COMPLETED', 'VALIDATED'].includes(request.status) && (
-            <div className="detail-section" style={{ background: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.3)', borderRadius: 10, padding: 14 }}>
+          {/* Sello de Garantía de 30 Días con Evaluación Real de Expiración (Resolves Bug a) */}
+          {isWarrantyState && (
+            <div
+              className="sidepanel-card"
+              style={{
+                backgroundColor: isWarrantyActive ? 'var(--status-completed-bg)' : 'var(--status-pending-bg)',
+                borderColor: isWarrantyActive ? 'var(--status-completed-border)' : 'var(--status-pending-border)',
+                padding: '12px 14px',
+              }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <ShieldCheck size={28} color="#10b981" />
+                {isWarrantyActive ? (
+                  <ShieldCheck size={26} color="var(--status-completed-fg)" />
+                ) : (
+                  <ShieldAlert size={26} color="var(--status-pending-fg)" />
+                )}
                 <div>
-                  <h4 style={{ margin: 0, color: '#10b981', fontSize: '0.95rem' }}>Garantía Digital de 30 Días Activa</h4>
-                  <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                    Este servicio cuenta con respaldo técnico y cobertura post-servicio hasta el{' '}
-                    <strong>
-                      {(() => {
-                        const baseDate = request.validatedAt || request.finishedAt || request.createdAt;
-                        if (!baseDate) return '30 días posteriores';
-                        const d = baseDate.toDate ? baseDate.toDate() : new Date(baseDate);
-                        const exp = new Date(d.getTime() + 30 * 24 * 60 * 60 * 1000);
-                        return exp.toLocaleDateString('es-PE', { dateStyle: 'long' });
-                      })()}
-                    </strong>
+                  <h4
+                    style={{
+                      margin: 0,
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: isWarrantyActive ? 'var(--status-completed-fg)' : 'var(--status-pending-fg)',
+                    }}
+                  >
+                    {isWarrantyActive
+                      ? 'Garantía Digital de 30 Días Activa'
+                      : 'Garantía Digital de 30 Días Vencida'}
+                  </h4>
+                  <p
+                    style={{
+                      margin: '2px 0 0',
+                      fontSize: '12px',
+                      color: isWarrantyActive ? '#166534' : '#92400e',
+                    }}
+                  >
+                    {isWarrantyActive
+                      ? `Cobertura técnica vigente hasta el ${warrantyExpiryDate?.toLocaleDateString('es-PE', { dateStyle: 'long' })}.`
+                      : `La cobertura expiró el ${warrantyExpiryDate?.toLocaleDateString('es-PE', { dateStyle: 'long' })}.`}
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Tarifas y Cotización */}
-          <div className="detail-section">
-            <h3 className="section-subtitle"><FileText size={16} /> Tarifas y Cotización</h3>
-            <div className="detail-two-col">
-              <div>
-                <p><strong>Tarifa de Visita Diagnóstica:</strong> S/. {resolveRequestCanonicalPricing(request).fee.toFixed(2)} (Deducible)</p>
-                <p><strong>Tarifa Final Acordada:</strong> {request.price_agreed || 'Pendiente de cotizar'}</p>
+          {/* Indicadores rápidos de cabecera */}
+          <div className="sidepanel-card">
+            <div className="sidepanel-prop-grid">
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Canal de Ingreso</span>
+                <span className="sidepanel-prop-value" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                  {renderChannelIcon(request.intakeChannel)}
+                  {request.intakeChannel === 'WHATSAPP' ? 'WhatsApp' :
+                   request.intakeChannel === 'PHONE' ? 'Llamada Central' :
+                   request.intakeChannel === 'EMAIL' ? 'Correo Electrónico' :
+                   request.intakeChannel === 'WEB' ? 'Portal Web' : 'App Móvil'}
+                </span>
               </div>
-              <div>
-                <p><strong>Cotización Aceptada por Cliente:</strong> {request.quoteAccepted ? '✅ Sí' : request.quoteRejectedAt ? '❌ Rechazada' : '⏳ Pendiente'}</p>
-                <p><strong>Estado de Pago:</strong> {request.paymentStatus === 'CONFIRMED' ? '✅ Confirmado por Técnico' : request.paymentStatus === 'PAID' ? '💳 Pagado con Comprobante' : 'Pendiente'}</p>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">PIN de Seguridad</span>
+                <span className="sidepanel-prop-value" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <code className="mono-tabular" style={{ fontWeight: 700, letterSpacing: 2, color: 'var(--primary)', fontSize: 14 }}>
+                    {showPin ? (request.securityPin || '----') : '••••'}
+                  </code>
+                  <button
+                    type="button"
+                    className="pin-toggle-btn"
+                    onClick={() => setShowPin((prev) => !prev)}
+                    title={showPin ? 'Ocultar PIN' : 'Mostrar PIN'}
+                  >
+                    {showPin ? <EyeOff size={12} /> : <Eye size={12} />}
+                    <span>{showPin ? 'Ocultar' : 'Ver'}</span>
+                  </button>
+                </span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Origen de Solicitud</span>
+                <span className="sidepanel-prop-value">
+                  {request.origin === 'OPERATOR' ? 'Operador Central' : 'Cliente Directo'}
+                </span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Prioridad Operativa</span>
+                <span className="sidepanel-prop-value" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {request.priority === 'HIGH' ? (
+                    <>
+                      <AlertTriangle size={13} color="#dc2626" />
+                      <strong style={{ color: '#dc2626' }}>Alta (Urgencia)</strong>
+                    </>
+                  ) : (
+                    'Normal'
+                  )}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Galería Fotográfica de Evidencia */}
-          <div className="detail-section">
-            <h3 className="section-subtitle"><ImageIcon size={16} /> Galería de Evidencia (Auditoría EVID_INI / EVID_FIN)</h3>
-            <div className="evidence-grid">
-              <div className="evidence-card">
-                <span className="evidence-title">Foto Inicial del Problema (EVID_INI)</span>
-                {request.issuePhoto ? (
-                  <div
-                    className="evidence-img-container"
-                    onClick={() => setInspectingImage({ url: request.issuePhoto!, title: `Foto Inicial (${request.code || 'SOLICITUD'})` })}
-                    title="Click para inspeccionar y hacer zoom"
-                  >
-                    <img src={request.issuePhoto} alt="Problema inicial" className="evidence-img" />
-                    <div className="evidence-zoom-overlay">
-                      <ZoomIn size={18} />
-                      <span>Inspeccionar Zoom</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="evidence-placeholder">Sin fotografía inicial</div>
-                )}
-              </div>
-              <div className="evidence-card">
-                <span className="evidence-title">Evidencia de Culminación (EVID_FIN)</span>
-                {request.evidencePhoto ? (
-                  <div
-                    className="evidence-img-container"
-                    onClick={() => setInspectingImage({ url: request.evidencePhoto!, title: `Evidencia Final (${request.code || 'SOLICITUD'})` })}
-                    title="Click para inspeccionar y hacer zoom"
-                  >
-                    <img src={request.evidencePhoto} alt="Trabajo culminado" className="evidence-img" />
-                    <div className="evidence-zoom-overlay">
-                      <ZoomIn size={18} />
-                      <span>Inspeccionar Zoom</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="evidence-placeholder">Pendiente de subir por técnico</div>
-                )}
-              </div>
-              {request.voucher && (
-                <div className="evidence-card">
-                  <span className="evidence-title">Comprobante de Pago (Voucher)</span>
-                  <div
-                    className="evidence-img-container"
-                    onClick={() => setInspectingImage({ url: request.voucher!, title: `Comprobante de Pago (${request.code || 'SOLICITUD'})` })}
-                    title="Click para inspeccionar y hacer zoom"
-                  >
-                    <img src={request.voucher} alt="Comprobante" className="evidence-img" />
-                    <div className="evidence-zoom-overlay">
-                      <ZoomIn size={18} />
-                      <span>Inspeccionar Zoom</span>
-                    </div>
-                  </div>
-                </div>
+          {/* Información del Cliente */}
+          <div className="sidepanel-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h4 className="sidepanel-card-title" style={{ margin: 0 }}>
+                <User size={15} /> Cliente y Contacto
+              </h4>
+              {request.clientPhone && (
+                <a
+                  href={`https://wa.me/51${request.clientPhone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                    `Hola ${request.clientName || 'estimado(a)'}, te contactamos de la central de Multiservicios sobre tu solicitud ${request.code || ''}`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-secondary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '11px',
+                    padding: '3px 8px',
+                    color: '#16a34a',
+                    borderColor: 'rgba(22,163,74,0.3)',
+                  }}
+                >
+                  <MessageCircle size={13} color="#16a34a" />
+                  <span>WhatsApp Cliente</span>
+                </a>
               )}
             </div>
+
+            <div className="sidepanel-prop-grid">
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Nombre del Cliente</span>
+                <span className="sidepanel-prop-value font-semibold">{request.clientName || 'No especificado'}</span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Teléfono de Contacto</span>
+                <span className="sidepanel-prop-value mono-tabular">
+                  {request.clientPhone || <span style={{ color: '#dc2626' }}>No registrado</span>}
+                </span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Distrito</span>
+                <span className="sidepanel-prop-value">{request.district || 'Lima'}</span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Dirección</span>
+                <span className="sidepanel-prop-value">{request.address || '—'}</span>
+              </div>
+
+              <div className="sidepanel-prop-item" style={{ gridColumn: '1 / -1' }}>
+                <span className="sidepanel-prop-label">Referencia</span>
+                <span className="sidepanel-prop-value">{request.addressReference || 'Sin referencia'}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Calificación del Servicio */}
+          {/* Técnico y Trabajo Solicitado */}
+          <div className="sidepanel-card">
+            <h4 className="sidepanel-card-title">
+              <UserCheck size={15} /> Técnico y Requerimiento
+            </h4>
+
+            <div className="sidepanel-prop-grid" style={{ marginBottom: 12 }}>
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Técnico Asignado</span>
+                <span className="sidepanel-prop-value font-semibold">
+                  {request.providerName || (request.providerId ? `ID: ${request.providerId.slice(0, 8)}` : 'Sin asignar')}
+                </span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Especialidad</span>
+                <span className="sidepanel-prop-value">{request.serviceLabel || request.specialty}</span>
+              </div>
+            </div>
+
+            <div className="sidepanel-prop-item">
+              <span className="sidepanel-prop-label">Descripción del Problema</span>
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: 10,
+                  borderRadius: 6,
+                  backgroundColor: 'var(--bg-hover)',
+                  border: '1px solid var(--border)',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  color: 'var(--text-main)',
+                }}
+              >
+                {request.description || 'Sin descripción registrada'}
+              </div>
+            </div>
+          </div>
+
+          {/* Calificación del Cliente si existe */}
           {request.review_rating && (
-            <div className="detail-section">
-              <h3 className="section-subtitle">⭐ Calificación del Cliente</h3>
-              <p><strong>Estrellas:</strong> {'★'.repeat(request.review_rating) + '☆'.repeat(5 - request.review_rating)} ({request.review_rating}/5)</p>
-              {request.review_comment && <p><strong>Comentario:</strong> "{request.review_comment}"</p>}
+            <div className="sidepanel-card">
+              <h4 className="sidepanel-card-title">Calificación del Servicio</h4>
+              <p style={{ margin: '0 0 6px', fontSize: 13 }}>
+                <strong>Estrellas:</strong> {'★'.repeat(request.review_rating) + '☆'.repeat(5 - request.review_rating)} ({request.review_rating}/5)
+              </p>
+              {request.review_comment && (
+                <p style={{ margin: 0, fontSize: 12, fontStyle: 'italic', color: 'var(--text-secondary)' }}>
+                  "{request.review_comment}"
+                </p>
+              )}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Línea de Tiempo de Trazabilidad e Historial status_history */}
-          <div className="detail-section">
-            <h3 className="section-subtitle"><Clock size={16} /> Trazabilidad Completa (status_history)</h3>
+      {/* TAB 2: TRAZABILIDAD (MÉTRICAS DELTAS & HISTORIAL) */}
+      {activeTab === 'trazabilidad' && (
+        <div className="sidepanel-content-pane">
+          {/* Tarjetas de Deltas de Tiempo Tesis */}
+          <div className="sidepanel-card">
+            <h4 className="sidepanel-card-title">
+              <Clock size={15} /> Tiempos por Etapa (Métricas SPSS)
+            </h4>
+            <div className="sidepanel-prop-grid">
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">1. Contacto (T_RSP)</span>
+                <span className="sidepanel-prop-value mono-tabular font-semibold">
+                  {getDeltaMin(tResp, tCrea)}
+                </span>
+              </div>
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">2. Asignación (T_ASG)</span>
+                <span className="sidepanel-prop-value mono-tabular font-semibold">
+                  {getDeltaMin(tAsig, tResp || tCrea)}
+                </span>
+              </div>
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">3. Traslado (T_LLE)</span>
+                <span className="sidepanel-prop-value mono-tabular font-semibold">
+                  {getDeltaMin(tInic, tAsig || tCrea)}
+                </span>
+              </div>
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">4. Ejecución (T_EJE)</span>
+                <span className="sidepanel-prop-value mono-tabular font-semibold">
+                  {getDeltaMin(tFin, tInic || tCrea)}
+                </span>
+              </div>
+              <div className="sidepanel-prop-item" style={{ gridColumn: '1 / -1' }}>
+                <span className="sidepanel-prop-label">Ciclo Total (T_TOT)</span>
+                <span className="sidepanel-prop-value mono-tabular font-bold" style={{ color: 'var(--primary)' }}>
+                  {getDeltaMin(tVal || tFin, tCrea)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Línea de tiempo status_history */}
+          <div className="sidepanel-card">
+            <h4 className="sidepanel-card-title">
+              <FileSpreadsheet size={15} /> Eventos de Estado (status_history)
+            </h4>
+
             {loadingHistory ? (
-              <p className="text-muted">Cargando eventos del historial...</p>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Cargando eventos de trazabilidad...</p>
             ) : history.length === 0 ? (
-              <p className="text-muted">No se han registrado transiciones en la subcolección.</p>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No se han registrado transiciones de estado.</p>
             ) : (
-              <div className="timeline-container">
+              <div className="timeline-container" style={{ marginTop: 8 }}>
                 {history.map((item, idx) => (
                   <div key={item.id || idx} className="timeline-item">
                     <div className="timeline-bullet">
-                      <CheckCircle2 size={16} color="#0284c7" />
+                      <div
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          backgroundColor: 'var(--primary)',
+                        }}
+                      />
                     </div>
                     <div className="timeline-content">
                       <div className="timeline-top">
-                        <span className="timeline-state">{formatStatus(item.toStatus)}</span>
-                        <span className="timeline-date">{formatDate(item.timestamp)}</span>
+                        <span className="timeline-state font-semibold">{item.toStatus}</span>
+                        <span className="timeline-date mono-tabular">{formatDate(item.timestamp)}</span>
                       </div>
-                      <p className="timeline-meta">
+                      <p className="timeline-meta" style={{ fontSize: 11, color: 'var(--text-muted)', margin: '2px 0 0' }}>
                         Rol: <strong>{item.actorRole}</strong> · Actor: <code>{item.actorId?.slice(0, 8)}</code>
                       </p>
-                      {item.notes && <p className="timeline-note">{item.notes}</p>}
+                      {item.notes && (
+                        <p className="timeline-note" style={{ fontSize: 12, marginTop: 4 }}>
+                          {item.notes}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -321,63 +608,148 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
             )}
           </div>
         </div>
+      )}
 
-        <div className="modal-footer" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {/* Botón de Despacho y Telemetría en Ruta */}
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ background: '#0284c7' }}
-              onClick={() => setIsLiveMapOpen(true)}
-              title="Abrir panel de control y seguimiento en ruta en tiempo real"
-            >
-              <Navigation size={16} />
-              <span>🗺️ Despacho en Ruta</span>
-            </button>
+      {/* TAB 3: EVIDENCIAS */}
+      {activeTab === 'evidencias' && (
+        <div className="sidepanel-content-pane">
+          <div className="sidepanel-card">
+            <h4 className="sidepanel-card-title">
+              <ImageIcon size={15} /> Auditoría Fotográfica (EVID_INI / EVID_FIN)
+            </h4>
 
-            {/* Botón de Chat en Vivo Cliente ↔ Trabajador */}
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setIsChatModalOpen(true)}
-              title="Ver conversación en tiempo real entre cliente y técnico"
-            >
-              <MessageSquare size={16} />
-              <span>💬 Chat en Vivo</span>
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <span className="sidepanel-prop-label">Foto Inicial del Problema (EVID_INI)</span>
+                {request.issuePhoto ? (
+                  <div
+                    className="evidence-img-container"
+                    style={{ marginTop: 6, cursor: 'pointer' }}
+                    onClick={() =>
+                      setInspectingImage({
+                        url: request.issuePhoto!,
+                        title: `Foto Inicial (${request.code || 'SOLICITUD'})`,
+                      })
+                    }
+                  >
+                    <img src={request.issuePhoto} alt="Problema inicial" className="evidence-img" />
+                    <div className="evidence-zoom-overlay">
+                      <ZoomIn size={16} />
+                      <span>Inspeccionar Zoom</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="evidence-placeholder" style={{ marginTop: 6 }}>
+                    Sin fotografía inicial registrada
+                  </div>
+                )}
+              </div>
 
-            {/* Botón de Asignar / Reasignar Trabajador */}
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setIsAssignModalOpen(true)}
-              title="Seleccionar y asignar un técnico de la lista de trabajadores"
-            >
-              <UserCheck size={16} />
-              <span>{request.providerId ? 'Reasignar Trabajador' : 'Asignar Trabajador'}</span>
-            </button>
+              <div>
+                <span className="sidepanel-prop-label">Evidencia de Culminación (EVID_FIN)</span>
+                {request.evidencePhoto ? (
+                  <div
+                    className="evidence-img-container"
+                    style={{ marginTop: 6, cursor: 'pointer' }}
+                    onClick={() =>
+                      setInspectingImage({
+                        url: request.evidencePhoto!,
+                        title: `Evidencia Final (${request.code || 'SOLICITUD'})`,
+                      })
+                    }
+                  >
+                    <img src={request.evidencePhoto} alt="Trabajo culminado" className="evidence-img" />
+                    <div className="evidence-zoom-overlay">
+                      <ZoomIn size={16} />
+                      <span>Inspeccionar Zoom</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="evidence-placeholder" style={{ marginTop: 6 }}>
+                    Pendiente de subir por técnico
+                  </div>
+                )}
+              </div>
 
-            {/* Botón de Aceptar Directamente si está pendiente */}
-            {['PENDING_ASSIGNMENT', 'PENDING', 'REQUIRES_REASSIGNMENT'].includes(request.status) && (
-              <button
-                type="button"
-                className="btn btn-success"
-                onClick={handleDirectAccept}
-                disabled={accepting}
-                title="Aceptar la solicitud de inmediato"
-              >
-                {accepting ? <Loader2 size={16} className="spinner" /> : <Check size={16} />}
-                <span>Aceptar Solicitud</span>
-              </button>
-            )}
+              {request.voucher && (
+                <div>
+                  <span className="sidepanel-prop-label">Comprobante de Pago (Voucher)</span>
+                  <div
+                    className="evidence-img-container"
+                    style={{ marginTop: 6, cursor: 'pointer' }}
+                    onClick={() =>
+                      setInspectingImage({
+                        url: request.voucher!,
+                        title: `Comprobante de Pago (${request.code || 'SOLICITUD'})`,
+                      })
+                    }
+                  >
+                    <img src={request.voucher} alt="Comprobante" className="evidence-img" />
+                    <div className="evidence-zoom-overlay">
+                      <ZoomIn size={16} />
+                      <span>Inspeccionar Zoom</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-
-          <button type="button" className="btn btn-secondary" onClick={onClose}>
-            Cerrar Ventana
-          </button>
         </div>
-      </div>
+      )}
+
+      {/* TAB 4: COTIZACIÓN Y PAGO */}
+      {activeTab === 'cotizacion' && (
+        <div className="sidepanel-content-pane">
+          <div className="sidepanel-card">
+            <h4 className="sidepanel-card-title">
+              <Receipt size={15} /> Tarifas y Liquidación
+            </h4>
+
+            <div className="sidepanel-prop-grid">
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Tarifa de Visita Diagnóstica</span>
+                <span className="sidepanel-prop-value mono-tabular font-semibold">
+                  S/ {canonicalPricing.fee.toFixed(2)}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Deducible del trabajo final</span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Tarifa Final Acordada</span>
+                <span className="sidepanel-prop-value mono-tabular font-semibold">
+                  {request.price_agreed || 'Pendiente de cotizar'}
+                </span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Aceptación de Cotización</span>
+                <span className="sidepanel-prop-value">
+                  {request.quoteAccepted ? (
+                    <span style={{ color: 'var(--status-completed-fg)', fontWeight: 600 }}>Aprobada por Cliente</span>
+                  ) : request.quoteRejectedAt ? (
+                    <span style={{ color: 'var(--status-danger-fg)', fontWeight: 600 }}>Rechazada</span>
+                  ) : (
+                    'Pendiente de Decisión'
+                  )}
+                </span>
+              </div>
+
+              <div className="sidepanel-prop-item">
+                <span className="sidepanel-prop-label">Estado de Pago</span>
+                <span className="sidepanel-prop-value">
+                  {request.paymentStatus === 'CONFIRMED' ? (
+                    <span style={{ color: 'var(--status-completed-fg)', fontWeight: 600 }}>Confirmado por Técnico</span>
+                  ) : request.paymentStatus === 'PAID' ? (
+                    <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Pagado con Comprobante</span>
+                  ) : (
+                    'Pendiente de Pago'
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modales Secundarios Lazy */}
       <Suspense fallback={null}>
@@ -410,6 +782,6 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
           />
         )}
       </Suspense>
-    </div>
+    </SidePanel>
   );
 };

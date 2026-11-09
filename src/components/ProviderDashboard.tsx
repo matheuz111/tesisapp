@@ -1,252 +1,919 @@
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../context/ThemeContext';
 import { ServiceMap } from './ServiceMap';
+import { TechnicianPinKeypad } from './TechnicianPinKeypad';
+import { SemanticColors, TouchTarget } from '../theme/tokens';
 
 export function ProviderDashboard(props: any) {
-  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { currentJob: job, incomingRequest: incoming, location } = props;
-  const button = (label: string, onPress: () => void, busy = false, secondary = false) => <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={onPress} style={[styles.button, { backgroundColor: secondary ? colors.background : colors.primary, borderColor: colors.border, opacity: busy ? 0.6 : 1 }]}>{busy ? <ActivityIndicator color={colors.primary} /> : <Text style={{ color: secondary ? colors.text : '#fff', fontWeight: '800' }}>{label}</Text>}</TouchableOpacity>;
-  const card = { backgroundColor: colors.card, borderColor: colors.border };
+  const [showPinInput, setShowPinInput] = useState(false);
+
+  // Colores de alto contraste para exteriores / luz solar (Prohibido text-muted)
+  const sunTheme = {
+    background: '#F8FAFC',
+    card: '#FFFFFF',
+    border: '#CBD5E1',
+    primary: SemanticColors.primary.main, // #0369A1
+    text: '#0F172A',
+    textSecondary: '#334155',
+    successBg: '#DCFCE7',
+    successText: '#166534',
+    warningBg: '#FEF3C7',
+    warningText: '#92400E',
+    dangerBg: '#FEE2E2',
+    dangerText: '#991B1B',
+  };
+
+  const cardStyle = {
+    backgroundColor: sunTheme.card,
+    borderColor: sunTheme.border,
+  };
+
   const openNavigation = () => {
     if (!job?.location) return;
-    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${job.location.latitude},${job.location.longitude}`).catch(() => props.onError('No se pudo abrir la navegación.'));
+    Linking.openURL(
+      `https://www.google.com/maps/dir/?api=1&destination=${job.location.latitude},${job.location.longitude}`
+    ).catch(() => props.onError('No se pudo abrir la navegación de Google Maps.'));
   };
+
   const getJobHeading = () => {
-    if (job?.status === 'COMPLETED') return 'Servicio completado · Cobro y confirmación';
-    if (job?.status === 'IN_PROGRESS') return 'Servicio en ejecución';
-    return 'En camino · Pendiente de PIN';
+    if (job?.status === 'COMPLETED') return 'Servicio culminado · Cobro y confirmación';
+    if (job?.status === 'IN_PROGRESS') return 'Servicio en ejecución técnica';
+    if (job?.arrivalValidated || job?.pinValidatedAt) return 'Llegada validada · Listo para iniciar';
+    return 'En camino al destino · Pendiente validación de PIN';
   };
-  return <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}><Text style={[styles.brand, { color: colors.primary }]}>MAESTRO A DOMICILIO</Text><Text style={[styles.title, { color: colors.text }]}>Hola, {props.providerName || 'técnico'}</Text><Text style={{ color: colors.subtext }}>Equipo de servicios · {props.specialty || 'Completa tu especialidad'}</Text></View>
-        <TouchableOpacity accessibilityLabel="Historial" style={[styles.icon, card]} onPress={() => router.push('/provider/history')}><Ionicons name="receipt-outline" size={23} color={colors.primary} /></TouchableOpacity>
-        <TouchableOpacity accessibilityLabel="Perfil" style={[styles.icon, card]} onPress={() => router.push('/profile')}><Ionicons name="person-outline" size={23} color={colors.primary} /></TouchableOpacity>
-        <TouchableOpacity accessibilityLabel="Cerrar sesión" style={[styles.icon, card]} onPress={props.handleLogout}><Ionicons name="log-out-outline" size={23} color={colors.danger} /></TouchableOpacity>
-      </View>
-      <View style={styles.metrics}>{[[props.totalRating, 'Valoración'], [props.jobsCompleted, 'Servicios'], [props.isVerified ? 'Aprobado' : 'Pendiente', 'Perfil']].map(([value, label]) => <View key={label} style={[styles.metric, card]}><Text style={{ color: colors.primary, fontSize: 18, fontWeight: '800' }}>{value}</Text><Text style={{ color: colors.subtext, fontSize: 12 }}>{label}</Text></View>)}</View>
-      {job ? <View style={[styles.card, card]}>
-        <Text style={[styles.heading, { color: colors.primary }]}>{getJobHeading()}</Text>
-        <Text style={[styles.heading, { color: colors.text }]}>{job.clientName || 'Cliente'}</Text>
-        <Text style={{ color: colors.subtext }}>{job.serviceLabel || job.specialty}</Text>
-        <Text style={[styles.price, { color: colors.primary }]}>{job.price_agreed || 'Tarifa pendiente de la central'}</Text>
-        <Text style={{ color: colors.subtext }}>Tarifa fijada por la empresa{job.pricing?.description ? ` · ${job.pricing.description}` : ''}</Text>
-        
-        {job.status !== 'COMPLETED' ? (
-          <>
-            <ServiceMap
-              location={job.location || null}
-              technicians={location ? [{ ...location, id: 'provider', name: 'Tu última ubicación registrada' }] : []}
-              showEtaBadge={job.status === 'ACCEPTED'}
-              style={styles.map}
-            />
-            <Text selectable style={{ color: colors.text }}>{job.address || 'Sin dirección registrada'}</Text>
-            <Text style={{ color: colors.subtext }}>{job.addressReference || ''} {job.district || ''}</Text>
-            <View style={styles.row}>{button('Navegar al punto', openNavigation, !job.location, true)}{button('Abrir chat', () => router.push({ pathname: '/chat/[id]', params: { id: job.id } }))}</View>
-          </>
-        ) : null}
 
-        {job.status === 'ACCEPTED' ? (
-          <View style={[styles.pin, { backgroundColor: colors.background }]}>
-            <Text style={[styles.heading, { color: colors.text }]}>Validar llegada</Text>
-            <Text style={{ color: colors.subtext }}>Solicita el PIN al cliente cuando llegues. Puedes acceder a tu perfil e historial mientras esperas.</Text>
-            {props.lockoutSeconds > 0 ? (
-              <View style={{ padding: 10, borderRadius: 8, backgroundColor: '#FEE2E2', marginVertical: 8, borderWidth: 1, borderColor: '#EF4444' }}>
-                <Text style={{ color: '#B91C1C', fontWeight: '800', fontSize: 13, textAlign: 'center' }}>
-                  🔒 Bloqueo temporal por seguridad: espera {props.lockoutSeconds}s
-                </Text>
-              </View>
-            ) : null}
-            <TextInput
-              accessibilityLabel="PIN del cliente"
-              editable={!props.lockoutSeconds}
-              style={[styles.input, { color: colors.text, borderColor: colors.border, opacity: props.lockoutSeconds > 0 ? 0.5 : 1 }]}
-              keyboardType="number-pad"
-              maxLength={4}
-              value={props.inputPin}
-              onChangeText={props.setInputPin}
-              placeholder="PIN de 4 dígitos"
-              placeholderTextColor={colors.subtext}
-            />
-            {button('Validar PIN e iniciar', props.validatePin, Boolean(props.verifyingPin || props.inputPin.length !== 4 || props.lockoutSeconds > 0))}
-            {button('Solicitar reasignación a la central', props.cancelJobAsProvider, props.cancelling, true)}
+  const isArrivalValidated = Boolean(job?.arrivalValidated || job?.pinValidatedAt);
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: sunTheme.background }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 28 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+                {/* Indicador de Evidencias en Cola Offline (Fase 4) */}
+        {Boolean(props.offlinePhotosCount && props.offlinePhotosCount > 0) && (
+          <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, padding: 12, borderRadius: 12, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Ionicons name="cloud-offline" size={22} color="#92400E" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#92400E', fontSize: 13, fontWeight: '800' }}>
+                {props.offlinePhotosCount} evidencia(s) fotográfica(s) en cola offline
+              </Text>
+              <Text style={{ color: '#B45309', fontSize: 11, marginTop: 2, lineHeight: 15 }}>
+                Se sincronizarán automáticamente con el servidor apenas se recupere la conexión a internet.
+              </Text>
+            </View>
           </View>
-        ) : null}
+        )}
 
-        {job.status === 'IN_PROGRESS' ? (
-          <View style={styles.inProgressSection}>
-            <Text style={[styles.subheading, { color: colors.text, marginBottom: 8 }]}>
-              Control de Calidad y Evidencias
+        {/* Cabecera Principal */}
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.brand, { color: sunTheme.primary }]}>MAESTRO A DOMICILIO</Text>
+            <Text style={[styles.title, { color: sunTheme.text }]}>Hola, {props.providerName || 'Técnico'}</Text>
+            <Text style={[styles.techSubtitle, { color: sunTheme.textSecondary }]}>
+              Equipo Técnico Operativo · {props.specialty || 'Especialidad pendiente'}
             </Text>
-            
-            {/* Foto inicial (Antes) */}
-            <View style={[styles.evidenceBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
-              <View style={styles.evidenceHeader}>
-                <Ionicons 
-                  name={job.issuePhoto || job.issue_photo ? 'checkmark-circle' : 'camera-outline'} 
-                  size={20} 
-                  color={job.issuePhoto || job.issue_photo ? colors.success : colors.primary} 
-                />
-                <Text style={[styles.evidenceTitle, { color: colors.text }]}>
-                  1. Estado Inicial (Antes)
-                </Text>
-                {job.issuePhoto || job.issue_photo ? (
-                  <View style={[styles.pillBadge, { backgroundColor: '#DCFCE7' }]}>
-                    <Text style={{ color: '#15803D', fontSize: 11, fontWeight: '700' }}>Registrado</Text>
-                  </View>
-                ) : (
-                  <View style={[styles.pillBadge, { backgroundColor: '#FEF3C7' }]}>
-                    <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>Pendiente</Text>
-                  </View>
-                )}
-              </View>
+          </View>
+          <TouchableOpacity
+            accessibilityLabel="Historial"
+            style={[styles.iconBtn, cardStyle]}
+            onPress={() => router.push('/provider/history')}
+          >
+            <Ionicons name="receipt-outline" size={22} color={sunTheme.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityLabel="Perfil"
+            style={[styles.iconBtn, cardStyle]}
+            onPress={() => router.push('/profile')}
+          >
+            <Ionicons name="person-outline" size={22} color={sunTheme.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityLabel="Cerrar sesión"
+            style={[styles.iconBtn, cardStyle]}
+            onPress={props.handleLogout}
+          >
+            <Ionicons name="log-out-outline" size={22} color="#DC2626" />
+          </TouchableOpacity>
+        </View>
 
-              {job.issuePhoto || job.issue_photo ? (
-                <View style={styles.previewContainer}>
-                  <Image 
-                    source={{ uri: job.issuePhoto || job.issue_photo }} 
-                    style={styles.evidenceThumb} 
-                    resizeMode="contain"
-                  />
-                  <View style={{ flex: 1, marginLeft: 12, justifyContent: 'center' }}>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>Foto capturada</Text>
-                    <Text style={{ color: colors.subtext, fontSize: 11 }}>Listo para auditoría SPSS (EVID_INI)</Text>
-                    <TouchableOpacity 
-                      disabled={props.uploadingInitial} 
-                      onPress={props.takeInitialPhoto}
-                      style={{ marginTop: 6 }}
-                    >
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                        {props.uploadingInitial ? 'Subiendo...' : 'Tomar otra foto'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <View style={{ marginTop: 8 }}>
-                  <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 8 }}>
-                    Toma una foto del estado en el que encuentras el problema antes de iniciar el trabajo técnico.
-                  </Text>
-                  {button('📸 Fotografiar estado inicial (Antes)', props.takeInitialPhoto, props.uploadingInitial, true)}
+        {/* Métricas del Técnico */}
+        <View style={styles.metricsRow}>
+          <View style={[styles.metricCard, cardStyle]}>
+            <Text style={[styles.metricValue, { color: sunTheme.primary }]}>{props.totalRating || '5.0'}</Text>
+            <Text style={[styles.metricLabel, { color: sunTheme.textSecondary }]}>Calificación</Text>
+          </View>
+          <View style={[styles.metricCard, cardStyle]}>
+            <Text style={[styles.metricValue, { color: sunTheme.primary }]}>{props.jobsCompleted || 0}</Text>
+            <Text style={[styles.metricLabel, { color: sunTheme.textSecondary }]}>Servicios</Text>
+          </View>
+          <View style={[styles.metricCard, cardStyle]}>
+            <Text style={[styles.metricValue, { color: props.isVerified ? '#166534' : '#92400E' }]}>
+              {props.isVerified ? 'Habilitado' : 'Pendiente'}
+            </Text>
+            <Text style={[styles.metricLabel, { color: sunTheme.textSecondary }]}>Estado</Text>
+          </View>
+        </View>
+
+        {/* ── CASO 1: SERVICIO ACTIVO ASIGNADO ── */}
+        {job ? (
+          <View style={[styles.card, cardStyle]}>
+            {/* Banner de Estado Operativo */}
+            <View style={[styles.statusBanner, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }]}>
+              <Ionicons name="construct" size={18} color={sunTheme.primary} />
+              <Text style={[styles.statusBannerText, { color: sunTheme.primary }]}>
+                {getJobHeading()}
+              </Text>
+            </View>
+
+            {/* Código y Cliente */}
+            <View style={styles.jobClientHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.clientName, { color: sunTheme.text }]}>
+                  {job.clientName || 'Cliente Particular'}
+                </Text>
+                <Text style={[styles.serviceTypeLabel, { color: sunTheme.textSecondary }]}>
+                  {job.serviceLabel || job.specialty || 'Servicio Técnico'}
+                </Text>
+              </View>
+              {job.code && (
+                <View style={styles.codePill}>
+                  <Text style={styles.codeText}>{job.code}</Text>
                 </View>
               )}
             </View>
 
-            {/* Finalizar con foto de finalización (Después) */}
-            <View style={{ marginTop: 14 }}>
-              <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 6 }}>
-                Al concluir el trabajo, toma la foto de entrega (Después) para finalizar el servicio.
+            {/* Tarifa Oficial */}
+            <View style={styles.priceContainer}>
+              <Text style={[styles.priceTag, { color: sunTheme.primary }]}>
+                {job.price_agreed || 'Tarifa establecida por Central'}
               </Text>
-              {button('📸 Fotografiar evidencia y finalizar (Después)', props.finishJob, props.uploading)}
+              <Text style={[styles.priceNote, { color: sunTheme.textSecondary }]}>
+                Tarifa oficial de la empresa · Visita técnica deducible
+              </Text>
             </View>
 
-            {button('Solicitar reasignación a la central', props.cancelJobAsProvider, props.cancelling, true)}
-          </View>
-        ) : null}
+            {/* ── SECCIÓN SEGÚN ESTADO ── */}
 
-        {job.status === 'COMPLETED' ? (
-          <View style={[styles.paymentBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
-            <Text style={[styles.subheading, { color: colors.text }]}>Estado del cobro</Text>
-            
-            {job.paymentStatus === 'CONFIRMED' ? (
-              <View style={styles.confirmedRow}>
-                <Ionicons name="checkmark-circle" size={24} color={colors.success} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.success, fontWeight: '800' }}>Pago confirmado</Text>
-                  <Text style={{ color: colors.subtext, fontSize: 12 }}>Has confirmado la recepción del dinero ({job.paymentMethod || 'Efectivo/Transferencia'}).</Text>
-                </View>
-              </View>
-            ) : (
-              <View style={{ marginVertical: 8 }}>
-                {job.paymentStatus === 'PAID' ? (
-                  <View style={{ marginBottom: 10 }}>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>
-                      El cliente registró el pago por {job.paymentMethod || 'Yape/Plin'}:
+            {/* A) ESTADO: ACCEPTED (En camino o Llegada validada) */}
+            {job.status === 'ACCEPTED' && (
+              <View style={{ marginTop: 12 }}>
+                {/* Mapa y Dirección */}
+                <ServiceMap
+                  location={job.location || null}
+                  technicians={location ? [{ ...location, id: 'provider', name: 'Tu ubicación' }] : []}
+                  showEtaBadge={!isArrivalValidated}
+                  style={styles.map}
+                />
+                <View style={styles.addressBox}>
+                  <Ionicons name="location-outline" size={18} color={sunTheme.primary} style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text selectable style={[styles.addressText, { color: sunTheme.text }]}>
+                      {job.address || 'Sin dirección exacta'}
                     </Text>
-                    {job.paymentVoucher ? (
-                      <View style={styles.voucherContainer}>
-                        <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 4 }}>Comprobante adjuntado:</Text>
-                        <Image source={{ uri: job.paymentVoucher }} style={styles.voucherImg} resizeMode="contain" />
-                      </View>
+                    {job.addressReference ? (
+                      <Text style={[styles.addressRef, { color: sunTheme.textSecondary }]}>
+                        Ref: {job.addressReference} ({job.district || 'Lima'})
+                      </Text>
                     ) : null}
                   </View>
-                ) : (
-                  <Text style={{ color: colors.subtext, marginBottom: 8 }}>
-                    Esperando que el cliente realice el pago o envíe su comprobante. Si te pagó en efectivo, confírmalo a continuación:
-                  </Text>
-                )}
+                </View>
 
-                {button(
-                  job.paymentStatus === 'PAID' ? 'Confirmar pago recibido 💵' : 'Confirmar pago en efectivo recibido 💵',
-                  () => props.confirmPayment(job.id),
-                  props.confirmingPayment
+                {/* Sub-caso A1: Todavía NO validó PIN de llegada */}
+                {!isArrivalValidated ? (
+                  <View style={styles.stageContainer}>
+                    {/* Botón Primario 1: Abrir en mapas */}
+                    <TouchableOpacity
+                      style={[styles.primaryBtn, { backgroundColor: sunTheme.primary }]}
+                      onPress={openNavigation}
+                    >
+                      <Ionicons name="navigate" size={20} color="#FFFFFF" />
+                      <Text style={styles.primaryBtnText}>Abrir en Google Maps</Text>
+                    </TouchableOpacity>
+
+                    {/* Módulo de Validación de PIN al llegar */}
+                    <View style={[styles.pinModule, { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <Ionicons name="keypad-outline" size={20} color={sunTheme.primary} />
+                        <Text style={[styles.moduleTitle, { color: sunTheme.text }]}>
+                          Validar llegada con PIN
+                        </Text>
+                      </View>
+                      <Text style={[styles.moduleHelp, { color: sunTheme.textSecondary }]}>
+                        Pide al cliente el código de 4 dígitos que aparece en su pantalla para registrar tu llegada en el domicilio.
+                      </Text>
+
+                      {/* Teclado numérico táctil de 72px */}
+                      <TechnicianPinKeypad
+                        pin={props.inputPin}
+                        onChangePin={props.setInputPin}
+                        onSubmitPin={props.validateArrivalPin || props.validatePin}
+                        verifying={props.verifyingPin}
+                        lockoutSeconds={props.lockoutSeconds}
+                      />
+                    </View>
+
+                    {/* Acciones Secundarias */}
+                    <View style={styles.secondaryActionsRow}>
+                      <TouchableOpacity
+                        style={[styles.secondaryBtn, { borderColor: sunTheme.border }]}
+                        onPress={() => router.push({ pathname: '/chat/[id]', params: { id: job.id } })}
+                      >
+                        <Ionicons name="chatbubble-ellipses-outline" size={18} color={sunTheme.text} />
+                        <Text style={[styles.secondaryBtnText, { color: sunTheme.text }]}>Chat con cliente</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.secondaryBtn, { borderColor: '#FCA5A5' }]}
+                        onPress={props.cancelJobAsProvider}
+                        disabled={props.cancelling}
+                      >
+                        <Ionicons name="arrow-undo-outline" size={18} color="#DC2626" />
+                        <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>
+                          {props.cancelling ? 'Devolviendo...' : 'Solicitar reasignación'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  /* Sub-caso A2: PIN Validado -> Botón Primario 2: Iniciar Trabajo */
+                  <View style={styles.stageContainer}>
+                    <View style={[styles.arrivalConfirmedBox, { backgroundColor: sunTheme.successBg, borderColor: '#86EFAC' }]}>
+                      <Ionicons name="checkmark-circle" size={24} color={sunTheme.successText} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.arrivalConfirmedTitle, { color: sunTheme.successText }]}>
+                          ¡Llegada confirmada con PIN!
+                        </Text>
+                        <Text style={[styles.arrivalConfirmedSubtitle, { color: sunTheme.successText }]}>
+                          Tu hora de arribo quedó registrada en la central. Presiona el botón para iniciar la intervención.
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Botón Primario Único: Iniciar trabajo */}
+                    <TouchableOpacity
+                      style={[styles.primaryBtn, { backgroundColor: '#166534', marginTop: 14 }]}
+                      onPress={props.startJob}
+                    >
+                      <Ionicons name="construct" size={20} color="#FFFFFF" />
+                      <Text style={styles.primaryBtnText}>Iniciar trabajo técnico</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.secondaryActionsRow}>
+                      <TouchableOpacity
+                        style={[styles.secondaryBtn, { borderColor: sunTheme.border }]}
+                        onPress={() => router.push({ pathname: '/chat/[id]', params: { id: job.id } })}
+                      >
+                        <Ionicons name="chatbubble-ellipses-outline" size={18} color={sunTheme.text} />
+                        <Text style={[styles.secondaryBtnText, { color: sunTheme.text }]}>Chat</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.secondaryBtn, { borderColor: '#FCA5A5' }]}
+                        onPress={props.cancelJobAsProvider}
+                        disabled={props.cancelling}
+                      >
+                        <Ionicons name="arrow-undo-outline" size={18} color="#DC2626" />
+                        <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>Reasignar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 )}
               </View>
             )}
 
-            {job.rating_given ? (
-              <View style={[styles.ratingFeedback, { borderColor: colors.border }]}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Calificación recibida:</Text>
-                <View style={{ flexDirection: 'row', gap: 4, marginVertical: 4 }}>
-                  {[1, 2, 3, 4, 5].map((s: number) => (
-                    <Ionicons key={s} name={s <= job.rating_given ? 'star' : 'star-outline'} size={18} color="#f1c40f" />
-                  ))}
-                </View>
-                {job.review_comment ? (
-                  <Text style={{ fontStyle: 'italic', color: colors.subtext, fontSize: 13 }}>&quot;{job.review_comment}&quot;</Text>
-                ) : null}
-              </View>
-            ) : null}
+            {/* B) ESTADO: IN_PROGRESS (En ejecución técnica) */}
+            {job.status === 'IN_PROGRESS' && (
+              <View style={styles.stageContainer}>
+                {/* Control de Calidad y Evidencias */}
+                <View style={[styles.evidenceBox, { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }]}>
+                  <Text style={[styles.evidenceSectionTitle, { color: sunTheme.text }]}>
+                    Control de Calidad · Evidencia Fotográfica
+                  </Text>
 
-            <View style={styles.row}>
-              {button('Abrir chat', () => router.push({ pathname: '/chat/[id]', params: { id: job.id } }), false, true)}
-              {button('Volver a disponibilidad', props.dismissJob, false, true)}
+                  {/* Foto Inicial (Antes) */}
+                  <View style={styles.photoRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.photoLabel, { color: sunTheme.text }]}>1. Estado Inicial (Antes)</Text>
+                      <Text style={[styles.photoHelper, { color: sunTheme.textSecondary }]}>
+                        {job.issuePhoto || job.issue_photo
+                          ? '✓ Foto registrada correctamente (EVID_INI)'
+                          : 'Toma la foto antes de desarmar o reparar'}
+                      </Text>
+                    </View>
+                    {job.issuePhoto || job.issue_photo ? (
+                      <Image
+                        source={{ uri: job.issuePhoto || job.issue_photo }}
+                        style={styles.evidenceThumbnail}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.photoActionBtn, { borderColor: sunTheme.primary }]}
+                        onPress={props.takeInitialPhoto}
+                        disabled={props.uploadingInitial}
+                      >
+                        {props.uploadingInitial ? (
+                          <ActivityIndicator size="small" color={sunTheme.primary} />
+                        ) : (
+                          <>
+                            <Ionicons name="camera" size={18} color={sunTheme.primary} />
+                            <Text style={[styles.photoActionText, { color: sunTheme.primary }]}>Foto Antes</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                {/* Botón Primario Único: Finalizar y Enviar Evidencia (Después) */}
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { backgroundColor: sunTheme.primary, marginTop: 14 }]}
+                  onPress={props.finishJob}
+                  disabled={props.uploading}
+                >
+                  {props.uploading ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="camera-reverse" size={20} color="#FFFFFF" />
+                      <Text style={styles.primaryBtnText}>Finalizar y enviar evidencia (Después)</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* Acciones Secundarias */}
+                <View style={styles.secondaryActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.secondaryBtn, { borderColor: sunTheme.border }]}
+                    onPress={() => router.push({ pathname: '/chat/[id]', params: { id: job.id } })}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={18} color={sunTheme.text} />
+                    <Text style={[styles.secondaryBtnText, { color: sunTheme.text }]}>Abrir chat</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.secondaryBtn, { borderColor: '#FCA5A5' }]}
+                    onPress={props.cancelJobAsProvider}
+                    disabled={props.cancelling}
+                  >
+                    <Ionicons name="arrow-undo-outline" size={18} color="#DC2626" />
+                    <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>Reasignar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* C) ESTADO: COMPLETED (Culminado · Confirmación de Cobro) */}
+            {job.status === 'COMPLETED' && (
+              <View style={[styles.stageContainer, { marginTop: 10 }]}>
+                <View style={[styles.paymentBox, { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }]}>
+                  <Text style={[styles.moduleTitle, { color: sunTheme.text }]}>
+                    Confirmación de Recepción de Pago
+                  </Text>
+
+                  {job.paymentStatus === 'CONFIRMED' ? (
+                    <View style={[styles.arrivalConfirmedBox, { backgroundColor: sunTheme.successBg, borderColor: '#86EFAC', marginTop: 10 }]}>
+                      <Ionicons name="checkmark-done-circle" size={24} color={sunTheme.successText} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.arrivalConfirmedTitle, { color: sunTheme.successText }]}>
+                          Pago confirmado exitosamente
+                        </Text>
+                        <Text style={[styles.arrivalConfirmedSubtitle, { color: sunTheme.successText }]}>
+                          Has verificado la recepción de fondos ({job.paymentMethod || 'Efectivo / Transferencia'}).
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={[styles.moduleHelp, { color: sunTheme.textSecondary, marginBottom: 10 }]}>
+                        {job.paymentStatus === 'PAID'
+                          ? `El cliente reportó haber pagado mediante ${job.paymentMethod || 'Yape/Plin'}. Confirma la recepción:`
+                          : 'Esperando el pago del cliente. Si te pagó en efectivo en mano, presiona confirmar:'}
+                      </Text>
+
+                      {job.paymentVoucher ? (
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: sunTheme.text, marginBottom: 4 }}>
+                            Comprobante adjuntado por el cliente:
+                          </Text>
+                          <Image
+                            source={{ uri: job.paymentVoucher }}
+                            style={{ width: '100%', height: 160, borderRadius: 8, backgroundColor: '#0F172A' }}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      ) : null}
+
+                      {/* Botón Primario de Cobro */}
+                      <TouchableOpacity
+                        style={[styles.primaryBtn, { backgroundColor: '#166534' }]}
+                        onPress={() => props.confirmPayment(job.id)}
+                        disabled={props.confirmingPayment}
+                      >
+                        {props.confirmingPayment ? (
+                          <ActivityIndicator color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Ionicons name="cash-outline" size={20} color="#FFFFFF" />
+                            <Text style={styles.primaryBtnText}>
+                              {job.paymentStatus === 'PAID' ? 'Confirmar pago recibido' : 'Confirmar pago en efectivo recibido'}
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                {/* Acciones de cierre */}
+                <View style={styles.secondaryActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.secondaryBtn, { borderColor: sunTheme.border }]}
+                    onPress={() => router.push({ pathname: '/chat/[id]', params: { id: job.id } })}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={18} color={sunTheme.text} />
+                    <Text style={[styles.secondaryBtnText, { color: sunTheme.text }]}>Chat</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.secondaryBtn, { borderColor: sunTheme.border }]}
+                    onPress={props.dismissJob}
+                  >
+                    <Ionicons name="checkmark-outline" size={18} color={sunTheme.primary} />
+                    <Text style={[styles.secondaryBtnText, { color: sunTheme.primary }]}>Volver a disponible</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {/* ── CASO 2: SOLICITUD ENTRANTE (PENDING) ── */}
+        {incoming && !job ? (
+          <View style={[styles.card, cardStyle, { borderColor: sunTheme.primary, borderWidth: 2 }]}>
+            <View style={[styles.statusBanner, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+              <Ionicons name="notifications" size={18} color="#92400E" />
+              <Text style={[styles.statusBannerText, { color: '#92400E' }]}>
+                Nueva Asignación de la Central
+              </Text>
+            </View>
+
+            <Text style={[styles.clientName, { color: sunTheme.text, marginTop: 8 }]}>
+              {incoming.clientName || 'Cliente Particular'}
+            </Text>
+            <Text style={[styles.serviceTypeLabel, { color: sunTheme.textSecondary }]}>
+              {incoming.serviceLabel || incoming.specialty}
+            </Text>
+            <Text style={[styles.incomingDesc, { color: sunTheme.text }]}>
+              {incoming.description || 'Sin descripción detallada'}
+            </Text>
+
+            <View style={styles.addressBox}>
+              <Ionicons name="location" size={18} color={sunTheme.primary} />
+              <Text style={[styles.addressText, { color: sunTheme.text }]}>
+                {incoming.address} · {incoming.district || 'Lima'}
+              </Text>
+            </View>
+
+            <View style={styles.priceContainer}>
+              <Text style={[styles.priceTag, { color: sunTheme.primary }]}>
+                {incoming.price_agreed || 'Tarifa oficial fijada por central'}
+              </Text>
+            </View>
+
+            {/* Acciones de la Asignación */}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <TouchableOpacity
+                style={[
+                  styles.primaryBtn,
+                  { flex: 1.2, backgroundColor: props.isOnline === false ? '#94A3B8' : '#166534' },
+                ]}
+                onPress={props.acceptJob}
+                disabled={props.accepting || props.isOnline === false}
+              >
+                {props.accepting ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+                    <Text style={styles.primaryBtnText}>Aceptar servicio</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { flex: 0.8, borderColor: '#FCA5A5' }]}
+                onPress={props.rejectJob}
+                disabled={props.accepting}
+              >
+                <Ionicons name="close" size={18} color="#DC2626" />
+                <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>Rechazar</Text>
+              </TouchableOpacity>
             </View>
           </View>
         ) : null}
-      </View> : null}
-      {incoming && !job ? <View style={[styles.card, card, { borderColor: colors.primary }]}>
-        <Text style={[styles.heading, { color: colors.primary }]}>Nueva asignación de la central</Text>
-        <Text style={[styles.heading, { color: colors.text }]}>{incoming.clientName || 'Cliente'}</Text>
-        <Text style={{ color: colors.text }}>{incoming.serviceLabel || incoming.specialty}</Text>
-        <Text style={{ color: colors.subtext }}>{incoming.description}</Text>
-        <Text style={{ color: colors.text, marginTop: 8 }}>{incoming.address} · {incoming.district}</Text>
-        <Text style={[styles.price, { color: colors.primary }]}>{incoming.price_agreed || 'Tarifa pendiente de la central'}</Text>
-        <View style={styles.row}>{button('Aceptar servicio', props.acceptJob, props.accepting)}{button('Rechazar', props.rejectJob, props.accepting, true)}</View>
-      </View> : null}
-      {!job && !incoming ? <View style={[styles.card, card]}>
-        <Text style={[styles.heading, { color: colors.text }]}>{props.isActive ? 'Disponible para asignaciones' : 'Tu disponibilidad'}</Text>
-        <Text style={{ color: colors.subtext }}>La central coordina los servicios y fija la tarifa. Tú te encargas de la atención.</Text>
-        {button(props.isActive ? 'Pausar disponibilidad' : 'Activar disponibilidad', props.toggleSwitch)}
-        <Text style={{ color: colors.subtext, marginTop: 14 }}>Especialidad</Text>
-        <TextInput value={props.specialty} onChangeText={props.setSpecialty} editable={!props.isActive} placeholder="Ej. Electricista" placeholderTextColor={colors.subtext} style={[styles.input, { color: colors.text, borderColor: colors.border }]} />
-        <Text style={{ color: colors.subtext }}>Cobertura preferida</Text>
-        <View style={styles.row}>{[5, 10, 15, 20, 30].map((km) => <TouchableOpacity key={km} disabled={props.isActive} onPress={() => props.setServiceRadius(km)} style={[styles.chip, { backgroundColor: props.serviceRadius === km ? colors.primary : colors.background }]}><Text style={{ color: props.serviceRadius === km ? '#fff' : colors.text }}>{km} km</Text></TouchableOpacity>)}</View>
-      </View> : null}
-      <View style={[styles.card, card]}><Text style={[styles.heading, { color: colors.text }]}>Mi cuenta</Text>{button('Historial de servicios', () => router.push('/provider/history'), false, true)}{button('Mi perfil', () => router.push('/profile'), false, true)}{button('Cerrar sesión', props.handleLogout, false, true)}</View>
-    </ScrollView>
-  </KeyboardAvoidingView>;
+
+        {/* ── CASO 3: SIN SERVICIO ACTIVO (DISPONIBILIDAD) ── */}
+        {!job && !incoming ? (
+          <View style={[styles.card, cardStyle]}>
+            <Text style={[styles.clientName, { color: sunTheme.text }]}>
+              {props.isActive ? 'Conectado · Listo para servicios' : 'Desconectado'}
+            </Text>
+            <Text style={[styles.moduleHelp, { color: sunTheme.textSecondary, marginBottom: 14 }]}>
+              La central coordina las solicitudes de los clientes y fija las tarifas homologadas. Conéctate para recibir asignaciones en tu radio operativo.
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.primaryBtn,
+                { backgroundColor: props.isActive ? '#DC2626' : sunTheme.primary },
+              ]}
+              onPress={props.toggleSwitch}
+            >
+              <Ionicons
+                name={props.isActive ? 'power' : 'radio-outline'}
+                size={20}
+                color="#FFFFFF"
+              />
+              <Text style={styles.primaryBtnText}>
+                {props.isActive ? 'Pausar disponibilidad' : 'Activar disponibilidad'}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={{ marginTop: 16 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: sunTheme.text, marginBottom: 6 }}>
+                Especialidad técnica
+              </Text>
+              <TextInput
+                value={props.specialty}
+                onChangeText={props.setSpecialty}
+                editable={!props.isActive}
+                placeholder="Ej. Gasfitero, Electricista"
+                placeholderTextColor="#94A3B8"
+                style={[styles.inputField, { borderColor: sunTheme.border, color: sunTheme.text }]}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: '700', color: sunTheme.text, marginTop: 10, marginBottom: 6 }}>
+                Radio de cobertura preferido
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[5, 10, 15, 20, 30].map((km) => (
+                  <TouchableOpacity
+                    key={km}
+                    disabled={props.isActive}
+                    onPress={() => props.setServiceRadius(km)}
+                    style={[
+                      styles.kmChip,
+                      {
+                        backgroundColor: props.serviceRadius === km ? sunTheme.primary : '#F1F5F9',
+                        borderColor: props.serviceRadius === km ? sunTheme.primary : '#CBD5E1',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: props.serviceRadius === km ? '#FFFFFF' : sunTheme.text,
+                        fontWeight: '700',
+                        fontSize: 13,
+                      }}
+                    >
+                      {km} km
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Accesos rápidos */}
+        <View style={[styles.card, cardStyle, { marginTop: 10 }]}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: sunTheme.text, marginBottom: 10 }}>
+            Mi Cuenta de Técnico
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={[styles.secondaryBtn, { flex: 1, borderColor: sunTheme.border }]}
+              onPress={() => router.push('/provider/history')}
+            >
+              <Ionicons name="time-outline" size={18} color={sunTheme.text} />
+              <Text style={[styles.secondaryBtnText, { color: sunTheme.text }]}>Historial</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.secondaryBtn, { flex: 1, borderColor: sunTheme.border }]}
+              onPress={() => router.push('/profile')}
+            >
+              <Ionicons name="person-circle-outline" size={18} color={sunTheme.text} />
+              <Text style={[styles.secondaryBtnText, { color: sunTheme.text }]}>Perfil</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 18, width: '100%', maxWidth: 780, alignSelf: 'center' }, header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }, brand: { fontSize: 11, fontWeight: '900', letterSpacing: 1.3 }, title: { fontSize: 25, fontWeight: '900', marginVertical: 5 }, icon: { width: 42, height: 42, borderRadius: 14, justifyContent: 'center', alignItems: 'center' }, metrics: { flexDirection: 'row', gap: 8, marginBottom: 14 }, metric: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12 }, card: { borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 14 }, heading: { fontSize: 17, fontWeight: '800', marginBottom: 7 }, price: { fontSize: 23, fontWeight: '900', marginVertical: 10 }, button: { flexGrow: 1, minHeight: 46, borderWidth: 1, borderRadius: 12, padding: 12, justifyContent: 'center', alignItems: 'center', marginTop: 10 }, row: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' }, map: { height: 240, marginVertical: 14 }, pin: { borderRadius: 12, padding: 14, marginTop: 14 }, input: { borderWidth: 1, borderRadius: 12, padding: 14, marginVertical: 12 }, chip: { padding: 10, borderRadius: 12, marginTop: 10 },
-  paymentBox: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 14 },
-  subheading: { fontSize: 15, fontWeight: '800', marginBottom: 6 },
-  confirmedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, backgroundColor: 'rgba(46, 204, 113, 0.1)', marginVertical: 6 },
-  voucherContainer: { marginTop: 8, marginBottom: 8 },
-  voucherImg: { width: '100%', height: 180, borderRadius: 10, backgroundColor: '#0f172a' },
-  ratingFeedback: { borderWidth: 1, borderRadius: 10, padding: 10, marginVertical: 10 },
-  inProgressSection: { marginTop: 14 },
-  evidenceBox: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 8 },
-  evidenceHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  evidenceTitle: { fontSize: 14, fontWeight: '700', flex: 1 },
-  pillBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  previewContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
-  evidenceThumb: { width: 90, height: 90, borderRadius: 10, backgroundColor: '#0f172a' },
+  content: {
+    padding: 16,
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  brand: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '900',
+    marginVertical: 2,
+  },
+  techSubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  iconBtn: {
+    width: TouchTarget.mobileMin,
+    height: TouchTarget.mobileMin,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  metricCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  metricLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  card: {
+    borderWidth: 1.5,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  statusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  statusBannerText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  jobClientHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  clientName: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  serviceTypeLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  codePill: {
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  codeText: {
+    color: '#0369A1',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  priceContainer: {
+    marginVertical: 10,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+  },
+  priceTag: {
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  priceNote: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  map: {
+    height: 220,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginVertical: 10,
+  },
+  addressBox: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    marginVertical: 6,
+  },
+  addressText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  addressRef: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  stageContainer: {
+    marginTop: 10,
+  },
+  primaryBtn: {
+    minHeight: TouchTarget.mobileMin,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  primaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  secondaryActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  secondaryBtn: {
+    flex: 1,
+    minHeight: TouchTarget.mobileMin,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+  },
+  secondaryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pinModule: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 14,
+  },
+  moduleTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  moduleHelp: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  arrivalConfirmedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  arrivalConfirmedTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  arrivalConfirmedSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  evidenceBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 8,
+  },
+  evidenceSectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  photoLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  photoHelper: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  photoActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  photoActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  evidenceThumbnail: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+  },
+  paymentBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+  },
+  incomingDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginVertical: 8,
+  },
+  inputField: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  kmChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
 });

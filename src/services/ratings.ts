@@ -20,6 +20,7 @@ export interface SubmitRatingParams {
   providerId?: string | null;
   rating: number;
   comment?: string | null;
+  csatAnswers?: Record<number, number>;
 }
 
 export async function submitServiceRating({
@@ -27,6 +28,7 @@ export async function submitServiceRating({
   providerId,
   rating,
   comment,
+  csatAnswers,
 }: SubmitRatingParams): Promise<void> {
   if (!requestId || typeof requestId !== 'string') {
     throw new Error('Identificador de servicio inválido.');
@@ -44,6 +46,7 @@ export async function submitServiceRating({
   batch.update(requestRef, {
     rating_given: rating,
     review_comment: cleanComment,
+    ...(csatAnswers ? { csat_answers: csatAnswers } : {}),
     ratedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

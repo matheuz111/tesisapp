@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import type { ServiceRequest } from '../types';
-import { X, Printer, MessageCircle, FileCheck, Plus, Trash2, Download } from 'lucide-react';
+import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { X, Printer, MessageCircle, FileCheck, Plus, Trash2, Download, Send, Loader2 } from 'lucide-react';
 import { generateProformaPDF } from '../utils/pdfGenerator';
 import { getDefaultVisitFee } from '../services/pricingPolicyService';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import logoImg from '../assets/logo-maestro.png';
 
 interface Props {
@@ -18,6 +21,7 @@ interface QuoteItem {
 }
 
 export const ProformaQuoteModal = ({ request, onClose }: Props) => {
+  const isOnline = useNetworkStatus();
   const [items, setItems] = useState<QuoteItem[]>([
     {
       id: '1',
@@ -66,6 +70,53 @@ export const ProformaQuoteModal = ({ request, onClose }: Props) => {
       total,
       notes,
     });
+  };
+
+  const [submittingQuote, setSubmittingQuote] = useState(false);
+
+  const handleEmitQuote = async () => {
+    if (total <= 0 || submittingQuote) return;
+    setSubmittingQuote(true);
+    try {
+      const requestRef = doc(db, 'service_requests', request.id);
+      const amountCents = Math.round(total * 100);
+      const quoteSummary = items.map((i) => `${i.description} (${i.quantity}x S/ ${i.unitPrice.toFixed(2)})`).join(', ');
+
+      await updateDoc(requestRef, {
+        status: 'QUOTED',
+        price_agreed: `S/ ${total.toFixed(2)}`,
+        pricing: {
+          amountCents,
+          price: total,
+          currency: 'PEN',
+          description: quoteSummary.slice(0, 300),
+          assignedBy: auth.currentUser?.uid || 'OPERATOR',
+          updatedAt: serverTimestamp(),
+          version: (request.pricing?.version || 0) + 1,
+        },
+        quoteStatus: 'PENDING',
+        quoteAccepted: false,
+        requiresQuote: true,
+        firstResponseAt: request.firstResponseAt || serverTimestamp(),
+        quotedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, 'service_requests', request.id, 'status_history'), {
+        fromStatus: request.status,
+        toStatus: 'QUOTED',
+        actorId: auth.currentUser?.uid || 'OPERATOR',
+        actorRole: 'OPERATOR',
+        timestamp: serverTimestamp(),
+        notes: `Cotización formal emitida por S/ ${total.toFixed(2)} (${quoteSummary.slice(0, 150)})`,
+      });
+
+      onClose();
+    } catch (err: any) {
+      alert(err.message || 'Error al emitir cotización a la base de datos');
+    } finally {
+      setSubmittingQuote(false);
+    }
   };
 
   const handleSendWhatsApp = () => {
@@ -264,12 +315,22 @@ export const ProformaQuoteModal = ({ request, onClose }: Props) => {
             </button>
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-secondary"
               onClick={handleDownloadPDF}
               title="Generar y descargar archivo PDF de alta resolución vectorial"
             >
               <Download size={16} />
-              <span>Descargar PDF Vectorial</span>
+              <span>Descargar PDF</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleEmitQuote}
+              disabled={submittingQuote || request.status === 'QUOTED' || !isOnline}
+              title="Emitir cotización formal a la app del cliente para su aprobación"
+            >
+              {submittingQuote ? <Loader2 size={16} className="spin-animate" /> : <Send size={16} />}
+              <span>{submittingQuote ? 'Emitiendo...' : !isOnline ? 'Sin Conexión' : request.status === 'QUOTED' ? 'Cotización Ya Enviada' : 'Emitir Cotización a App'}</span>
             </button>
           </div>
         </div>

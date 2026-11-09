@@ -125,8 +125,9 @@ function AppShell() {
     <ServiceLocationProvider>
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: '#f4511e' },
-          headerTintColor: '#fff',
+          headerStyle: { backgroundColor: '#FFFFFF' },
+          headerTintColor: '#0F172A',
+          headerShadowVisible: false,
           headerTitleStyle: { fontWeight: 'bold' },
         }}
       >

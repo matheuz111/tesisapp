@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, useEffect, useRef } from 'react';
+import { useState, lazy, Suspense, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import type { ServiceRequest } from '../types';
@@ -13,11 +13,15 @@ import {
   BookOpen,
   Map,
   MoreVertical,
+  ClipboardCopy,
+  ChevronDown,
+  LayoutGrid,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { ErrorBoundary } from './ErrorBoundary';
+import { ToastContainer, type ToastItem } from './Toast';
 
-// Dynamic lazy imports for all admin modals and heavy analytics charts
+// Modales y vistas analíticas cargadas dinámicamente con lazy
 const AnalyticsCharts = lazy(() =>
   import('./AnalyticsCharts').then((m) => ({ default: m.AnalyticsCharts }))
 );
@@ -51,17 +55,25 @@ const WarrantyCertificateModal = lazy(() =>
 const OperationalMapModal = lazy(() =>
   import('./OperationalMapModal').then((m) => ({ default: m.OperationalMapModal }))
 );
+const GoogleSheetsModal = lazy(() =>
+  import('./GoogleSheetsModal').then((m) => ({ default: m.GoogleSheetsModal }))
+);
 
 import { useServiceRequests } from '../hooks/useServiceRequests';
 import { SummaryCards } from './dashboard/SummaryCards';
 import { RequestFilters } from './dashboard/RequestFilters';
 import { RequestsTable } from './dashboard/RequestsTable';
+import { OfflineBanner } from './OfflineBanner';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+
+type ActiveTab = 'OPERATION' | 'ANALYTICS';
 
 export const Dashboard = () => {
   const { userName, role, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const isOnline = useNetworkStatus();
 
-  // Custom Hook for State & Business Logic
+  // Custom Hook para Datos y Lógica de Negocio
   const {
     requests,
     filteredRequests,
@@ -72,11 +84,23 @@ export const Dashboard = () => {
     pagination,
   } = useServiceRequests();
 
-  const [showCharts, setShowCharts] = useState(true);
+  // Pestaña principal de navegación
+  const [activeTab, setActiveTab] = useState<ActiveTab>('OPERATION');
+
+  // Sistema de Toasts
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const addToast = useCallback((type: ToastItem['type'], title: string, message?: string) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+  }, []);
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   // Modales
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [isSpssModalOpen, setIsSpssModalOpen] = useState(false);
+  const [isGoogleSheetsOpen, setIsGoogleSheetsOpen] = useState(false);
   const [isBaremoOpen, setIsBaremoOpen] = useState(false);
   const [isOperationalMapOpen, setIsOperationalMapOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null);
@@ -87,24 +111,79 @@ export const Dashboard = () => {
   const [quoteRequest, setQuoteRequest] = useState<ServiceRequest | null>(null);
   const [warrantyRequest, setWarrantyRequest] = useState<ServiceRequest | null>(null);
 
+  // Menús desplegables
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close Más acciones menu on outside click
+  // Cerrar menús al hacer click fuera
   useEffect(() => {
-    if (!isMoreMenuOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
         setIsMoreMenuOpen(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isMoreMenuOpen]);
+  }, []);
+
+  // Atajos de teclado globales: '/' enfocar buscador, 'N' nuevo pedido, 'Esc' cerrar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      const isInput = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select';
+
+      if (e.key === 'Escape') {
+        setIsNewModalOpen(false);
+        setIsSpssModalOpen(false);
+        setIsBaremoOpen(false);
+        setIsOperationalMapOpen(false);
+        setSelectedRequest(null);
+        setAssigningRequest(null);
+        setTrackingRequest(null);
+        setChatRequest(null);
+        setQuoteRequest(null);
+        setWarrantyRequest(null);
+        setIsMoreMenuOpen(false);
+        setIsUserMenuOpen(false);
+        return;
+      }
+
+      if (isInput) return;
+
+      if (e.key === '/' || e.key === '?') {
+        e.preventDefault();
+        const searchInput = document.querySelector<HTMLInputElement>('.search-input');
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      } else if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        if (isOnline) setIsNewModalOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOnline]);
+
+  const copyCompanyPhone = (e: React.MouseEvent) => {
+    e.preventDefault();
+    navigator.clipboard.writeText('924167911');
+    addToast('success', 'Número Copiado', '924-167-911 copiado al portapapeles.');
+  };
 
   return (
     <div className="dashboard-layout">
-      {/* Barra de Navegación Personalizada con Identidad de Marca */}
+      <OfflineBanner />
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
+      {/* Barra de Navegación Priority+ con Identidad de Marca y Pestañas */}
       <header className="navbar">
         <div className="navbar-brand">
           <BrandLogo height={32} />
@@ -125,15 +204,16 @@ export const Dashboard = () => {
               Central de Despacho & Trazabilidad
             </span>
             <span style={{ fontSize: '10px', color: '#16a34a', fontWeight: 600 }}>
-              ● Reparamos Tu Hogar · Lima, Perú
+              ● Reparamos Tu Hogar · Lima & Callao
             </span>
           </div>
-          <a
-            href="https://wa.me/51924167911"
-            target="_blank"
-            rel="noreferrer"
+
+          {/* Chip de Teléfono Central con Copiado Rápido */}
+          <button
+            type="button"
+            onClick={copyCompanyPhone}
             className="company-phone-badge"
-            title="Línea directa oficial de la empresa"
+            title="Click para copiar número de la central (924-167-911)"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -145,70 +225,50 @@ export const Dashboard = () => {
               borderRadius: 20,
               fontSize: '11px',
               fontWeight: 700,
-              textDecoration: 'none',
+              cursor: 'pointer',
               marginLeft: 8,
             }}
           >
             <MessageCircle size={13} color="#16a34a" />
-            <span>924-167-911</span>
-          </a>
+            <span className="mono-tabular">924-167-911</span>
+            <ClipboardCopy size={11} style={{ opacity: 0.7 }} />
+          </button>
         </div>
 
-        <div className="navbar-actions">
-          <div className="user-badge">
-            <div className="user-avatar">{userName?.charAt(0).toUpperCase() || 'O'}</div>
-            <div className="user-info">
-              <span className="user-name">{userName}</span>
-              <span className="user-role">{role}</span>
-            </div>
-          </div>
-
+        {/* Pestañas Principales Priority+ */}
+        <nav className="nav-priority-tabs" aria-label="Navegación principal">
           <button
             type="button"
-            className="btn btn-secondary btn-theme"
-            onClick={toggleTheme}
-            title={theme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro'}
+            className={`nav-tab-item ${activeTab === 'OPERATION' ? 'active' : ''}`}
+            onClick={() => setActiveTab('OPERATION')}
           >
-            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-            <span className="btn-label-responsive">{theme === 'dark' ? 'Claro' : 'Oscuro'}</span>
+            <LayoutGrid size={15} />
+            <span>Operación</span>
+            <span className="nav-tab-count mono-tabular">{stats.total}</span>
           </button>
 
-          {/* Botón Mapa Operativo (Fase 2) */}
           <button
             type="button"
-            className="btn btn-secondary btn-map-toggle"
-            style={{ color: '#2563eb', borderColor: '#93c5fd' }}
-            onClick={() => setIsOperationalMapOpen(true)}
-            title="Abrir mapa operativo en vivo con presencia de técnicos y solicitudes"
-          >
-            <Map size={15} color="#2563eb" />
-            <span className="btn-label-responsive">Mapa Operativo</span>
-          </button>
-
-          {/* Botón Nuevo Pedido (Acción Primaria) */}
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setIsNewModalOpen(true)}
-          >
-            <PlusCircle size={15} />
-            <span>Nuevo Pedido</span>
-          </button>
-
-          {/* Acciones Secundarias de Escritorio (Ocultas en pantallas pequeñas) */}
-          <button
-            type="button"
-            className="btn btn-secondary nav-action-desktop"
-            onClick={() => setShowCharts((prev) => !prev)}
-            title="Alternar gráficos estadísticos"
+            className={`nav-tab-item ${activeTab === 'ANALYTICS' ? 'active' : ''}`}
+            onClick={() => setActiveTab('ANALYTICS')}
           >
             <BarChart3 size={15} />
-            <span>{showCharts ? 'Ocultar Gráficos' : 'Ver Gráficos'}</span>
+            <span>Analítica</span>
           </button>
 
           <button
             type="button"
-            className="btn btn-secondary nav-action-desktop"
+            className="nav-tab-item nav-action-desktop"
+            onClick={() => setIsOperationalMapOpen(true)}
+            title="Abrir mapa operativo con cobertura de cuadrantes"
+          >
+            <Map size={15} />
+            <span>Mapa Operativo</span>
+          </button>
+
+          <button
+            type="button"
+            className="nav-tab-item nav-action-desktop"
             onClick={() => setIsBaremoOpen(true)}
             title="Abrir catálogo y baremo estandarizado de precios"
           >
@@ -218,9 +278,10 @@ export const Dashboard = () => {
 
           <button
             type="button"
-            className="btn btn-secondary nav-action-desktop"
-            style={{ color: '#16a34a', borderColor: '#86efac' }}
+            className="nav-tab-item nav-action-desktop"
+            style={{ color: '#16a34a' }}
             onClick={() => setIsSpssModalOpen(true)}
+            title="Exportar matriz completa para análisis SPSS de tesis"
           >
             <FileSpreadsheet size={15} color="#16a34a" />
             <span>Matriz SPSS</span>
@@ -228,14 +289,44 @@ export const Dashboard = () => {
 
           <button
             type="button"
-            className="btn btn-outline nav-action-desktop"
-            onClick={logout}
-            title="Cerrar Sesión"
+            className="nav-tab-item nav-action-desktop"
+            style={{ color: '#0284c7' }}
+            onClick={() => setIsGoogleSheetsOpen(true)}
+            title="Abrir y sincronizar directorio en vivo con Google Sheets"
           >
-            <LogOut size={15} />
+            <FileSpreadsheet size={15} color="#0284c7" />
+            <span>Directorio Sheets</span>
+          </button>
+        </nav>
+
+        {/* Acciones del Extremo Derecho */}
+        <div className="navbar-actions">
+          {/* Botón Primario Único: Nuevo Pedido */}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => isOnline && setIsNewModalOpen(true)}
+            disabled={!isOnline}
+            title="Nuevo Pedido Manual (Atajo: N)"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <PlusCircle size={15} />
+            <span>Nuevo Pedido</span>
+            <kbd
+              style={{
+                fontSize: 10,
+                padding: '1px 5px',
+                borderRadius: 4,
+                background: 'rgba(255,255,255,0.22)',
+                border: '1px solid rgba(255,255,255,0.4)',
+                color: '#fff',
+              }}
+            >
+              N
+            </kbd>
           </button>
 
-          {/* Menú Más Acciones (Visible en pantallas compactas para evitar ensanchamiento) */}
+          {/* Menú Más Acciones en Pantallas Pequeñas */}
           <div className="nav-more-menu-container" ref={moreMenuRef}>
             <button
               type="button"
@@ -243,7 +334,7 @@ export const Dashboard = () => {
               onClick={() => setIsMoreMenuOpen((prev) => !prev)}
               aria-haspopup="true"
               aria-expanded={isMoreMenuOpen}
-              title="Más acciones y herramientas del sistema"
+              title="Más herramientas"
             >
               <MoreVertical size={16} />
               <span>Más</span>
@@ -255,13 +346,13 @@ export const Dashboard = () => {
                   type="button"
                   className="nav-dropdown-item"
                   onClick={() => {
-                    setShowCharts((prev) => !prev);
+                    setIsOperationalMapOpen(true);
                     setIsMoreMenuOpen(false);
                   }}
                   role="menuitem"
                 >
-                  <BarChart3 size={15} color="#2563eb" />
-                  <span>{showCharts ? 'Ocultar Gráficos' : 'Ver Gráficos'}</span>
+                  <Map size={15} color="#0369a1" />
+                  <span>Mapa Operativo</span>
                 </button>
 
                 <button
@@ -273,7 +364,7 @@ export const Dashboard = () => {
                   }}
                   role="menuitem"
                 >
-                  <BookOpen size={15} color="#0284c7" />
+                  <BookOpen size={15} color="#0369a1" />
                   <span>Baremo & Precios</span>
                 </button>
 
@@ -290,13 +381,79 @@ export const Dashboard = () => {
                   <span>Matriz SPSS</span>
                 </button>
 
+                <button
+                  type="button"
+                  className="nav-dropdown-item"
+                  onClick={() => {
+                    setIsGoogleSheetsOpen(true);
+                    setIsMoreMenuOpen(false);
+                  }}
+                  role="menuitem"
+                >
+                  <FileSpreadsheet size={15} color="#0284c7" />
+                  <span>Directorio Google Sheets</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Menú de Usuario y Tema */}
+          <div className="nav-user-menu-container" ref={userMenuRef}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsUserMenuOpen((prev) => !prev)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 10px' }}
+              aria-haspopup="true"
+              aria-expanded={isUserMenuOpen}
+            >
+              <div
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  background: 'var(--primary)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: 12,
+                }}
+              >
+                {userName?.charAt(0).toUpperCase() || 'O'}
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600 }}>{userName || 'Operador'}</span>
+              <ChevronDown size={13} style={{ opacity: 0.6 }} />
+            </button>
+
+            {isUserMenuOpen && (
+              <div className="nav-more-dropdown" role="menu" style={{ right: 0, minWidth: 200 }}>
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-main)' }}>{userName}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Rol: {role}</div>
+                </div>
+
+                <button
+                  type="button"
+                  className="nav-dropdown-item"
+                  onClick={() => {
+                    toggleTheme();
+                    setIsUserMenuOpen(false);
+                  }}
+                  role="menuitem"
+                >
+                  {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                  <span>Modo {theme === 'dark' ? 'Claro' : 'Oscuro'}</span>
+                </button>
+
                 <div className="nav-dropdown-divider" />
 
                 <button
                   type="button"
                   className="nav-dropdown-item text-danger"
                   onClick={() => {
-                    setIsMoreMenuOpen(false);
+                    setIsUserMenuOpen(false);
                     logout();
                   }}
                   role="menuitem"
@@ -310,57 +467,67 @@ export const Dashboard = () => {
         </div>
       </header>
 
-      {/* Contenido Principal */}
-      <main className="dashboard-content">
-        {/* Ribbon de Métricas Clave Unificado */}
-        <SummaryCards stats={stats} />
+      {/* Contenedor Principal Centrado con Restricción de Ancho Máximo */}
+      <main className="dashboard-content app-container">
+        {/* VISTA 1: OPERACIÓN (Bandeja de Despacho Prioritaria) */}
+        {activeTab === 'OPERATION' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Ribbon Compacto de Métricas Operativas */}
+            <SummaryCards stats={stats} />
 
-        {/* Gráficos Estadísticos Minimalistas 2x2 con Suspense Lazy */}
-        {showCharts && (
-          <Suspense fallback={<div className="charts-loading-banner">Cargando gráficos analíticos...</div>}>
-            <AnalyticsCharts requests={requests} />
-          </Suspense>
+            {/* Barra de Filtros, Zonas y Búsqueda Inmediata */}
+            <RequestFilters
+              searchTerm={filters.searchTerm}
+              onSearchChange={filters.setSearchTerm}
+              statusFilter={filters.statusFilter}
+              onStatusChange={filters.setStatusFilter}
+              channelFilter={filters.channelFilter}
+              onChannelChange={filters.setChannelFilter}
+              zoneFilter={filters.zoneFilter}
+              onZoneChange={filters.setZoneFilter}
+              districtFilter={filters.districtFilter}
+              onDistrictChange={filters.setDistrictFilter}
+            />
+
+            {/* Tabla de Trabajo Visible de Inmediato sin Scroll Forzado */}
+            <RequestsTable
+              loading={loading}
+              requests={paginatedRequests}
+              totalFiltered={filteredRequests.length}
+              currentPage={pagination.currentPage}
+              pageSize={pagination.pageSize}
+              totalPages={pagination.totalPages}
+              onPageChange={pagination.setCurrentPage}
+              onPageSizeChange={pagination.setPageSize}
+              onSelectDetail={setSelectedRequest}
+              onSelectQuote={setQuoteRequest}
+              onSelectWarranty={setWarrantyRequest}
+              onSelectTracking={setTrackingRequest}
+              onSelectChat={setChatRequest}
+              onSelectAssign={setAssigningRequest}
+            />
+          </div>
         )}
 
-        {/* Barra de Filtros, Zonas y Búsqueda */}
-        <RequestFilters
-          searchTerm={filters.searchTerm}
-          onSearchChange={filters.setSearchTerm}
-          statusFilter={filters.statusFilter}
-          onStatusChange={filters.setStatusFilter}
-          channelFilter={filters.channelFilter}
-          onChannelChange={filters.setChannelFilter}
-          zoneFilter={filters.zoneFilter}
-          onZoneChange={filters.setZoneFilter}
-        />
-
-        {/* Tabla de Solicitudes Modular */}
-        <RequestsTable
-          loading={loading}
-          requests={paginatedRequests}
-          totalFiltered={filteredRequests.length}
-          currentPage={pagination.currentPage}
-          pageSize={pagination.pageSize}
-          totalPages={pagination.totalPages}
-          onPageChange={pagination.setCurrentPage}
-          onPageSizeChange={pagination.setPageSize}
-          onSelectDetail={setSelectedRequest}
-          onSelectQuote={setQuoteRequest}
-          onSelectWarranty={setWarrantyRequest}
-          onSelectTracking={setTrackingRequest}
-          onSelectChat={setChatRequest}
-          onSelectAssign={setAssigningRequest}
-        />
+        {/* VISTA 2: ANALÍTICA (Panel Analítico Dedicado) */}
+        {activeTab === 'ANALYTICS' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <SummaryCards stats={stats} />
+            <Suspense fallback={<div className="charts-loading-banner">Cargando métricas analíticas...</div>}>
+              <AnalyticsCharts requests={requests} />
+            </Suspense>
+          </div>
+        )}
       </main>
 
-      {/* Modales Administrativos Cargados Dinámicamente con Suspense */}
+      {/* Modales y Paneles Deslizantes Cargados Dinámicamente */}
       <Suspense fallback={null}>
         {isNewModalOpen && (
           <NewManualRequestModal
             isOpen={isNewModalOpen}
             onClose={() => setIsNewModalOpen(false)}
             onCreated={(code) => {
-              alert(`¡Solicitud ${code} registrada exitosamente!`);
+              addToast('success', 'Pedido Registrado', `Solicitud ${code} creada exitosamente en la central.`);
             }}
           />
         )}
@@ -425,7 +592,13 @@ export const Dashboard = () => {
           />
         )}
 
-        {/* Mapa Operativo en Vivo (Fase 2) */}
+        {isGoogleSheetsOpen && (
+          <GoogleSheetsModal
+            isOpen={isGoogleSheetsOpen}
+            onClose={() => setIsGoogleSheetsOpen(false)}
+          />
+        )}
+
         {isOperationalMapOpen && (
           <ErrorBoundary
             fallbackTitle="Error en Mapa Operativo"

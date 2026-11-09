@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { ServiceRequest, ProviderUser } from '../types';
@@ -9,6 +10,7 @@ import {
   Navigation,
   Crosshair,
   Maximize2,
+  Minimize2,
   Clock,
   MapPin,
   Phone,
@@ -58,6 +60,14 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
 
   const [workerData, setWorkerData] = useState<ProviderUser | null>(null);
   const [workerLocation, setWorkerLocation] = useState<{ lat: number; lng: number; accuracy?: number; time?: number } | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isFullscreen]);
 
   // 1. Determinar coordenadas del cliente de forma derivada (useMemo)
   const clientCoord = useMemo<{ lat: number; lng: number }>(() => {
@@ -385,9 +395,12 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
     workerData?.avatar ||
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80';
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card indrive-modal" onClick={(e) => e.stopPropagation()}>
+  return createPortal(
+    <div className="modal-backdrop modal-backdrop-live-map" onClick={onClose}>
+      <div
+        className={`modal-card indrive-modal ${isFullscreen ? 'modal-fullscreen' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Encabezado del Modal Corporativo */}
         <div className="modal-header" style={{ padding: '12px 18px' }}>
           <div className="modal-title-wrap">
@@ -401,9 +414,21 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
               </span>
             </div>
           </div>
-          <button type="button" className="btn-close" onClick={onClose} title="Cerrar mapa (Esc)">
-            <X size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsFullscreen((prev) => !prev)}
+              title={isFullscreen ? 'Reducir tamaño' : 'Pantalla completa'}
+              style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              <span style={{ fontSize: 12 }}>{isFullscreen ? 'Normal' : 'Maximizar'}</span>
+            </button>
+            <button type="button" className="btn-close" onClick={onClose} title="Cerrar mapa (Esc)">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Contenedor del Mapa con elementos flotantes */}
@@ -560,6 +585,7 @@ export const LiveTrackingMapModal = ({ request, onClose }: Props) => {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

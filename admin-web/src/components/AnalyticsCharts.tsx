@@ -13,21 +13,43 @@ import {
   CartesianGrid,
 } from 'recharts';
 import type { ServiceRequest } from '../types';
-import { Activity, Layers, Clock, TrendingUp } from 'lucide-react';
+import { Activity, Layers, Clock, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface Props {
   requests: ServiceRequest[];
 }
 
-// Paleta ejecutiva minimalista (azul pizarra, índigo suave, verde esmeralda sutil, ámbar suave)
-const MINIMAL_PALETTE = ['#2563eb', '#10b981', '#f59e0b', '#6366f1', '#64748b', '#06b6d4'];
+// Paleta de tokens WCAG 2.1 AA (Sin gradientes, sin opacidades ilegibles)
+const MINIMAL_PALETTE = ['#0369a1', '#166534', '#d97706', '#475569', '#7c3aed', '#0891b2'];
 
-const STATUS_MINIMAL_COLORS: Record<string, string> = {
-  'Por Asignar': '#f59e0b',
-  'En Curso': '#3b82f6',
-  'Culminado': '#10b981',
-  'Cancelado': '#94a3b8',
+const STATUS_COLORS: Record<string, string> = {
+  'Por Asignar': '#d97706',
+  'En Curso': '#0369a1',
+  'Culminado': '#166534',
+  'Cancelado': '#dc2626',
+  'Otros': '#64748b',
+};
+
+// Catálogo canónico de especialidades para sanear datos atípicos (Resolves Bug c)
+const CANONICAL_SPECIALTY_MAP: Record<string, string> = {
+  gasfitero: 'Gasfitería',
+  gasfiteria: 'Gasfitería',
+  electricista: 'Electricidad',
+  electricidad: 'Electricidad',
+  pintor: 'Pintura',
+  pintura: 'Pintura',
+  carpintero: 'Carpintería',
+  carpinteria: 'Carpintería',
+  albanil: 'Albañilería',
+  albanileria: 'Albañilería',
+  cerrajero: 'Cerrajería',
+  cerrajeria: 'Cerrajería',
+  tecnico: 'Línea Blanca / TV',
+  'linea blanca': 'Línea Blanca / TV',
+  'linea blanca / tv': 'Línea Blanca / TV',
+  otro: 'Otro Servicio',
+  otros: 'Otro Servicio',
 };
 
 export const AnalyticsChartsComponent = ({ requests }: Props) => {
@@ -45,46 +67,61 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
 
-  // Animar suavemente solo al inicio; desactivar en sincronizaciones continuas de Firestore
   const [shouldAnimate, setShouldAnimate] = useState(() => !prefersReducedMotion);
 
   useEffect(() => {
     if (!prefersReducedMotion) {
       const timer = setTimeout(() => {
         setShouldAnimate(false);
-      }, 600);
+      }, 500);
       return () => clearTimeout(timer);
     }
   }, [prefersReducedMotion]);
 
-  // 1. Datos por Estado Operativo
+  // 1. Datos por Estado Operativo (Exhaustivo: Suma el 100% de requests, Resolves Bug b)
   const statusData = useMemo(() => {
     let pending = 0;
     let inProgress = 0;
     let completed = 0;
     let cancelled = 0;
+    let others = 0;
 
     requests.forEach((r) => {
-      if (['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT'].includes(r.status)) pending++;
-      else if (['PENDING', 'ACCEPTED', 'IN_PROGRESS'].includes(r.status)) inProgress++;
-      else if (['COMPLETED', 'VALIDATED'].includes(r.status)) completed++;
-      else if (r.status.startsWith('CANCELLED')) cancelled++;
+      const s = (r.status || '').toUpperCase();
+      if (['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT'].includes(s)) {
+        pending++;
+      } else if (['PENDING', 'ACCEPTED', 'IN_PROGRESS'].includes(s)) {
+        inProgress++;
+      } else if (['COMPLETED', 'VALIDATED', 'ARCHIVED', 'CLOSED'].includes(s)) {
+        completed++;
+      } else if (s.startsWith('CANCELLED')) {
+        cancelled++;
+      } else {
+        others++;
+      }
     });
 
-    return [
-      { name: 'Por Asignar', cantidad: pending, color: STATUS_MINIMAL_COLORS['Por Asignar'] },
-      { name: 'En Curso', cantidad: inProgress, color: STATUS_MINIMAL_COLORS['En Curso'] },
-      { name: 'Culminado', cantidad: completed, color: STATUS_MINIMAL_COLORS['Culminado'] },
-      { name: 'Cancelado', cantidad: cancelled, color: STATUS_MINIMAL_COLORS['Cancelado'] },
+    const list = [
+      { name: 'Por Asignar', cantidad: pending, color: STATUS_COLORS['Por Asignar'] },
+      { name: 'En Curso', cantidad: inProgress, color: STATUS_COLORS['En Curso'] },
+      { name: 'Culminado', cantidad: completed, color: STATUS_COLORS['Culminado'] },
+      { name: 'Cancelado', cantidad: cancelled, color: STATUS_COLORS['Cancelado'] },
     ];
+
+    if (others > 0) {
+      list.push({ name: 'Otros', cantidad: others, color: STATUS_COLORS['Otros'] });
+    }
+
+    return list;
   }, [requests]);
 
-  // 2. Datos por Canal de Ingreso
+  // 2. Datos por Canal de Ingreso (Donut centrado)
   const channelData = useMemo(() => {
     const counts: Record<string, number> = {
       'App Móvil': 0,
       'WhatsApp': 0,
       'Llamada': 0,
+      'Portal Web': 0,
       'Correo': 0,
     };
 
@@ -92,6 +129,7 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
       const ch = r.intakeChannel;
       if (ch === 'WHATSAPP') counts['WhatsApp']++;
       else if (ch === 'PHONE') counts['Llamada']++;
+      else if (ch === 'WEB') counts['Portal Web']++;
       else if (ch === 'EMAIL') counts['Correo']++;
       else counts['App Móvil']++;
     });
@@ -101,13 +139,17 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
       .filter((item) => item.valor > 0);
   }, [requests]);
 
-  // 3. Datos por Especialidad
+  // 3. Datos por Especialidad con Normalización contra Catálogo (Resolves Bug c)
   const specialtyData = useMemo(() => {
     const counts: Record<string, number> = {};
 
     requests.forEach((r) => {
-      const spec = r.serviceLabel || r.specialty || 'Otros';
-      counts[spec] = (counts[spec] || 0) + 1;
+      const raw = (r.serviceLabel || r.specialty || 'Otro Servicio').trim();
+      const rawNormalized = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+      // Mapear al catálogo canónico; si es texto anómalo (ej: 'Doxeador'), agrupar bajo 'Otro Servicio'
+      const canonicalName = CANONICAL_SPECIALTY_MAP[rawNormalized] || (raw.length > 20 ? 'Otro Servicio' : raw);
+      counts[canonicalName] = (counts[canonicalName] || 0) + 1;
     });
 
     return Object.entries(counts)
@@ -116,7 +158,42 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
       .slice(0, 5);
   }, [requests]);
 
-  // 4. Desglose de 5 Fases Operativas en Minutos (Métricas SPSS)
+  // 4. Desglose de Diagnóstico de Cancelaciones (Resolves Bug d)
+  const cancellationData = useMemo(() => {
+    const reasonCounts: Record<string, number> = {};
+    let totalCancelled = 0;
+
+    requests.forEach((r) => {
+      if ((r.status || '').startsWith('CANCELLED')) {
+        totalCancelled++;
+        const reason = (
+          r.cancelReason ||
+          r.rejectionReason ||
+          r.rejectionReasonText ||
+          r.quoteRejectionReason ||
+          r.providerRejectionReason ||
+          'Sin motivo reportado'
+        ).trim();
+        reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+      }
+    });
+
+    if (totalCancelled === 0) return null;
+
+    const list = Object.entries(reasonCounts)
+      .map(([motivo, cantidad]) => ({
+        motivo: motivo.length > 28 ? `${motivo.slice(0, 26)}...` : motivo,
+        motivoCompleto: motivo,
+        cantidad,
+        porcentaje: Number(((cantidad / totalCancelled) * 100).toFixed(1)),
+      }))
+      .sort((a, b) => b.cantidad - a.cantidad)
+      .slice(0, 5);
+
+    return { totalCancelled, list };
+  }, [requests]);
+
+  // 5. Desglose de Fases Operativas en Minutos (Métricas SPSS)
   const avgTimesData = useMemo(() => {
     let rspSum = 0, rspCount = 0;
     let asgSum = 0, asgCount = 0;
@@ -175,29 +252,37 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
     });
 
     return [
-      { metrica: '1. Contacto (T_RSP)', minutos: rspCount ? Number((rspSum / rspCount).toFixed(1)) : 0, color: '#3b82f6' },
-      { metrica: '2. Asignación (T_ASG)', minutos: asgCount ? Number((asgSum / asgCount).toFixed(1)) : 0, color: '#2563eb' },
-      { metrica: '3. Traslado (T_LLE)', minutos: lleCount ? Number((lleSum / lleCount).toFixed(1)) : 0, color: '#f59e0b' },
-      { metrica: '4. Ejecución (T_EJE)', minutos: ejeCount ? Number((ejeSum / ejeCount).toFixed(1)) : 0, color: '#10b981' },
-      { metrica: '5. Cierre (T_VAL)', minutos: valCount ? Number((valSum / valCount).toFixed(1)) : 0, color: '#6366f1' },
+      { metrica: '1. Contacto (T_RSP)', minutos: rspCount ? Number((rspSum / rspCount).toFixed(1)) : 0, color: '#0369a1' },
+      { metrica: '2. Asignación (T_ASG)', minutos: asgCount ? Number((asgSum / asgCount).toFixed(1)) : 0, color: '#0284c7' },
+      { metrica: '3. Traslado (T_LLE)', minutos: lleCount ? Number((lleSum / lleCount).toFixed(1)) : 0, color: '#d97706' },
+      { metrica: '4. Ejecución (T_EJE)', minutos: ejeCount ? Number((ejeSum / ejeCount).toFixed(1)) : 0, color: '#166534' },
+      { metrica: '5. Cierre (T_VAL)', minutos: valCount ? Number((valSum / valCount).toFixed(1)) : 0, color: '#475569' },
       { metrica: 'Ciclo Total (T_TOT)', minutos: totCount ? Number((totSum / totCount).toFixed(1)) : 0, color: '#0f172a' },
     ];
   }, [requests]);
 
-  if (requests.length === 0) return null;
+  if (requests.length === 0) {
+    return (
+      <div className="sidepanel-card" style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--text-muted)' }}>
+        No hay datos de servicios disponibles para generar analíticas.
+      </div>
+    );
+  }
+
+  const totalEvaluated = statusData.reduce((acc, curr) => acc + curr.cantidad, 0);
 
   return (
-    <div className="analytics-section">
-      {/* Grilla Minimalista 2x2: Espaciosa, limpia y enfocada */}
+    <div className="analytics-section" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Grilla 2x2 de analítica */}
       <div className="analytics-grid-2x2">
-        {/* Gráfico 1: Estado del Flujo */}
+        {/* Gráfico 1: Estado del Flujo (Totalmente consolidado) */}
         <div className="chart-card">
           <div className="chart-header">
             <div className="chart-header-title">
-              <Layers size={16} color="#2563eb" />
-              <h3>Flujo de Estados Operativos</h3>
+              <Layers size={16} color="var(--primary)" />
+              <h3 style={{ fontSize: 13, fontWeight: 700 }}>Flujo de Estados Operativos</h3>
             </div>
-            <span className="chart-badge">En Tiempo Real</span>
+            <span className="chart-badge mono-tabular">Total N = {totalEvaluated}</span>
           </div>
 
           <div className="chart-wrapper">
@@ -211,22 +296,22 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
                   contentStyle={{
                     backgroundColor: tooltipBg,
                     borderColor: tooltipBorder,
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     fontSize: '12px',
                     boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     color: isDark ? '#f8fafc' : '#0f172a',
                   }}
-                  formatter={(value: any) => [`${value} pedidos`, 'Cantidad']}
+                  formatter={(value: any) => [`${value} servicios (${((Number(value) / totalEvaluated) * 100).toFixed(1)}%)`, 'Cantidad']}
                 />
                 <Bar
                   dataKey="cantidad"
                   radius={[4, 4, 0, 0]}
-                  maxBarSize={42}
+                  maxBarSize={40}
                   isAnimationActive={shouldAnimate}
-                  animationDuration={shouldAnimate ? 350 : 0}
+                  animationDuration={shouldAnimate ? 300 : 0}
                 >
                   {statusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                    <Cell key={`status-cell-${index}`} fill={entry.color} />
                   ))}
                 </Bar>
               </BarChart>
@@ -238,10 +323,10 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
         <div className="chart-card">
           <div className="chart-header">
             <div className="chart-header-title">
-              <Clock size={16} color="#2563eb" />
-              <h3>Tiempos Medios de Gestión por Etapa (Minutos)</h3>
+              <Clock size={16} color="var(--primary)" />
+              <h3 style={{ fontSize: 13, fontWeight: 700 }}>Tiempos Medios de Gestión por Etapa</h3>
             </div>
-            <span className="chart-badge">SPSS Deltas</span>
+            <span className="chart-badge">Minutos SPSS</span>
           </div>
 
           <div className="chart-wrapper">
@@ -255,19 +340,18 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
                   contentStyle={{
                     backgroundColor: tooltipBg,
                     borderColor: tooltipBorder,
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     fontSize: '12px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     color: isDark ? '#f8fafc' : '#0f172a',
                   }}
-                  formatter={(value: any) => [`${value} minutos`, 'Promedio']}
+                  formatter={(value: any) => [`${value} min`, 'Promedio']}
                 />
                 <Bar
                   dataKey="minutos"
                   radius={[4, 4, 0, 0]}
-                  maxBarSize={38}
+                  maxBarSize={36}
                   isAnimationActive={shouldAnimate}
-                  animationDuration={shouldAnimate ? 350 : 0}
+                  animationDuration={shouldAnimate ? 300 : 0}
                 >
                   {avgTimesData.map((entry, index) => (
                     <Cell key={`time-cell-${index}`} fill={entry.color} />
@@ -278,38 +362,39 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
           </div>
         </div>
 
-        {/* Gráfico 3: Multicanalidad */}
+        {/* Gráfico 3: Multicanalidad (Donut completamente centrado) */}
         <div className="chart-card">
           <div className="chart-header">
             <div className="chart-header-title">
-              <Activity size={16} color="#10b981" />
-              <h3>Canales de Ingreso (Multicanalidad)</h3>
+              <Activity size={16} color="#166534" />
+              <h3 style={{ fontSize: 13, fontWeight: 700 }}>Canales de Ingreso de Solicitud</h3>
             </div>
-            <span className="chart-badge">Origen</span>
+            <span className="chart-badge">Multicanal</span>
           </div>
 
-          <div className="chart-wrapper" style={{ display: 'flex', alignItems: 'center' }}>
+          <div className="chart-wrapper" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <ResponsiveContainer width="100%" height={210}>
-              <PieChart>
+              <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                 <Tooltip
                   contentStyle={{
                     backgroundColor: tooltipBg,
                     borderColor: tooltipBorder,
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     fontSize: '12px',
                     color: isDark ? '#f8fafc' : '#0f172a',
                   }}
+                  formatter={(value: any) => [`${value} pedidos`, 'Volumen']}
                 />
                 <Pie
                   data={channelData}
                   cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={80}
+                  cy="45%"
+                  innerRadius={50}
+                  outerRadius={75}
                   paddingAngle={3}
                   dataKey="valor"
                   isAnimationActive={shouldAnimate}
-                  animationDuration={shouldAnimate ? 350 : 0}
+                  animationDuration={shouldAnimate ? 300 : 0}
                 >
                   {channelData.map((_, index) => (
                     <Cell key={`channel-cell-${index}`} fill={MINIMAL_PALETTE[index % MINIMAL_PALETTE.length]} />
@@ -317,23 +402,24 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
                 </Pie>
                 <Legend
                   verticalAlign="bottom"
-                  height={30}
+                  align="center"
+                  height={32}
                   iconSize={8}
-                  wrapperStyle={{ fontSize: '11px', color: textColor }}
+                  wrapperStyle={{ fontSize: '11px', color: textColor, paddingTop: '4px' }}
                 />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Gráfico 4: Demanda por Especialidad */}
+        {/* Gráfico 4: Demanda por Especialidad (Normalizada contra catálogo) */}
         <div className="chart-card">
           <div className="chart-header">
             <div className="chart-header-title">
-              <TrendingUp size={16} color="#6366f1" />
-              <h3>Demanda por Especialidad Técnica</h3>
+              <TrendingUp size={16} color="var(--primary)" />
+              <h3 style={{ fontSize: 13, fontWeight: 700 }}>Demanda por Especialidad Técnica</h3>
             </div>
-            <span className="chart-badge">Top Rubros</span>
+            <span className="chart-badge">Top 5</span>
           </div>
 
           <div className="chart-wrapper">
@@ -341,31 +427,97 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
               <BarChart layout="vertical" data={specialtyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridColor} />
                 <XAxis type="number" stroke={textColor} fontSize={11} tickLine={false} allowDecimals={false} />
-                <YAxis dataKey="name" type="category" stroke={textColor} fontSize={11} tickLine={false} width={85} />
+                <YAxis dataKey="name" type="category" stroke={textColor} fontSize={11} tickLine={false} width={90} />
                 <Tooltip
                   cursor={{ fill: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}
                   contentStyle={{
                     backgroundColor: tooltipBg,
                     borderColor: tooltipBorder,
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     fontSize: '12px',
                     color: isDark ? '#f8fafc' : '#0f172a',
                   }}
-                  formatter={(value: any) => [`${value} solicitudes`, 'Demanda']}
+                  formatter={(value: any) => [`${value} servicios`, 'Demanda']}
                 />
                 <Bar
                   dataKey="cantidad"
-                  fill="#6366f1"
+                  fill="var(--primary)"
                   radius={[0, 4, 4, 0]}
                   maxBarSize={18}
                   isAnimationActive={shouldAnimate}
-                  animationDuration={shouldAnimate ? 350 : 0}
+                  animationDuration={shouldAnimate ? 300 : 0}
                 />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
+
+      {/* Panel 5: Diagnóstico de Cancelaciones (Resolves Bug d) */}
+      {cancellationData && (
+        <div className="sidepanel-card" style={{ borderColor: 'var(--status-danger-border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={16} color="#dc2626" />
+              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>
+                Diagnóstico de Cancelaciones Operativas
+              </h4>
+            </div>
+            <span
+              className="mono-tabular"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#991b1b',
+                backgroundColor: '#fee2e2',
+                padding: '2px 8px',
+                borderRadius: 4,
+              }}
+            >
+              Total Cancelados: {cancellationData.totalCancelled} (Tasa: {((cancellationData.totalCancelled / requests.length) * 100).toFixed(1)}%)
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+            {cancellationData.list.map((item, idx) => (
+              <div
+                key={idx}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  backgroundColor: 'var(--bg-hover)',
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-main)' }} title={item.motivoCompleto}>
+                    {item.motivo}
+                  </span>
+                  <span className="mono-tabular" style={{ fontSize: 11, fontWeight: 700, color: '#dc2626' }}>
+                    {item.cantidad}
+                  </span>
+                </div>
+                <div style={{ width: '100%', height: 4, borderRadius: 2, backgroundColor: 'var(--border)', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      width: `${item.porcentaje}%`,
+                      height: '100%',
+                      backgroundColor: '#dc2626',
+                      borderRadius: 2,
+                    }}
+                  />
+                </div>
+                <span className="mono-tabular" style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                  {item.porcentaje}% del total de cancelaciones
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -30,71 +30,102 @@ export const Login = () => {
 
   return (
     <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
-            <BrandLogo height={42} />
-          </div>
-          <p className="login-subtitle" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>
-            Panel Central de Operaciones & Telemetría Técnica
+      {/* Panel izquierdo — identidad del producto */}
+      <aside className="login-brand-panel" aria-hidden="true">
+        <div className="login-brand-inner">
+          <BrandLogo height={38} />
+          <h1 className="login-brand-title">Central de Operaciones</h1>
+          <p className="login-brand-desc">
+            Gestión de solicitudes, asignación de técnicos y trazabilidad
+            completa de cada servicio a domicilio.
           </p>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34, 197, 94, 0.1)', color: '#16a34a', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, marginTop: 8 }}>
-            <span>📞 Central Oficial WhatsApp: 924-167-911</span>
+          <div className="login-brand-stats">
+            <div className="login-stat">
+              <span className="login-stat-value">24/7</span>
+              <span className="login-stat-label">Monitoreo activo</span>
+            </div>
+            <div className="login-stat-divider" />
+            <div className="login-stat">
+              <span className="login-stat-value">30d</span>
+              <span className="login-stat-label">Garantía por servicio</span>
+            </div>
+            <div className="login-stat-divider" />
+            <div className="login-stat">
+              <span className="login-stat-value">GPS</span>
+              <span className="login-stat-label">Despacho en ruta</span>
+            </div>
           </div>
-        </div>
-
-        {(error || localError) && (
-          <div className="alert alert-danger">
-            <AlertCircle size={18} />
-            <span>{error || localError}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="login-form">
-          <div className="form-group">
-            <label htmlFor="email">Correo Institucional</label>
-            <input
-              id="email"
-              type="email"
-              placeholder="operador@maestroadomicilio.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={loading}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="password">Contraseña</label>
-            <input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={loading}
-              required
-            />
-          </div>
-
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 size={18} className="spinner" />
-                <span>Ingresando al sistema...</span>
-              </>
-            ) : (
-              'Iniciar Sesión como Operador'
-            )}
-          </button>
-        </form>
-
-        <div className="login-footer">
-          <p>
-            Plataforma interna para gestión de servicios, monitoreo técnico y exportación de matriz científica SPSS.
+          <p className="login-brand-contact">
+            WhatsApp Central: <strong>924-167-911</strong>
           </p>
         </div>
-      </div>
+      </aside>
+
+      {/* Panel derecho — formulario en hoja blanca */}
+      <main className="login-form-panel">
+        <div className="login-sheet">
+          <div className="login-sheet-header">
+            <h2 className="login-sheet-title">Iniciar sesión</h2>
+            <p className="login-sheet-sub">Acceso exclusivo para operadores autorizados</p>
+          </div>
+
+          {(error || localError) && (
+            <div className="alert alert-danger" role="alert">
+              <AlertCircle size={16} />
+              <span>{error || localError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="login-form">
+            <div className="form-group">
+              <label htmlFor="email">Correo institucional</label>
+              <input
+                id="email"
+                type="email"
+                placeholder="operador@maestroadomicilio.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+                required
+                autoComplete="email"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="password">Contraseña</label>
+              <input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary btn-block"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="spinner" />
+                  <span>Ingresando…</span>
+                </>
+              ) : (
+                'Ingresar como operador'
+              )}
+            </button>
+          </form>
+
+          <p className="login-sheet-footer">
+            Plataforma interna · gestión de servicios y exportación SPSS
+          </p>
+        </div>
+      </main>
     </div>
   );
 };

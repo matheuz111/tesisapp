@@ -203,8 +203,8 @@ export default function ChatScreen() {
 
   // ══════ #2: useMemo para paleta de colores (Estilo WhatsApp) ══════
   const chatColors = useMemo(() => ({
-    chatBg: isDark ? '#0B141A' : '#EFEAE2',
-    bubbleOutBg: isDark ? '#005C4B' : '#008069',
+    chatBg: isDark ? '#0F172A' : '#F8FAFC',
+    bubbleOutBg: isDark ? '#0284C7' : '#0369A1',
     bubbleInBg: isDark ? '#1F2C34' : '#FFFFFF',
     bubbleInText: isDark ? '#E9EDEF' : '#111827',
     bubbleOutText: '#FFFFFF',
@@ -214,11 +214,11 @@ export default function ChatScreen() {
     inputBg: isDark ? '#1F2C34' : '#FFFFFF',
     inputText: isDark ? '#E9EDEF' : '#111111',
     inputBorder: 'transparent',
-    headerBg: isDark ? '#1F2C34' : '#008069',
+    headerBg: isDark ? '#1E293B' : '#0369A1',
     mutedText: isDark ? '#8696A0' : '#667781',
-    dateChipBg: isDark ? '#233138' : '#E1F0DA',
+    dateChipBg: isDark ? '#334155' : '#E2E8F0',
     dateChipText: isDark ? '#8696A0' : '#54656F',
-    emptyCircleBg: isDark ? '#233138' : '#DCF8C6',
+    emptyCircleBg: isDark ? '#334155' : '#E0F2FE',
     scrollFabBg: isDark ? '#2A3942' : '#fff',
   }), [isDark]);
 

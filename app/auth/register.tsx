@@ -4,23 +4,36 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { auth, db } from '../../src/config/firebase';
+import { syncUserToGoogleSheet } from '../../src/services/googleSheetsSync';
+import {
+  BaseColors,
+  BaseElevation,
+  BaseRadii,
+  BaseTypography,
+  BaseButton,
+  BaseInput,
+  BaseCard,
+  BaseTile,
+  BaseSystemBanner,
+  BaseDistrictPicker,
+} from '../../src/components/base';
 
 type Role = 'client' | 'provider';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams();
   const initialRole = (Array.isArray(role) ? role[0] : role) as Role | undefined;
 
@@ -29,10 +42,10 @@ export default function RegisterScreen() {
   const [dni, setDni] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [district, setDistrict] = useState('');
+  const [districtZone, setDistrictZone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const isProvider = selectedRole === 'provider';
@@ -83,7 +96,7 @@ export default function RegisterScreen() {
       return;
     }
 
-    // 2. Validación de DNI (Obligatorio para técnicos, recomendado para clientes)
+    // 2. Validación de DNI
     if (isProvider) {
       if (!cleanDni) {
         Alert.alert('DNI Requerido', 'Como profesional técnico en Lima, el DNI de 8 dígitos es obligatorio para la verificación de identidad.');
@@ -127,7 +140,7 @@ export default function RegisterScreen() {
       }
     }
 
-    // 5. Validación de Contraseña Segura (Mayúsculas, Minúsculas, Números, Símbolos, 8+ caracteres)
+    // 5. Validación de Contraseña Segura
     if (!cleanPassword) {
       Alert.alert('Contraseña Requerida', 'Por favor define una contraseña para tu cuenta.');
       return;
@@ -156,6 +169,8 @@ export default function RegisterScreen() {
         email: cleanEmail,
         dni: cleanDni || '',
         phone: cleanPhone || '',
+        district: district || 'Lima',
+        zone: districtZone || 'LIMA_CENTRO',
         role: selectedRole.toUpperCase(),
         created_at: serverTimestamp(),
         is_verified: !isProvider,
@@ -175,6 +190,9 @@ export default function RegisterScreen() {
       }
 
       await setDoc(doc(db, 'users', user.uid), userData);
+
+      // Sincronización automática con Google Sheets en segundo plano
+      void syncUserToGoogleSheet(userData);
 
       Alert.alert(
         '¡Registro Exitoso! 🎉',
@@ -204,207 +222,201 @@ export default function RegisterScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Crear Cuenta Segura</Text>
-          <Text style={styles.subtitle}>Servicios coordinados y supervisados por nuestra central</Text>
+          <Text style={styles.title}>Crear Cuenta</Text>
+          <Text style={styles.subtitle}>
+            Servicios coordinados con garantía y supervisión centralizada
+          </Text>
         </View>
 
-        {/* ═══ SELECTOR DE ROL ═══ */}
-        <View style={styles.roleSelector}>
-          <TouchableOpacity
-            style={[
-              styles.roleCard,
-              selectedRole === 'client' && styles.roleCardActive,
-              selectedRole === 'client' && { borderColor: '#007bff' },
-            ]}
-            onPress={() => setSelectedRole('client')}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.roleIconCircle, { backgroundColor: selectedRole === 'client' ? '#E3F2FD' : '#f5f5f5' }]}>
-              <Ionicons name="home-outline" size={28} color={selectedRole === 'client' ? '#007bff' : '#999'} />
-            </View>
-            <Text style={[styles.roleTitle, selectedRole === 'client' && { color: '#007bff' }]}>
-              Cliente
-            </Text>
-            <Text style={styles.roleDesc}>Necesito contratar servicios</Text>
-            {selectedRole === 'client' && (
-              <View style={[styles.roleCheck, { backgroundColor: '#007bff' }]}>
-                <Ionicons name="checkmark" size={14} color="#fff" />
-              </View>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.roleCard,
-              selectedRole === 'provider' && styles.roleCardActive,
-              selectedRole === 'provider' && { borderColor: '#28a745' },
-            ]}
-            onPress={() => setSelectedRole('provider')}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.roleIconCircle, { backgroundColor: selectedRole === 'provider' ? '#E8F5E9' : '#f5f5f5' }]}>
-              <Ionicons name="construct-outline" size={28} color={selectedRole === 'provider' ? '#28a745' : '#999'} />
-            </View>
-            <Text style={[styles.roleTitle, selectedRole === 'provider' && { color: '#28a745' }]}>
-              Profesional
-            </Text>
-            <Text style={styles.roleDesc}>Ofrezco mis servicios</Text>
-            {selectedRole === 'provider' && (
-              <View style={[styles.roleCheck, { backgroundColor: '#28a745' }]}>
-                <Ionicons name="checkmark" size={14} color="#fff" />
-              </View>
-            )}
-          </TouchableOpacity>
+        {/* Role Selector using BaseTiles */}
+        <View style={styles.roleContainer}>
+          <Text style={styles.sectionLabel}>Tipo de cuenta:</Text>
+          <View style={styles.tilesRow}>
+            <BaseTile
+              title="Cliente"
+              subtitle="Contratar servicios"
+              icon="home-outline"
+              iconColor={BaseColors.accent}
+              selected={selectedRole === 'client'}
+              onPress={() => setSelectedRole('client')}
+              style={{ flex: 1 }}
+            />
+            <BaseTile
+              title="Técnico"
+              subtitle="Ofrecer labores"
+              icon="construct-outline"
+              iconColor={BaseColors.positive}
+              selected={selectedRole === 'provider'}
+              onPress={() => setSelectedRole('provider')}
+              style={{ flex: 1 }}
+            />
+          </View>
         </View>
 
-        {/* ═══ FORMULARIO CON VALIDACIONES ═══ */}
-        {/* Nombre completo */}
-        <View style={styles.inputContainer}>
-          <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Nombre y Apellido completo"
+        {/* Form Card */}
+        <BaseCard variant="elevated" elevation="sm" style={styles.card}>
+          <BaseInput
+            label="Nombre y Apellidos completos"
+            placeholder="Ej: Juan Pérez Morales"
             value={name}
             onChangeText={setName}
-            placeholderTextColor="#999"
+            leftIcon="person-outline"
           />
-        </View>
 
-        {/* DNI */}
-        <View style={styles.inputContainer}>
-          <Ionicons name="card-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder={isProvider ? 'DNI (8 dígitos - Obligatorio)' : 'DNI (8 dígitos - Opcional)'}
+          <BaseInput
+            label={isProvider ? 'DNI (8 dígitos - Obligatorio)' : 'DNI (8 dígitos - Opcional)'}
+            placeholder="12345678"
             value={dni}
             onChangeText={(t) => setDni(t.replace(/\D/g, '').slice(0, 8))}
             keyboardType="number-pad"
             maxLength={8}
-            placeholderTextColor="#999"
+            leftIcon="card-outline"
           />
-        </View>
 
-        {/* Correo */}
-        <View style={styles.inputContainer}>
-          <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Correo electrónico"
+          <BaseInput
+            label="Correo electrónico"
+            placeholder="ejemplo@correo.com"
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
-            placeholderTextColor="#999"
+            leftIcon="mail-outline"
           />
-        </View>
 
-        {/* Teléfono celular */}
-        <View style={styles.inputContainer}>
-          <Ionicons name="call-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder={isProvider ? 'Celular Perú (9 dígitos - Obligatorio)' : 'Celular (9 dígitos - Opcional)'}
+          <BaseInput
+            label={isProvider ? 'Celular Perú (9 dígitos - Obligatorio)' : 'Celular (9 dígitos - Opcional)'}
+            placeholder="987654321"
             value={phone}
             onChangeText={(t) => setPhone(t.replace(/\D/g, '').slice(0, 9))}
             keyboardType="phone-pad"
             maxLength={9}
-            placeholderTextColor="#999"
+            leftIcon="call-outline"
           />
-        </View>
 
-        {/* Contraseña */}
-        <View style={styles.inputContainer}>
-          <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Contraseña (Mayús, minús, núm, símb)"
+          <BaseDistrictPicker
+            label="Distrito de Residencia (Lima / Callao)"
+            selectedDistrict={district}
+            onSelectDistrict={(name, zone) => {
+              setDistrict(name);
+              if (zone) setDistrictZone(zone);
+            }}
+            placeholder="Selecciona tu distrito..."
+          />
+
+          <BaseInput
+            label="Contraseña"
+            placeholder="Mayúsculas, minúsculas, números y símbolos"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            placeholderTextColor="#999"
+            secureTextEntry
+            leftIcon="lock-closed-outline"
           />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#666" />
-          </TouchableOpacity>
-        </View>
 
-        {/* REQUISITOS DE CONTRASEÑA EN TIEMPO REAL */}
-        {password.length > 0 && (
-          <View style={styles.passwordReqBox}>
-            <Text style={styles.passwordReqTitle}>Requisitos de contraseña segura:</Text>
-            <View style={styles.reqGrid}>
-              <View style={styles.reqItem}>
-                <Ionicons name={hasMinLength ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasMinLength ? "#28a745" : "#888"} />
-                <Text style={[styles.reqText, hasMinLength && styles.reqTextActive]}>8+ caracteres</Text>
-              </View>
-              <View style={styles.reqItem}>
-                <Ionicons name={hasUpperCase ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasUpperCase ? "#28a745" : "#888"} />
-                <Text style={[styles.reqText, hasUpperCase && styles.reqTextActive]}>Mayúscula (A-Z)</Text>
-              </View>
-              <View style={styles.reqItem}>
-                <Ionicons name={hasLowerCase ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasLowerCase ? "#28a745" : "#888"} />
-                <Text style={[styles.reqText, hasLowerCase && styles.reqTextActive]}>Minúscula (a-z)</Text>
-              </View>
-              <View style={styles.reqItem}>
-                <Ionicons name={hasNumber ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasNumber ? "#28a745" : "#888"} />
-                <Text style={[styles.reqText, hasNumber && styles.reqTextActive]}>Número (0-9)</Text>
-              </View>
-              <View style={styles.reqItem}>
-                <Ionicons name={hasSymbol ? "checkmark-circle" : "ellipse-outline"} size={14} color={hasSymbol ? "#28a745" : "#888"} />
-                <Text style={[styles.reqText, hasSymbol && styles.reqTextActive]}>Símbolo (!@#$...)</Text>
+          {/* Password Strength Requirement Indicators */}
+          {password.length > 0 && (
+            <View style={styles.passwordReqBox}>
+              <Text style={styles.passwordReqTitle}>Requisitos de seguridad:</Text>
+              <View style={styles.reqGrid}>
+                <View style={styles.reqItem}>
+                  <Ionicons
+                    name={hasMinLength ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={13}
+                    color={hasMinLength ? BaseColors.positive : BaseColors.gray400}
+                  />
+                  <Text style={[styles.reqText, hasMinLength && styles.reqTextActive]}>
+                    8+ caracteres
+                  </Text>
+                </View>
+                <View style={styles.reqItem}>
+                  <Ionicons
+                    name={hasUpperCase ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={13}
+                    color={hasUpperCase ? BaseColors.positive : BaseColors.gray400}
+                  />
+                  <Text style={[styles.reqText, hasUpperCase && styles.reqTextActive]}>
+                    Mayúscula (A-Z)
+                  </Text>
+                </View>
+                <View style={styles.reqItem}>
+                  <Ionicons
+                    name={hasLowerCase ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={13}
+                    color={hasLowerCase ? BaseColors.positive : BaseColors.gray400}
+                  />
+                  <Text style={[styles.reqText, hasLowerCase && styles.reqTextActive]}>
+                    Minúscula (a-z)
+                  </Text>
+                </View>
+                <View style={styles.reqItem}>
+                  <Ionicons
+                    name={hasNumber ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={13}
+                    color={hasNumber ? BaseColors.positive : BaseColors.gray400}
+                  />
+                  <Text style={[styles.reqText, hasNumber && styles.reqTextActive]}>
+                    Número (0-9)
+                  </Text>
+                </View>
+                <View style={styles.reqItem}>
+                  <Ionicons
+                    name={hasSymbol ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={13}
+                    color={hasSymbol ? BaseColors.positive : BaseColors.gray400}
+                  />
+                  <Text style={[styles.reqText, hasSymbol && styles.reqTextActive]}>
+                    Símbolo (!@#$...)
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
-        )}
+          )}
 
-        {/* Confirmar Contraseña */}
-        <View style={styles.inputContainer}>
-          <Ionicons name="shield-checkmark-outline" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Confirmar contraseña"
+          <BaseInput
+            label="Confirmar contraseña"
+            placeholder="Repite tu contraseña exactamente"
             value={confirmPassword}
             onChangeText={setConfirmPassword}
-            secureTextEntry={!showConfirmPassword}
-            placeholderTextColor="#999"
+            secureTextEntry
+            leftIcon="shield-checkmark-outline"
           />
-          <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-            <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#666" />
-          </TouchableOpacity>
-        </View>
 
-        {isProvider && (
-          <View style={styles.providerNote}>
-            <Ionicons name="shield-checkmark" size={18} color="#28a745" />
-            <Text style={styles.providerNoteText}>
-              Como profesional, tus datos de DNI y teléfono serán verificados para otorgarte la insignia de <Text style={{ fontWeight: 'bold' }}>Técnico Verificado</Text>.
-            </Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[
-            styles.buttonSuccess,
-            { backgroundColor: isProvider ? '#28a745' : '#007bff' },
-            loading && styles.buttonDisabled,
-          ]}
-          onPress={handleRegister}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>
-              REGISTRARME COMO {isProvider ? 'PROFESIONAL' : 'CLIENTE'}
-            </Text>
+          {isProvider && (
+            <BaseSystemBanner
+              variant="positive"
+              title="Validación de Identidad Técnica"
+              description="Tus datos serán validados por nuestra central de operaciones para asignarte la insignia de Técnico Homologado."
+              icon="shield-checkmark"
+              style={{ marginBottom: 16 }}
+            />
           )}
-        </TouchableOpacity>
 
+          <BaseButton
+            title={`Registrarme como ${isProvider ? 'Especialista Técnico' : 'Cliente'}`}
+            onPress={handleRegister}
+            loading={loading}
+            disabled={loading}
+            variant="solid"
+            intent={isProvider ? 'positive' : 'primary'}
+            size="lg"
+            fullWidth
+            icon="checkmark-circle-outline"
+          />
+        </BaseCard>
+
+        {/* Footer Link */}
         <TouchableOpacity onPress={() => router.back()} style={styles.footerLink}>
           <Text style={styles.linkText}>
-            ¿Ya tienes cuenta? <Text style={styles.linkBold}>Ingresa aquí</Text>
+            ¿Ya tienes cuenta registrada? <Text style={styles.linkBold}>Inicia sesión aquí</Text>
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -413,106 +425,91 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  content: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 60 },
-
-  header: { alignItems: 'center', marginBottom: 24 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#333' },
-  subtitle: { fontSize: 15, color: '#666', marginTop: 6 },
-
-  // ── Role selector ───────────────────
-  roleSelector: { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  roleCard: {
+  container: {
     flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#e1e1e1',
-    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06)',
-    position: 'relative',
+    backgroundColor: BaseColors.gray50,
   },
-  roleCardActive: {
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-  },
-  roleIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
     justifyContent: 'center',
+  },
+  header: {
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 20,
   },
-  roleTitle: { fontSize: 15, fontWeight: '700', color: '#333', marginBottom: 4 },
-  roleDesc: { fontSize: 11, color: '#888', textAlign: 'center' },
-  roleCheck: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: 'center',
-    alignItems: 'center',
+  title: {
+    fontSize: BaseTypography.sizes.xl,
+    fontWeight: BaseTypography.weights.bold,
+    color: BaseColors.gray900,
+    includeFontPadding: false,
   },
-
-  // ── Inputs ──────────────────────────
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e1e1e1',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 56,
-    marginBottom: 14,
-    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+  subtitle: {
+    fontSize: BaseTypography.sizes.xs,
+    color: BaseColors.gray500,
+    marginTop: 4,
+    textAlign: 'center',
   },
-  inputIcon: { marginRight: 12 },
-  input: { flex: 1, fontSize: 16, color: '#333' },
-
-  // ── Requisitos de Contraseña ────────
-  passwordReqBox: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#e1e1e1',
-  },
-  passwordReqTitle: { fontSize: 12, fontWeight: '700', color: '#555', marginBottom: 8 },
-  reqGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  reqItem: { flexDirection: 'row', alignItems: 'center', gap: 4, width: '48%' },
-  reqText: { fontSize: 11, color: '#888' },
-  reqTextActive: { color: '#28a745', fontWeight: '700' },
-
-  // ── Provider note ───────────────────
-  providerNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#E3F2FD',
-    padding: 12,
-    borderRadius: 10,
+  roleContainer: {
     marginBottom: 16,
+  },
+  sectionLabel: {
+    fontSize: BaseTypography.sizes.xs,
+    fontWeight: BaseTypography.weights.semiBold,
+    color: BaseColors.gray700,
+    marginBottom: 8,
+  },
+  tilesRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  card: {
+    padding: 20,
+    marginBottom: 20,
+  },
+  passwordReqBox: {
+    backgroundColor: BaseColors.gray100,
+    borderRadius: BaseRadii.md,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: BaseColors.gray200,
+  },
+  passwordReqTitle: {
+    fontSize: 11,
+    fontWeight: BaseTypography.weights.bold,
+    color: BaseColors.gray700,
+    marginBottom: 6,
+  },
+  reqGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  providerNoteText: { flex: 1, fontSize: 12, color: '#1565C0', lineHeight: 18 },
-
-  // ── Button ──────────────────────────
-  buttonSuccess: {
-    height: 56,
-    borderRadius: 12,
-    justifyContent: 'center',
+  reqItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.3)',
+    gap: 4,
+    width: '46%',
   },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontSize: 14, fontWeight: 'bold', letterSpacing: 0.5 },
-
-  footerLink: { marginTop: 24, alignItems: 'center', paddingBottom: 40 },
-  linkText: { color: '#666', fontSize: 14 },
-  linkBold: { color: '#007bff', fontWeight: 'bold' },
+  reqText: {
+    fontSize: 10,
+    color: BaseColors.gray500,
+  },
+  reqTextActive: {
+    color: BaseColors.positive,
+    fontWeight: BaseTypography.weights.semiBold,
+  },
+  footerLink: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  linkText: {
+    fontSize: BaseTypography.sizes.sm,
+    color: BaseColors.gray600,
+  },
+  linkBold: {
+    color: BaseColors.accent,
+    fontWeight: BaseTypography.weights.bold,
+  },
 });

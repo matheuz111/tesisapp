@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import type { ServiceRequest, ProviderUser } from '../types';
 import { X, Search, CheckCircle2, UserCheck, Phone, Wrench, Star, AlertCircle, Loader2 } from 'lucide-react';
 import { resolveRequestCanonicalPricing } from '../services/pricingPolicyService';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 
 interface Props {
   request: ServiceRequest | null;
@@ -13,8 +14,29 @@ interface Props {
 }
 
 export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProviderId }: Props) => {
+  const isOnline = useNetworkStatus();
   const [workers, setWorkers] = useState<ProviderUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeJobsCount, setActiveJobsCount] = useState<Record<string, number>>({});
+
+  // Monitorear carga actual hoy (servicios activos: PENDING, ACCEPTED, IN_PROGRESS)
+  useEffect(() => {
+    const qActive = query(
+      collection(db, 'service_requests'),
+      where('status', 'in', ['PENDING', 'ACCEPTED', 'IN_PROGRESS'])
+    );
+    const unsubscribe = onSnapshot(qActive, (snapshot) => {
+      const counts: Record<string, number> = {};
+      snapshot.docs.forEach((docSnap) => {
+        const pId = docSnap.data().providerId;
+        if (pId) {
+          counts[pId] = (counts[pId] || 0) + 1;
+        }
+      });
+      setActiveJobsCount(counts);
+    });
+    return () => unsubscribe();
+  }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(initialProviderId || null);
   const [assigning, setAssigning] = useState(false);
@@ -51,6 +73,30 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
 
   if (!request) return null;
 
+  const isWaitingQuoteApproval = request.status === 'QUOTED' || (Boolean(request.requiresQuote) && request.quoteStatus !== 'APPROVED');
+
+  const calculateDistanceKm = (w: any): number | null => {
+    if (!request.location || (!w.current_location && !w.location)) return null;
+    const target = w.current_location || w.location;
+    const lat1 = request.location.latitude;
+    const lon1 = request.location.longitude;
+    const lat2 = target.latitude;
+    const lon2 = target.longitude;
+    if (typeof lat1 !== 'number' || typeof lat2 !== 'number') return null;
+
+    const R = 6371; // Radio de la Tierra en km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Number((R * c).toFixed(1));
+  };
+
   const filteredWorkers = workers.filter((w) => {
     const term = searchTerm.toLowerCase().trim();
     if (!term) return true;
@@ -60,8 +106,40 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
     return name.includes(term) || specialty.includes(term) || phone.includes(term);
   });
 
+  // Ordenamiento oficial: 1. Carga actual (menos activos hoy) -> 2. Distancia geográfica -> 3. Especialidad
+  // (La calificación es dato visible, no criterio principal de asignación)
+  const sortedWorkers = [...filteredWorkers].sort((a, b) => {
+    const loadA = activeJobsCount[a.id] || 0;
+    const loadB = activeJobsCount[b.id] || 0;
+    if (loadA !== loadB) return loadA - loadB;
+
+    const distA = calculateDistanceKm(a);
+    const distB = calculateDistanceKm(b);
+    if (distA !== null && distB !== null) return distA - distB;
+    if (distA !== null) return -1;
+    if (distB !== null) return 1;
+
+    const matchA =
+      request.specialty &&
+      (a.specialty?.toLowerCase().includes(request.specialty.toLowerCase()) ||
+        a.specialties?.some((s) => s.toLowerCase().includes(request.specialty!.toLowerCase())))
+        ? 1
+        : 0;
+    const matchB =
+      request.specialty &&
+      (b.specialty?.toLowerCase().includes(request.specialty.toLowerCase()) ||
+        b.specialties?.some((s) => s.toLowerCase().includes(request.specialty!.toLowerCase())))
+        ? 1
+        : 0;
+    return matchB - matchA;
+  });
+
   const handleAssign = async () => {
     if (assigning) return;
+    if (isWaitingQuoteApproval) {
+      setError('No se puede asignar un técnico mientras la cotización esté pendiente de aprobación por el cliente.');
+      return;
+    }
     if (!selectedWorkerId) {
       setError('Debes seleccionar un trabajador de la lista.');
       return;
@@ -147,6 +225,20 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
             </div>
           )}
 
+          {isWaitingQuoteApproval && (
+            <div className="alert alert-warning" style={{ backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A', display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 14px', borderRadius: 8, marginBottom: 16 }}>
+              <AlertCircle size={18} color="#92400E" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <strong style={{ display: 'block', fontSize: 13, marginBottom: 2 }}>Asignación en espera de aprobación</strong>
+                <span style={{ fontSize: 12 }}>
+                  {request.status === 'QUOTED'
+                    ? 'La cotización formal ya fue emitida a la app del cliente y está pendiente de su aprobación.'
+                    : 'Esta solicitud requiere cotización previa antes de asignar al técnico.'}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Resumen del servicio a atender */}
           <div className="detail-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <div>
@@ -196,12 +288,14 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
                 <Loader2 size={28} className="spinner" style={{ margin: '0 auto 10px' }} />
                 <p>Cargando técnicos registrados...</p>
               </div>
-            ) : filteredWorkers.length === 0 ? (
+            ) : sortedWorkers.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
                 <p>No se encontraron trabajadores registrados con los criterios de búsqueda.</p>
               </div>
             ) : (
-              filteredWorkers.map((worker) => {
+              sortedWorkers.map((worker) => {
+                const currentLoad = activeJobsCount[worker.id] || 0;
+                const distanceKm = calculateDistanceKm(worker);
                 const isSelected = selectedWorkerId === worker.id;
                 const isCurrentlyAssigned = request.providerId === worker.id;
                 const isSpecialtyMatch =
@@ -248,6 +342,22 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
                           {worker.phone && (
                             <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} />{worker.phone}</span>
                           )}
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              backgroundColor: currentLoad === 0 ? '#DCFCE7' : currentLoad === 1 ? '#FEF3C7' : '#FEE2E2',
+                              color: currentLoad === 0 ? '#166534' : currentLoad === 1 ? '#92400E' : '#991B1B',
+                            }}
+                          >
+                            {currentLoad === 0 ? '0 activos hoy (Disponible)' : `${currentLoad} en curso hoy`}
+                          </span>
+                          {distanceKm !== null && (
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              📍 a {distanceKm} km
+                            </span>
+                          )}
                           <span className="worker-item-rating">
                             <Star size={12} fill="#f59e0b" color="#f59e0b" style={{ verticalAlign: 'middle', marginRight: 2 }} />
                             {worker.total_rating && worker.review_count
@@ -290,13 +400,16 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
             type="button"
             className="btn btn-primary"
             onClick={handleAssign}
-            disabled={assigning || !selectedWorkerId}
+            disabled={assigning || !selectedWorkerId || isWaitingQuoteApproval || !isOnline}
+            title={!isOnline ? 'Sin conexión: asignación bloqueada para garantizar marcas de tiempo del servidor.' : undefined}
           >
             {assigning ? (
               <>
                 <Loader2 size={16} className="spinner" />
                 <span>Asignando...</span>
               </>
+            ) : isWaitingQuoteApproval ? (
+              <span>Pendiente de Aprobación</span>
             ) : (
               <>
                 <CheckCircle2 size={16} />

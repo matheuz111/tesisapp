@@ -56,6 +56,22 @@ function statusLabel(status: string) {
   return labels[status] || status;
 }
 
+function formatElapsedTime(timestamp: any): string {
+  if (!timestamp) return 'reciente';
+  const now = Date.now();
+  const time = timestamp.toMillis ? timestamp.toMillis() : (timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime());
+  const diffMinutes = Math.max(0, Math.floor((now - time) / 60000));
+  if (diffMinutes < 1) return 'hace menos de 1 min';
+  if (diffMinutes === 1) return 'hace 1 min';
+  if (diffMinutes < 60) return `hace ${diffMinutes} min`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours === 1) return 'hace 1 hora';
+  if (diffHours < 24) return `hace ${diffHours} horas`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `hace ${diffDays} días`;
+}
+
+
 const SERVICES = [
   { id: 'Gasfitero', label: 'Gasfitería', icon: 'water-outline' },
   { id: 'Electricista', label: 'Electricidad', icon: 'flash-outline' },
@@ -484,7 +500,7 @@ export default function OperatorHome() {
             ) : request.status === 'QUOTED' ? (
               <View style={[styles.assignment, { backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: colors.primary, marginTop: 10 }]}>
                 <Ionicons name="time-outline" size={20} color={colors.primary} />
-                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Cotización enviada · Esperando al cliente</Text>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Cotización enviada · Esperando al cliente ({formatElapsedTime(request.quotedAt || request.firstResponseAt || request.updatedAt)})</Text>
               </View>
             ) : null}
             {request.providerName ? <View style={[styles.assignment, { backgroundColor: colors.background }]}><Ionicons name="person-circle-outline" size={22} color={colors.primary} /><Text style={{ color: colors.text, fontWeight: '700' }}>{request.providerName}</Text></View> : null}

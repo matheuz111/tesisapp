@@ -27,9 +27,13 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
-  updateDoc, runTransaction, setDoc,
+  updateDoc,
+  runTransaction,
+  setDoc,
+  addDoc,
   where,
 } from 'firebase/firestore';
+import { TechnicianRejectModal, type RejectionReasonCode } from '../../src/components/TechnicianRejectModal';
 import * as geofire from 'geofire-common';
 import { ProviderDashboard } from '../../src/components/ProviderDashboard';
 import { auth, db } from '../../src/config/firebase';
@@ -43,6 +47,9 @@ import { createAdaptivePresencePublisher, updateProviderPresence } from '../../s
 import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../src/services/backgroundLocationTask';
 import { FEATURE_FLAGS } from '../../src/config/featureFlags';
 import { useBackgroundLocationConsent } from '../../src/hooks/useBackgroundLocationConsent';
+import { OfflineBanner } from '../../src/components/OfflineBanner';
+import { useNetworkStatus } from '../../src/services/networkStatus';
+import { offlinePhotoQueue } from '../../src/services/offlinePhotoQueue';
 
 
 // ─────────────────────────────────────────────
@@ -53,6 +60,31 @@ export default function ProviderHome() {
   const { colors } = useTheme();
 
   const { user, profile, loading, error: profileError, retry } = useSession();
+  const { isOnline } = useNetworkStatus();
+  const [offlinePhotosCount, setOfflinePhotosCount] = useState(0);
+
+  // Monitor de cola de fotos offline mediante suscripción reactiva
+  useEffect(() => {
+    const unsubscribe = offlinePhotoQueue.subscribe((queue) => {
+      setOfflinePhotosCount(queue.length);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Sincronizar automáticamente fotos al recuperar conexión a internet
+  useEffect(() => {
+    if (isOnline && user?.uid) {
+      offlinePhotoQueue.flushQueue().then((syncedCount) => {
+        if (syncedCount > 0) {
+          Toast.show({
+            type: 'success',
+            text1: 'Evidencias sincronizadas ☁️',
+            text2: `Se sincronizaron ${syncedCount} foto(s) guardadas sin conexión.`,
+          });
+        }
+      }).catch((e) => console.warn('Error sincronizando cola offline:', e));
+    }
+  }, [isOnline, user?.uid]);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
   const [isActive, setIsActive] = useState(false);
@@ -78,6 +110,9 @@ export default function ProviderHome() {
   const [dismissedCompletedId, setDismissedCompletedId] = useState<string | null>(null);
   const [pinAttempts, setPinAttempts] = useState(0);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
+  const [rejectionModalVisible, setRejectionModalVisible] = useState(false);
+  const [rejectionTarget, setRejectionTarget] = useState<{ id: string; status: string } | null>(null);
+  const [submittingRejection, setSubmittingRejection] = useState(false);
   const isAcceptingRef = useRef(false);
   const bgConsent = useBackgroundLocationConsent();
 
@@ -223,112 +258,74 @@ export default function ProviderHome() {
     }
   };
 
-  // ── Rechazar trabajo ────────────────────
-  const rejectJob = async () => {
+  // ── Rechazar trabajo asignado (Con motivo obligatorio para Central) ──
+  const rejectJob = () => {
     if (!incomingRequest || !user) return;
-    Alert.alert(
-      'Rechazar solicitud',
-      '¿Estás seguro de rechazar esta solicitud?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Sí, rechazar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await transitionServiceStatus(
-                db,
-                incomingRequest.id,
-                'REQUIRES_REASSIGNMENT',
-                { uid: user.uid, role: 'PROVIDER' },
-                {
-                  fromStatus: 'PENDING',
-                  notes: 'Técnico rechazó la asignación',
-                  extraFields: {
-                    rejectedProviderIds: arrayUnion(user.uid),
-                    rejectionReason: 'TECHNICIAN_UNAVAILABLE',
-                    rejectedAt: serverTimestamp(),
-                  },
-                }
-              );
-
-              setIncomingRequest(null);
-              void notifyCentral(incomingRequest.id, 'Servicio requiere reasignación', 'Un trabajador devolvió su asignación. Revisa la bandeja.', 'REQUIRES_REASSIGNMENT');
-              Toast.show({ type: 'info', text1: 'Solicitud devuelta a la central' });
-            } catch {
-              Alert.alert('Error', 'No se pudo rechazar');
-            }
-          },
-        },
-      ]
-    );
+    setRejectionTarget({ id: incomingRequest.id, status: incomingRequest.status });
+    setRejectionModalVisible(true);
   };
 
-  // ── Cancelar job en ruta ────────────────
-  const cancelJobAsProvider = async () => {
+  // ── Cancelar / abortar job en camino (Con motivo obligatorio para Central) ──
+  const cancelJobAsProvider = () => {
     if (!currentJob || !user) return;
-    Alert.alert(
-      'Solicitar reasignación',
-      'La central buscará otro trabajador y el cliente será notificado.',
-      [
-        { text: 'No, seguir en camino', style: 'cancel' },
-        {
-          text: 'Sí, abortar',
-          style: 'destructive',
-          onPress: async () => {
-            setCancelling(true);
-            try {
-              const clientTokens = currentJob.notificationTokens?.client;
-              await transitionServiceStatus(
-                db,
-                currentJob.id,
-                'REQUIRES_REASSIGNMENT',
-                { uid: user.uid, role: 'PROVIDER' },
-                {
-                  fromStatus: currentJob.status,
-                  notes: 'Técnico abortó la atención en camino',
-                  extraFields: {
-                    serviceStarted: false,
-                    rejectedProviderIds: arrayUnion(user.uid),
-                    rejectionReason: 'TECHNICIAN_UNAVAILABLE',
-                    rejectedAt: serverTimestamp(),
-                  },
-                }
-              );
-
-              if (clientTokens && clientTokens.length > 0) {
-                sendDemoPushNotification(
-                  clientTokens,
-                  'Solicitud Rechazada 😔',
-                  'El técnico no está disponible. Por favor contacta a la central.',
-                  {
-                    requestId: currentJob.id,
-                    screen: 'client_home',
-                    type: 'CANCELLED_BY_PROVIDER',
-                  },
-                  {
-                    requestId: currentJob.id,
-                    eventType: 'CANCELLED_BY_PROVIDER',
-                  }
-                ).catch(() => {});
-              }
-
-              void notifyCentral(currentJob.id, 'Servicio requiere reasignación', 'El trabajador no puede continuar. Revisa la bandeja.', 'REQUIRES_REASSIGNMENT');
-              Alert.alert('Solicitud devuelta', 'La central podrá reasignar el servicio.');
-              setCurrentJob(null);
-            } catch {
-              Alert.alert('Error', 'No se pudo cancelar el servicio.');
-            } finally {
-              setCancelling(false);
-            }
-          },
-        },
-      ]
-    );
+    setRejectionTarget({ id: currentJob.id, status: currentJob.status });
+    setRejectionModalVisible(true);
   };
 
-  // ── Validar PIN de Inicio Presencial (HU-18: Límite de 3 intentos y bloqueo) ──
-  const validatePin = async () => {
+  // ── Procesar confirmación del modal con motivo estructurado ──
+  const handleConfirmRejection = async (code: RejectionReasonCode, label: string, notes?: string) => {
+    if (!rejectionTarget || !user) return;
+    setSubmittingRejection(true);
+    try {
+      const fullReason = notes ? `${label} - ${notes}` : label;
+      await transitionServiceStatus(
+        db,
+        rejectionTarget.id,
+        'REQUIRES_REASSIGNMENT',
+        { uid: user.uid, role: 'PROVIDER' },
+        {
+          fromStatus: rejectionTarget.status,
+          notes: `Técnico devolvió asignación: ${fullReason}`,
+          extraFields: {
+            serviceStarted: false,
+            rejectedProviderIds: arrayUnion(user.uid),
+            rejectionReason: code,
+            rejectionReasonText: fullReason,
+            rejectedAt: serverTimestamp(),
+          },
+        }
+      );
+
+      void notifyCentral(
+        rejectionTarget.id,
+        'Servicio requiere reasignación',
+        `Técnico ${user.displayName || 'Técnico'} devolvió asignación. Motivo: ${fullReason}`,
+        'REQUIRES_REASSIGNMENT'
+      );
+
+      Toast.show({
+        type: 'info',
+        text1: 'Solicitud devuelta a Central',
+        text2: `Motivo: ${label}`,
+      });
+
+      setRejectionModalVisible(false);
+      setRejectionTarget(null);
+      if (rejectionTarget.id === incomingRequest?.id) {
+        setIncomingRequest(null);
+      }
+      if (rejectionTarget.id === currentJob?.id) {
+        setCurrentJob(null);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'No se pudo rechazar la solicitud.');
+    } finally {
+      setSubmittingRejection(false);
+    }
+  };
+
+  // ── 1. Validar Llegada con PIN (Marca independiente de Llegada Presencial T_VIS) ──
+  const validateArrivalPin = async () => {
     Keyboard.dismiss();
     if (!currentJob || !user) return;
     if (lockoutSeconds > 0) {
@@ -372,6 +369,43 @@ export default function ProviderHome() {
     }
     setVerifyingPin(true);
     try {
+      const ref = doc(db, 'service_requests', currentJob.id);
+      await updateDoc(ref, {
+        arrivalValidated: true,
+        pinValidatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Auditoría status_history para la tesis
+      await addDoc(collection(db, 'service_requests', currentJob.id, 'status_history'), {
+        fromStatus: 'ACCEPTED',
+        toStatus: 'ACCEPTED',
+        actorId: user.uid,
+        actorRole: 'PROVIDER',
+        timestamp: serverTimestamp(),
+        notes: 'Llegada al domicilio validada mediante PIN por el técnico (T_VIS completado)',
+      });
+
+      setPinAttempts(0);
+      setInputPin('');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Toast.show({
+        type: 'success',
+        text1: '¡Llegada confirmada! 📍',
+        text2: 'PIN validado. Presiona "Iniciar trabajo" cuando comiences el desmontaje o revisión.',
+      });
+    } catch (err) {
+      console.error('Error validando PIN de llegada:', err);
+      Alert.alert('Error', 'No se pudo registrar la llegada con PIN.');
+    } finally {
+      setVerifyingPin(false);
+    }
+  };
+
+  // ── 2. Iniciar Trabajo Técnico (Marca independiente de Inicio de Ejecución) ──
+  const startJob = async () => {
+    if (!currentJob || !user) return;
+    try {
       await transitionServiceStatus(
         db,
         currentJob.id,
@@ -379,17 +413,20 @@ export default function ProviderHome() {
         { uid: user.uid, role: 'PROVIDER' },
         {
           fromStatus: 'ACCEPTED',
-          notes: 'Inicio presencial verificado mediante validación de PIN',
+          notes: 'Inicio formal de la ejecución del trabajo técnico por el operario',
           extraFields: {
             serviceStarted: true,
-            pinValidatedAt: serverTimestamp(),
             startedAt: serverTimestamp(),
+            pinValidatedAt: currentJob.pinValidatedAt || serverTimestamp(),
           },
         }
       );
-      setPinAttempts(0);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Toast.show({ type: 'success', text1: '¡PIN VALIDADO! 🚀', text2: 'Inicio presencial verificado.' });
+      Toast.show({
+        type: 'success',
+        text1: 'Servicio en Ejecución 🛠️',
+        text2: 'Captura la fotografía inicial (Antes) para auditoría de calidad.',
+      });
 
       // Notificar al cliente
       const clientTokens = currentJob.notificationTokens?.client;
@@ -397,26 +434,15 @@ export default function ProviderHome() {
         const providerName = user?.displayName || 'El técnico';
         sendDemoPushNotification(
           clientTokens,
-          'Servicio iniciado 🛠️',
-          `${providerName} validó el PIN e inició el trabajo.`,
-          {
-            requestId: currentJob.id,
-            screen: 'client_home',
-            type: 'IN_PROGRESS',
-          },
-          {
-            requestId: currentJob.id,
-            eventType: 'IN_PROGRESS',
-          }
+          'Servicio en ejecución 🛠️',
+          `${providerName} ha iniciado los trabajos de reparación.`,
+          { requestId: currentJob.id, screen: 'client_home', type: 'IN_PROGRESS' },
+          { requestId: currentJob.id, eventType: 'IN_PROGRESS' }
         ).catch(() => {});
       }
-
-      setInputPin('');
     } catch (err) {
-      console.error('Error validando PIN:', err);
-      Alert.alert('Error', 'No se pudo iniciar el servicio.');
-    } finally {
-      setVerifyingPin(false);
+      console.error('Error iniciando trabajo:', err);
+      Alert.alert('Error', 'No se pudo iniciar el trabajo.');
     }
   };
 
@@ -800,6 +826,64 @@ export default function ProviderHome() {
     );
   }
 
-  return <View style={{ flex: 1 }}>{profileError || requestError ? <View style={{ padding: 12, paddingTop: 40, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{profileError || requestError}</Text><TouchableOpacity onPress={() => { retry(); setRequestAttempt((value) => value + 1); }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}<ProviderDashboard {...{ currentJob, incomingRequest, location, providerName, specialty, totalRating, jobsCompleted, isVerified, isActive, inputPin, setInputPin, validatePin, verifyingPin, finishJob, uploading, takeInitialPhoto, uploadingInitial, cancelJobAsProvider, cancelling, acceptJob, accepting, rejectJob, toggleSwitch, setSpecialty, serviceRadius, setServiceRadius, handleLogout, confirmPayment: handleConfirmPayment, confirmingPayment, dismissJob: handleDismissJob, lockoutSeconds }} onError={(message: string) => Alert.alert('Aviso', message)} /></View>;
+  return (
+    <View style={{ flex: 1 }}>
+      <OfflineBanner />
+      {profileError || requestError ? (
+        <View style={{ padding: 12, paddingTop: 40, backgroundColor: colors.card }}>
+          <Text style={{ color: colors.text }}>{profileError || requestError}</Text>
+          <TouchableOpacity onPress={() => { retry(); setRequestAttempt((value) => value + 1); }} style={{ paddingVertical: 10 }}>
+            <Text style={{ color: colors.primary }}>Volver a intentar</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+      <ProviderDashboard
+        {...{
+          currentJob,
+          incomingRequest,
+          location,
+          providerName,
+          specialty,
+          totalRating,
+          jobsCompleted,
+          isVerified,
+          isActive,
+          inputPin,
+          setInputPin,
+          validateArrivalPin,
+          validatePin: validateArrivalPin,
+          startJob,
+          verifyingPin,
+          finishJob,
+          uploading,
+          takeInitialPhoto,
+          uploadingInitial,
+          cancelJobAsProvider,
+          cancelling,
+          acceptJob,
+          accepting,
+          rejectJob,
+          toggleSwitch,
+          setSpecialty,
+          serviceRadius,
+          setServiceRadius,
+          handleLogout,
+          confirmPayment: handleConfirmPayment,
+          confirmingPayment,
+          dismissJob: handleDismissJob,
+          lockoutSeconds,
+        }}
+        isOnline={isOnline}
+        offlinePhotosCount={offlinePhotosCount}
+        onError={(message: string) => Alert.alert('Aviso', message)}
+      />
+      <TechnicianRejectModal
+        visible={rejectionModalVisible}
+        onClose={() => setRejectionModalVisible(false)}
+        onConfirm={handleConfirmRejection}
+        loading={submittingRejection}
+      />
+    </View>
+  );
 }
 const styles = StyleSheet.create({ center: { flex: 1, alignItems: 'center', justifyContent: 'center' } });

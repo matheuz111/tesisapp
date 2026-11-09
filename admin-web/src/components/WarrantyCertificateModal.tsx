@@ -13,10 +13,12 @@ export const WarrantyCertificateModal = ({ request, onClose }: Props) => {
     const base = request.validatedAt || request.finishedAt || request.createdAt;
     const startDate = base ? (base.toDate ? base.toDate() : new Date(base)) : new Date();
     const expiryDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const isExpired = Date.now() > expiryDate.getTime();
 
     return {
       start: startDate.toLocaleDateString('es-PE', { dateStyle: 'long' }),
       expiry: expiryDate.toLocaleDateString('es-PE', { dateStyle: 'long' }),
+      isExpired,
     };
   };
 
@@ -92,7 +94,9 @@ export const WarrantyCertificateModal = ({ request, onClose }: Props) => {
                       <ShieldCheck size={32} color="#16a34a" />
                     </div>
                     <div>
-                      <h4 style={{ margin: 0, color: '#16a34a', fontSize: '1rem' }}>Período de Cobertura Garantizada</h4>
+                      <h4 style={{ margin: 0, color: dates.isExpired ? '#92400e' : '#16a34a', fontSize: '1rem' }}>
+                        {dates.isExpired ? 'Período de Cobertura Garantizada (Vencida)' : 'Período de Cobertura Garantizada (Activa)'}
+                      </h4>
                       <p style={{ margin: '4px 0 0', fontSize: '0.85rem' }}>
                         Válido desde el <strong>{dates.start}</strong> hasta el <strong>{dates.expiry}</strong> (30 días naturales).
                       </p>

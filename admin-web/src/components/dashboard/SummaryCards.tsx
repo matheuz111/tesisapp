@@ -1,62 +1,87 @@
 import React from 'react';
-import { Camera, Percent, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Layers, Clock, Wrench, CheckCircle2, Camera } from 'lucide-react';
 import type { DashboardStats } from '../../hooks/useServiceRequests';
 
 interface SummaryCardsProps {
   stats: DashboardStats;
 }
 
+/**
+ * SummaryCards — Tarjetas ejecutivas de KPIs operativos
+ * - Grid responsivo de 5 tarjetas con elevación sutil y bordes redondeados.
+ * - Cifras destacadas en monoespaciado tabular (`IBM Plex Mono`).
+ * - Iconos en contenedores con fondo suave temático.
+ * - Etiquetas y badges de estado con espaciado garantizado.
+ */
 export const SummaryCards: React.FC<SummaryCardsProps> = ({ stats }) => {
   return (
-    <section className="kpi-grid-minimal">
-      <div className="kpi-card-clean">
-        <div className="kpi-clean-icon">
-          <RefreshCw size={18} color="#2563eb" />
+    <section className="kpi-cards-grid" aria-label="Indicadores operativos clave">
+      {/* 1. Total Solicitudes */}
+      <div className="kpi-card-item">
+        <div className="kpi-card-icon icon-blue">
+          <Layers size={18} />
         </div>
-        <div className="kpi-clean-body">
-          <span className="kpi-clean-label">Total Solicitudes</span>
-          <div className="kpi-clean-value-wrap">
-            <span className="kpi-clean-value">{stats.total}</span>
-            <span className="kpi-clean-sub">{stats.pending} por atender</span>
+        <div className="kpi-card-body">
+          <span className="kpi-card-label">Total Solicitudes</span>
+          <div className="kpi-card-data-row">
+            <span className="kpi-card-number mono-tabular">{stats.total}</span>
+            <span className="kpi-card-pill pill-neutral">Base activa</span>
           </div>
         </div>
       </div>
 
-      <div className="kpi-card-clean">
-        <div className="kpi-clean-icon" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
-          <Percent size={18} color="#10b981" />
+      {/* 2. Por Atender / Pendientes */}
+      <div className="kpi-card-item">
+        <div className="kpi-card-icon icon-amber">
+          <Clock size={18} />
         </div>
-        <div className="kpi-clean-body">
-          <span className="kpi-clean-label">Tasa de Culminación</span>
-          <div className="kpi-clean-value-wrap">
-            <span className="kpi-clean-value">{stats.completionRate}%</span>
-            <span className="kpi-clean-sub">{stats.completed} exitosas</span>
+        <div className="kpi-card-body">
+          <span className="kpi-card-label">Por Atender</span>
+          <div className="kpi-card-data-row">
+            <span className="kpi-card-number mono-tabular text-amber">{stats.pending}</span>
+            <span className="kpi-card-pill pill-amber">Despacho</span>
           </div>
         </div>
       </div>
 
-      <div className="kpi-card-clean">
-        <div className="kpi-clean-icon" style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1' }}>
-          <Camera size={18} color="#6366f1" />
+      {/* 3. En Ejecución */}
+      <div className="kpi-card-item">
+        <div className="kpi-card-icon icon-purple">
+          <Wrench size={18} />
         </div>
-        <div className="kpi-clean-body">
-          <span className="kpi-clean-label">Auditoría Fotográfica</span>
-          <div className="kpi-clean-value-wrap">
-            <span className="kpi-clean-value">{stats.auditRate}%</span>
-            <span className="kpi-clean-sub">{stats.photoEvidences} con fotos</span>
+        <div className="kpi-card-body">
+          <span className="kpi-card-label">En Ejecución</span>
+          <div className="kpi-card-data-row">
+            <span className="kpi-card-number mono-tabular text-purple">{stats.inProgress}</span>
+            <span className="kpi-card-pill pill-purple">En campo</span>
           </div>
         </div>
       </div>
 
-      <div className="kpi-card-clean">
-        <div className="kpi-clean-icon" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
-          <ShieldCheck size={18} color="#f59e0b" />
+      {/* 4. Culminadas */}
+      <div className="kpi-card-item">
+        <div className="kpi-card-icon icon-green">
+          <CheckCircle2 size={18} />
         </div>
-        <div className="kpi-clean-body">
-          <span className="kpi-clean-label">Garantías Activas 30d</span>
-          <div className="kpi-clean-value-wrap">
-            <span className="kpi-clean-value">{stats.completed}</span>
-            <span className="kpi-clean-sub">Respaldadas</span>
+        <div className="kpi-card-body">
+          <span className="kpi-card-label">Culminadas</span>
+          <div className="kpi-card-data-row">
+            <span className="kpi-card-number mono-tabular text-green">{stats.completed}</span>
+            <span className="kpi-card-pill pill-green">{stats.completionRate}% éxito</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Auditoría de Fotos */}
+      <div className="kpi-card-item">
+        <div className="kpi-card-icon icon-cyan">
+          <Camera size={18} />
+        </div>
+        <div className="kpi-card-body">
+          <span className="kpi-card-label">Auditoría Fotos</span>
+          <div className="kpi-card-data-row">
+            <span className="kpi-card-number mono-tabular">{stats.photoEvidences}</span>
+            <span className="kpi-card-pill pill-cyan">{stats.auditRate}% cobertura</span>
           </div>
         </div>
       </div>

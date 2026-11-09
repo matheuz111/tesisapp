@@ -44,7 +44,7 @@ export interface ChatMessage {
   createdAt?: any;
 }
 
-export type IntakeChannel = 'APP' | 'WHATSAPP' | 'PHONE' | 'EMAIL';
+export type IntakeChannel = 'APP' | 'WHATSAPP' | 'PHONE' | 'EMAIL' | 'WEB';
 export type RequestOrigin = 'CLIENT' | 'OPERATOR';
 export type Priority = 'NORMAL' | 'HIGH';
 
@@ -71,9 +71,20 @@ export interface ServiceRequest {
   price_agreed?: string;
   zone?: OperationalZone;
   pricing?: CanonicalPricing;
+  serviceType?: 'WITH_QUOTE' | 'SIMPLE' | string;
+  requiresQuote?: boolean;
+  quoteStatus?: 'PENDING_QUOTE' | 'PENDING' | 'APPROVED' | 'REJECTED' | string | null;
   quoteAccepted?: boolean;
   quoteAcceptedAt?: any;
   quoteRejectedAt?: any;
+  quoteRejectionReason?: string;
+  rejectionReason?: string;
+  rejectionReasonText?: string;
+  cancelReason?: string;
+  providerRejectionReason?: string;
+  notes?: string;
+  arrivalValidated?: boolean;
+  pinValidatedAt?: any;
   securityPin?: string;
   providerId?: string;
   providerName?: string;

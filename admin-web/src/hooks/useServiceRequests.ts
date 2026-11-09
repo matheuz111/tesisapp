@@ -23,6 +23,7 @@ export function useServiceRequests() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [channelFilter, setChannelFilter] = useState<string>('ALL');
   const [zoneFilter, setZoneFilter] = useState<OperationalZone | 'ALL'>('ALL');
+  const [districtFilter, setDistrictFilter] = useState<string>('ALL');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -43,6 +44,10 @@ export function useServiceRequests() {
   };
   const updateZoneFilter = (zone: OperationalZone | 'ALL') => {
     setZoneFilter(zone);
+    setCurrentPage(1);
+  };
+  const updateDistrictFilter = (district: string) => {
+    setDistrictFilter(district);
     setCurrentPage(1);
   };
   const updatePageSize = (size: number) => {
@@ -88,9 +93,9 @@ export function useServiceRequests() {
     return { total, pending, inProgress, completed, completionRate, photoEvidences, auditRate };
   }, [requests]);
 
-  // Filtered requests list
+  // Filtered and sorted requests list
   const filteredRequests = useMemo(() => {
-    return requests.filter((r) => {
+    const list = requests.filter((r) => {
       // 1. Status Filter
       if (statusFilter !== 'ALL') {
         if (
@@ -129,7 +134,14 @@ export function useServiceRequests() {
         if (itemZone !== zoneFilter) return false;
       }
 
-      // 4. Text Search
+      // 4. District Filter
+      if (districtFilter !== 'ALL') {
+        const itemDistrict = (r.district || '').toLowerCase().trim();
+        const targetDistrict = districtFilter.toLowerCase().trim();
+        if (!itemDistrict.includes(targetDistrict)) return false;
+      }
+
+      // 5. Text Search
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
         const code = (r.code || '').toLowerCase();
@@ -148,7 +160,42 @@ export function useServiceRequests() {
 
       return true;
     });
-  }, [requests, statusFilter, channelFilter, zoneFilter, searchTerm]);
+
+    // Orden predeterminado oficial de bandeja (Fase 5):
+    // REQUIRES_REASSIGNMENT primero, luego mayor tiempo en etapa descendente (más tiempo esperando = mayor urgencia).
+    return list.sort((a, b) => {
+      // 1. REQUIRES_REASSIGNMENT siempre primero
+      if (a.status === 'REQUIRES_REASSIGNMENT' && b.status !== 'REQUIRES_REASSIGNMENT') return -1;
+      if (b.status === 'REQUIRES_REASSIGNMENT' && a.status !== 'REQUIRES_REASSIGNMENT') return 1;
+
+      const toTime = (val: any): number => {
+        if (!val) return 0;
+        if (typeof val.toMillis === 'function') return val.toMillis();
+        if (typeof val.seconds === 'number') return val.seconds * 1000;
+        if (val instanceof Date) return val.getTime();
+        if (typeof val === 'number') return val;
+        return new Date(val).getTime() || 0;
+      };
+
+      const isAActive = ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS'].includes(a.status);
+      const isBActive = ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS'].includes(b.status);
+
+      // Solicitudes activas tienen prioridad sobre cerradas
+      if (isAActive && !isBActive) return -1;
+      if (!isAActive && isBActive) return 1;
+
+      const timeA = toTime(a.updatedAt) || toTime(a.createdAt);
+      const timeB = toTime(b.updatedAt) || toTime(b.createdAt);
+
+      if (isAActive && isBActive) {
+        // Mayor tiempo en etapa descendente: timestamp más antiguo primero
+        return timeA - timeB;
+      }
+
+      // Solicitudes culminadas o canceladas: más recientes primero
+      return timeB - timeA;
+    });
+  }, [requests, statusFilter, channelFilter, zoneFilter, districtFilter, searchTerm]);
 
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
@@ -173,6 +220,8 @@ export function useServiceRequests() {
       setChannelFilter: updateChannelFilter,
       zoneFilter,
       setZoneFilter: updateZoneFilter,
+      districtFilter,
+      setDistrictFilter: updateDistrictFilter,
     },
     pagination: {
       currentPage,
