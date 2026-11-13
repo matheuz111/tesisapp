@@ -5,6 +5,8 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../config/firebase';
 import { updateProviderPresence } from './providerPresenceService';
+import { isWithinWorkHours } from './locationCompliance';
+import { remindLocationOff } from './locationReminder';
 import type { OperationalZone } from '../types/canonical';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'MAESTRO_BACKGROUND_LOCATION_TASK';
@@ -66,6 +68,8 @@ if (Platform.OS !== 'web' && !TaskManager.isTaskDefined(BACKGROUND_LOCATION_TASK
     async ({ data, error }: TaskManager.TaskManagerTaskBody<{ locations?: Location.LocationObject[] }>) => {
     if (error) {
       console.warn('[BackgroundLocationTask] Error en tarea de fondo:', error.message);
+      // La ubicación dejó de llegar (GPS apagado o permiso retirado): en horario laboral se avisa al técnico.
+      if (isWithinWorkHours(new Date())) void remindLocationOff('SERVICES_OFF');
       return;
     }
 

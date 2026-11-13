@@ -51,6 +51,7 @@ import { createAdaptivePresencePublisher, updateProviderPresence } from '../../.
 import { setBackgroundTrackingContext, startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../../src/services/backgroundLocationTask';
 import { FEATURE_FLAGS } from '../../../src/config/featureFlags';
 import { useBackgroundLocationConsent } from '../../../src/hooks/useBackgroundLocationConsent';
+import { useLocationCompliance } from '../../../src/hooks/useLocationCompliance';
 import { OfflineBanner } from '../../../src/components/OfflineBanner';
 import { useNetworkStatus } from '../../../src/services/networkStatus';
 import { offlinePhotoQueue } from '../../../src/services/offlinePhotoQueue';
@@ -92,6 +93,8 @@ export default function ProviderHome() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
   const [isActive, setIsActive] = useState(false);
+  // En horario laboral y disponible: la ubicación debe estar encendida y con permiso.
+  const locationCompliance = useLocationCompliance({ available: isActive });
   const [specialty, setSpecialty] = useState('');
   const [location, setLocation] = useState<any>(null);
   const [providerName, setProviderName] = useState('');
@@ -968,6 +971,8 @@ export default function ProviderHome() {
           jobsCompleted,
           isVerified,
           isActive,
+          locationIssue: locationCompliance.issue,
+          onFixLocation: locationCompliance.fix,
           inputPin,
           setInputPin,
           validateArrivalPin,

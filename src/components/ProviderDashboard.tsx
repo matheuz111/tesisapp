@@ -20,6 +20,7 @@ import { TechnicianPinKeypad } from './TechnicianPinKeypad';
 import { SemanticColors, TouchTarget, Typography } from '../theme/tokens';
 import { useTheme, type ThemeColors } from '../context/ThemeContext';
 import { useTabBarClearance } from './navigation/FloatingTabBar';
+import { LOCATION_REMINDER_COPY } from '../services/locationCompliance';
 import { OPERATIONAL_CONFIG } from '../config/operationalConfig';
 
 export function ProviderDashboard(props: any) {
@@ -82,6 +83,30 @@ export function ProviderDashboard(props: any) {
             </View>
           </View>
         )}
+
+        {/* Aviso: ubicación apagada en horario laboral (la central no puede asignarte servicios cercanos) */}
+        {props.locationIssue ? (
+          <View style={[styles.locationAlert, { backgroundColor: sunTheme.warningBg, borderColor: sunTheme.warningBorder }]} accessibilityRole="alert">
+            <Ionicons name="location-outline" size={22} color={sunTheme.warningText} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.locationAlertTitle, { color: sunTheme.warningText }]}>
+                {LOCATION_REMINDER_COPY[props.locationIssue as 'SERVICES_OFF' | 'PERMISSION_DENIED'].title}
+              </Text>
+              <Text style={[styles.locationAlertBody, { color: sunTheme.warningText }]}>
+                {LOCATION_REMINDER_COPY[props.locationIssue as 'SERVICES_OFF' | 'PERMISSION_DENIED'].body}
+              </Text>
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              style={[styles.locationAlertBtn, { backgroundColor: sunTheme.warningText }]}
+              onPress={props.onFixLocation}
+            >
+              <Text style={styles.locationAlertBtnText}>
+                {LOCATION_REMINDER_COPY[props.locationIssue as 'SERVICES_OFF' | 'PERMISSION_DENIED'].action}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Cabecera Principal */}
         <View style={styles.header}>
@@ -675,6 +700,11 @@ const createStyles = (sunTheme: SunTheme) => StyleSheet.create({
     gap: 10,
     marginBottom: 16,
   },
+  locationAlert: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 12 },
+  locationAlertTitle: { fontSize: 14, fontWeight: '800' },
+  locationAlertBody: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  locationAlertBtn: { minHeight: 44, borderRadius: 10, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+  locationAlertBtnText: { fontSize: 12, fontWeight: '800', color: '#FFFFFF', flexShrink: 1, textAlign: 'center' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   brandLogoTile: { width: 30, height: 30, borderRadius: 8, backgroundColor: '#FFFFFF', borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   brandLogo: { width: 22, height: 21 },
