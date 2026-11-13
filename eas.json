@@ -7,19 +7,30 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": { "EXPO_PUBLIC_NOTIFICATION_MODE": "demo-direct", "EXPO_PUBLIC_MEDIA_MODE": "firestore-demo" }
+      "env": {
+        "EXPO_PUBLIC_NOTIFICATION_MODE": "demo-direct",
+        "EXPO_PUBLIC_MEDIA_MODE": "firestore-demo"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     },
     "preview": {
       "distribution": "internal",
       "environment": "preview",
-      "env": { "EXPO_PUBLIC_NOTIFICATION_MODE": "demo-direct", "EXPO_PUBLIC_MEDIA_MODE": "firestore-demo" },
+      "env": {
+        "EXPO_PUBLIC_NOTIFICATION_MODE": "demo-direct",
+        "EXPO_PUBLIC_MEDIA_MODE": "firestore-demo"
+      },
       "autoIncrement": true,
       "android": {
-        "buildType": "apk" 
+        "buildType": "apk"
       }
     },
     "production": {
-      "env": { "EXPO_PUBLIC_NOTIFICATION_MODE": "backend" },
+      "env": {
+        "EXPO_PUBLIC_NOTIFICATION_MODE": "backend"
+      },
       "android": {
         "buildType": "app-bundle"
       }

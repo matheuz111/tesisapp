@@ -23,7 +23,7 @@ export default {
       googleServicesFile: "./google-services.json",
       config: {
         googleMaps: {
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_API_KEY // ← Ahora usa variable de entorno
+          apiKey: process.env.EXPO_PUBLIC_GOOGLE_API_KEY
         }
       },
       adaptiveIcon: {
@@ -38,10 +38,12 @@ export default {
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       softwareKeyboardLayoutMode: "resize",
-      edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false
     },
     web: {
@@ -51,6 +53,18 @@ export default {
     plugins: [
       "expo-router",
       ["react-native-maps", { androidGoogleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_API_KEY }],
+      [
+        "expo-camera",
+        {
+          cameraPermission: "Permitir a Maestro a Domicilio acceder a la cámara para escanear códigos y capturar evidencias."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission: "Permitir a Maestro a Domicilio acceder a las fotos para seleccionar evidencias."
+        }
+      ],
       [
         "expo-splash-screen",
         {

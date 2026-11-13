@@ -86,7 +86,8 @@ La contribución principal es digitalizar y hacer trazable el proceso de una emp
 
 Puede evaluarse comparando el proceso anterior y el digital en tiempo de asignación, solicitudes sin atender, errores de dirección, cambios de tarifa sin autorización, tiempo de respuesta y proporción de servicios cerrados con evidencia. Una prueba de tres roles demuestra integración; no demuestra por sí sola escalabilidad, seguridad comercial ni entrega garantizada de todas las notificaciones.
 
-Verificaciones realizadas: TypeScript, ESLint, bundle Android, Expo Doctor 21/21, 18 pruebas de lógica/cola/receipts/GPS/tarifas, 10 pruebas de reglas con el emulador y 4 pruebas del backend preparado. Se comprueba también la conversión de GeoPoint al formato del mapa nativo y el reintento independiente por dispositivo. Las pruebas físicas en tres celulares corresponden al usuario. El estado y enlace del APK se registran en `ENTREGA_APK.md` cuando finaliza EAS Build.
-# Actualización de sesión y rendimiento
+Verificaciones realizadas: TypeScript, ESLint, bundle Android, Expo Doctor 21/21, 18 pruebas de lógica/cola/receipts/GPS/tarifas, 10 pruebas de reglas con el emulador y 4 pruebas del backend preparado. Se comprueba también la conversión de GeoPoint al formato del mapa nativo y el reintento independiente por dispositivo. Las pruebas físicas en tres celulares corresponden al usuario.
 
-El aviso fijo de ubicación fue reemplazado por un popup descartable y configuración en el perfil. Se corrigieron el bucle de registro push, el cierre de sesión dependiente de Firestore y consultas repetidas del chat. Ver [correcciones y verificaciones](CORRECCION_SESION_Y_RENDIMIENTO.md). Esta actualización sustituye las descripciones anteriores de la franja de GPS y del cierre de sesión.
+## 7. Actualización de sesión, ubicación y rendimiento
+
+El aviso fijo de ubicación fue reemplazado por un popup descartable y configuración en el perfil. Se corrigieron el bucle de registro push, el cierre de sesión dependiente de Firestore y consultas repetidas del chat. Se validaron los flujos de inicio/cierre de sesión, cola persistente de notificaciones y manejo de GPS en primer plano. Esta actualización sustituye las descripciones anteriores de la franja de GPS y del cierre de sesión.
