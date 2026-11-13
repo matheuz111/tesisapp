@@ -48,6 +48,18 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { useSession } from '../../src/context/SessionContext';
 import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
 
+/** Quién escribió: cliente, técnico o la central. La central se resalta siempre para que no se confunda con el técnico. */
+function senderRole(senderId: string, job: { clientId: string; providerId?: string } | null) {
+  const isCentral = !!job && senderId !== job.clientId && senderId !== job.providerId;
+  const label = isCentral ? 'Central' : senderId === job?.clientId ? 'Cliente' : 'Técnico';
+  return {
+    label,
+    // Los mensajes propios solo llevan etiqueta si quien escribe es la central; el resto ya se distingue por el lado.
+    showLabel: (isMe: boolean) => isCentral || !isMe,
+    color: (dark: boolean) => (isCentral ? (dark ? '#FFB74D' : '#B45309') : label === 'Cliente' ? (dark ? '#7DD3A8' : '#0F7A45') : (dark ? '#7CB8FF' : '#1262C9')),
+  };
+}
+
 // ─────────────────────────────────────────────
 // TIPOS
 // ─────────────────────────────────────────────
@@ -594,6 +606,7 @@ export default function ChatScreen() {
   // ── Render burbuja ─────────────────────────
   const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
     const isMe = item.senderId === user?.uid;
+    const role = senderRole(item.senderId, jobDetails);
     const isImage = item.type === 'image' && !!item.mediaUrl;
     const dateSeparator = needsDateSeparator(index);
     const isOptimistic = item._optimistic;
@@ -638,6 +651,9 @@ export default function ChatScreen() {
                 : [styles.bubbleOtherRadius, { backgroundColor: chatColors.bubbleInBg }],
               isOptimistic && { opacity: 0.7 },
             ]}>
+              {role.showLabel(isMe) ? (
+                <Text style={[styles.senderLabel, { color: role.color(isDark) }]} numberOfLines={1}>{role.label}</Text>
+              ) : null}
               <Text style={[styles.msgText, { color: isMe ? chatColors.bubbleOutText : chatColors.bubbleInText }]}>
                 {item.text}
               </Text>
@@ -659,7 +675,7 @@ export default function ChatScreen() {
         )}
       </View>
     );
-  }, [user, chatColors, needsDateSeparator, handleLongPress]);
+  }, [user, chatColors, needsDateSeparator, handleLongPress, jobDetails, isDark]);
 
   // ── Datos derivados ────────────────────────
   const otherName = jobDetails
@@ -1278,6 +1294,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 2,
   },
+  senderLabel: { fontSize: 12, fontWeight: '800', marginBottom: 2 },
   msgText: { fontSize: 15.5, lineHeight: 21 },
   metaRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 3, marginTop: 2 },
   msgTime: { fontSize: 11 },

@@ -135,7 +135,7 @@ export default function ServiceMonitor() {
           {messages.map((message) => {
             const sender = people.find((person) => person.id === message.senderId);
             return <View key={message.id} style={[styles.message, { backgroundColor: colors.background, borderLeftColor: sender?.color || colors.subtext }]}>
-              <Text style={{ color: sender?.color || colors.subtext, fontWeight: '800' }}>{sender ? `${sender.label}: ${sender.name}` : 'Otro participante / central'}</Text>
+              <Text style={{ color: sender?.color || colors.subtext, fontWeight: '800' }}>{sender ? `${sender.label}: ${sender.name}` : 'Central'}</Text>
               {message.type === 'image' && message.mediaUrl ? <TouchableOpacity accessibilityLabel="Ampliar imagen del chat" onPress={() => setImage(message.mediaUrl)}><Image source={{ uri: message.mediaUrl }} style={styles.thumbnail} resizeMode="contain" /></TouchableOpacity> : null}
               {message.text ? <Text selectable style={{ color: colors.text, marginTop: 6 }}>{message.text}</Text> : null}
               <Text style={[styles.note, { color: colors.subtext }]}>{message.createdAt?.toDate?.().toLocaleString('es-PE') || 'Enviando…'}</Text>

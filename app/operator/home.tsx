@@ -502,7 +502,7 @@ export default function OperatorHome() {
             ) : request.status === 'QUOTED' ? (
               <View style={[styles.assignment, { backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: colors.primary, marginTop: 10 }]}>
                 <Ionicons name="time-outline" size={20} color={colors.primary} />
-                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Cotización enviada · Esperando al cliente ({formatElapsedTime(request.quotedAt || request.firstResponseAt || request.updatedAt)})</Text>
+                <Text style={{ flex: 1, flexShrink: 1, color: colors.primary, fontWeight: '700', fontSize: 13 }}>Cotización enviada · Esperando al cliente ({formatElapsedTime(request.quotedAt || request.firstResponseAt || request.updatedAt)})</Text>
               </View>
             ) : null}
             {request.providerName ? <View style={[styles.assignment, { backgroundColor: colors.background }]}><Ionicons name="person-circle-outline" size={22} color={colors.primary} /><Text style={{ color: colors.text, fontWeight: '700' }}>{request.providerName}</Text></View> : null}
