@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useTabBarClearance } from '../../../src/components/navigation/FloatingTabBar';
+import { resetToLogin } from '../../../src/navigation/resetStack';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { doc, updateDoc } from 'firebase/firestore';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,18 +16,16 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
-import { auth, db } from '../../src/config/firebase';
-import { syncUserToGoogleSheet } from '../../src/services/googleSheetsSync';
-import { useSession, type SessionProfile } from '../../src/context/SessionContext';
-import { useTheme } from '../../src/context/ThemeContext';
-import { NotificationSettings } from '../../src/components/NotificationSettings';
-import { LocationSharingSettings } from '../../src/components/ServiceLocationSharing';
-import { OperationTimeoutError, withTimeout } from '../../src/services/async';
-import { signOutWithNotifications } from '../../utils/pushNotifications';
+import { auth, db } from '../../../src/config/firebase';
+import { syncUserToGoogleSheet } from '../../../src/services/googleSheetsSync';
+import { useSession, type SessionProfile } from '../../../src/context/SessionContext';
+import { useTheme } from '../../../src/context/ThemeContext';
+import { NotificationSettings } from '../../../src/components/NotificationSettings';
+import { LocationSharingSettings } from '../../../src/components/ServiceLocationSharing';
+import { OperationTimeoutError, withTimeout } from '../../../src/services/async';
+import { signOutWithNotifications } from '../../../utils/pushNotifications';
 import {
-  BaseColors,
   BaseElevation,
   BaseRadii,
   BaseTypography,
@@ -35,11 +35,14 @@ import {
   BaseButton,
   BaseTag,
   BaseDistrictPicker,
-} from '../../src/components/base';
+} from '../../../src/components/base';
+import { useBaseColors, type BaseColorSet } from '../../../src/components/base/useBaseColors';
 
 export default function UserProfile() {
+  const BaseColors = useBaseColors();
+  const styles = useMemo(() => createStyles(BaseColors), [BaseColors]);
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const tabBarClearance = useTabBarClearance();
   const { user, profile, authLoading, loading, error, fromCache, retry } = useSession();
   const { theme, toggleTheme } = useTheme();
   const [closing, setClosing] = useState(false);
@@ -75,7 +78,7 @@ export default function UserProfile() {
             setClosing(true);
             try {
               await signOutWithNotifications();
-              router.replace('/auth/login');
+              resetToLogin(router);
             } catch {
               closingRef.current = false;
               setClosing(false);
@@ -103,14 +106,15 @@ export default function UserProfile() {
       />
 
       <ScrollView
+        overScrollMode="never"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarClearance + 16 }]}
         showsVerticalScrollIndicator={false}
       >
         {(loading || authLoading || error || fromCache) && (
           <View style={styles.statusBox}>
             {(loading || authLoading) && <ActivityIndicator color={BaseColors.accent} />}
-            <Text style={styles.statusText}>
+            <Text style={styles.statusText} numberOfLines={2}>
               {error ||
                 (accountProfile
                   ? 'Mostrando datos locales mientras se conecta al servidor.'
@@ -192,6 +196,8 @@ export default function UserProfile() {
 }
 
 function EditableProfile({ profile, email }: { profile: SessionProfile; email: string }) {
+  const BaseColors = useBaseColors();
+  const styles = useMemo(() => createStyles(BaseColors), [BaseColors]);
   const [form, setForm] = useState(() => ({
     fullName: profile.full_name || profile.name || '',
     phoneNumber: profile.phone || profile.phone_number || '',
@@ -337,7 +343,7 @@ function EditableProfile({ profile, email }: { profile: SessionProfile; email: s
           </View>
         </TouchableOpacity>
 
-        <Text style={styles.profileName}>{form.fullName || email}</Text>
+        <Text style={styles.profileName} numberOfLines={2}>{form.fullName || email}</Text>
         <Text style={styles.profileEmail}>{email}</Text>
 
         <View style={styles.tagWrap}>
@@ -410,7 +416,7 @@ function EditableProfile({ profile, email }: { profile: SessionProfile; email: s
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BaseColors.gray50,
@@ -430,6 +436,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
+    flexShrink: 1,
     color: BaseColors.accentDark,
     lineHeight: 18,
   },
@@ -438,6 +445,7 @@ const styles = StyleSheet.create({
   },
   retryText: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.accent,
   },
@@ -482,17 +490,20 @@ const styles = StyleSheet.create({
   },
   profileName: {
     fontSize: BaseTypography.sizes.lg,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   profileEmail: {
     fontSize: 12,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 2,
   },
   tagWrap: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 8,
     marginTop: 10,
   },
@@ -502,6 +513,7 @@ const styles = StyleSheet.create({
   },
   sectionHeading: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     marginBottom: 14,
@@ -512,6 +524,7 @@ const styles = StyleSheet.create({
   },
   optionRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
@@ -526,11 +539,13 @@ const styles = StyleSheet.create({
   },
   optionLabel: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.medium,
     color: BaseColors.gray800,
   },
   helpRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 14,

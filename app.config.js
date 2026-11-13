@@ -36,6 +36,8 @@ export default {
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
@@ -73,21 +75,24 @@ export default {
           resizeMode: "contain",
           backgroundColor: "#ffffff",
           dark: {
-            backgroundColor: "#000000"
+            image: "./assets/images/splash-icon.png",
+            backgroundColor: "#ffffff"
           }
         }
       ],
       [
         "expo-location",
         {
-          locationAlwaysAndWhenInUsePermission: "Permitir a Maestro a Domicilio acceder a tu ubicación para coordinar el servicio."
+          locationAlwaysAndWhenInUsePermission: "Permitir a Maestro a Domicilio acceder a tu ubicación para coordinar el servicio.",
+          isAndroidBackgroundLocationEnabled: true,
+          isAndroidForegroundServiceEnabled: true
         }
       ],
       [
         "expo-notifications",
         {
           icon: "./assets/images/icon.png",
-          color: "#007bff",
+          color: "#0369A1",
           defaultChannel: "default"
         }
       ]

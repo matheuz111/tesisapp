@@ -1,14 +1,35 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import {
   Animated,
   Pressable,
   PressableProps,
   StyleProp,
+  StyleSheet,
   ViewStyle,
   AccessibilityInfo,
   GestureResponderEvent,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+
+/**
+ * Propiedades que posicionan/dimensionan el control dentro de su padre. Deben vivir en el
+ * Pressable exterior; si se aplican solo al Animated.View interno (como antes), width en %
+ * y flex se resuelven contra un contenedor que se encoge y las tarjetas se deforman.
+ */
+const OUTER_LAYOUT_KEYS = new Set([
+  'flex', 'flexGrow', 'flexShrink', 'flexBasis', 'width', 'height', 'minWidth', 'minHeight',
+  'maxWidth', 'maxHeight', 'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight',
+  'marginHorizontal', 'marginVertical', 'marginStart', 'marginEnd', 'alignSelf', 'position',
+  'top', 'right', 'bottom', 'left', 'zIndex', 'aspectRatio', 'display',
+]);
+
+function splitStyle(style: StyleProp<ViewStyle>) {
+  const flat = (StyleSheet.flatten(style) || {}) as Record<string, unknown>;
+  const outer: Record<string, unknown> = {};
+  const inner: Record<string, unknown> = {};
+  for (const key of Object.keys(flat)) (OUTER_LAYOUT_KEYS.has(key) ? outer : inner)[key] = flat[key];
+  return { outer: outer as ViewStyle, inner: inner as ViewStyle };
+}
 
 interface AnimatedPressableProps extends Omit<PressableProps, 'style'> {
   style?: StyleProp<ViewStyle>;
@@ -28,7 +49,7 @@ interface AnimatedPressableProps extends Omit<PressableProps, 'style'> {
 export const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
   style,
   scaleTo = 0.97,
-  hapticFeedback = 'light',
+  hapticFeedback = 'none',
   onPress,
   onPressIn,
   onPressOut,
@@ -36,7 +57,7 @@ export const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
   children,
   ...rest
 }) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useMemo(() => new Animated.Value(1), []);
   const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
@@ -96,17 +117,23 @@ export const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
     if (onPressOut) onPressOut(e);
   };
 
+  const { outer, inner } = splitStyle(style);
+
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       disabled={disabled}
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       {...rest}
+      style={outer}
     >
       <Animated.View
         style={[
-          style,
+          inner,
+          styles.fill,
           !reduceMotion && {
             transform: [{ scale: scaleAnim }],
           },
@@ -117,3 +144,6 @@ export const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
     </Pressable>
   );
 };
+
+// flexBasis auto (no 0): con flex:1 un padre de alto automático colapsaría el contenido.
+const styles = StyleSheet.create({ fill: { flexGrow: 1, flexShrink: 0, flexBasis: 'auto' } });

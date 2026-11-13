@@ -1,10 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useTabBarClearance } from '../../../src/components/navigation/FloatingTabBar';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -15,11 +14,10 @@ import {
   View,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
-import { db } from '../../src/config/firebase';
-import { useSession } from '../../src/context/SessionContext';
-import { MAX_REVIEW_COMMENT_LENGTH, submitServiceRating } from '../../src/services/ratings';
+import { db } from '../../../src/config/firebase';
+import { useSession } from '../../../src/context/SessionContext';
+import { MAX_REVIEW_COMMENT_LENGTH, submitServiceRating } from '../../../src/services/ratings';
 import {
-  BaseColors,
   BaseElevation,
   BaseRadii,
   BaseTypography,
@@ -29,17 +27,22 @@ import {
   BaseButton,
   BaseBottomSheet,
   TagVariant,
-} from '../../src/components/base';
+} from '../../../src/components/base';
+import { ListSkeleton } from '../../../src/components/Skeleton';
+import { useBaseColors, type BaseColorSet } from '../../../src/components/base/useBaseColors';
 
 const RATING_LABELS: Record<number, string> = {
   1: 'Muy deficiente 😞',
   2: 'Regular 😐',
   3: 'Bueno 🙂',
   4: 'Muy bueno 😊',
-  5: '¡Excelente servicio! ⭐',
+  5: '¡Excelente servicio!',
 };
 
 export default function ClientHistory() {
+  const tabBarClearance = useTabBarClearance();
+  const BaseColors = useBaseColors();
+  const styles = useMemo(() => createStyles(BaseColors), [BaseColors]);
   const router = useRouter();
   const { user } = useSession();
 
@@ -77,9 +80,10 @@ export default function ClientHistory() {
     }
   }, [user]);
 
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+  // Las pestañas permanecen montadas: se recarga cada vez que la pantalla recupera el foco.
+  useFocusEffect(useCallback(() => {
+    void loadHistory();
+  }, [loadHistory]));
 
   const openRatingModal = (item: any) => {
     setSelectedServiceToRate(item);
@@ -90,7 +94,6 @@ export default function ClientHistory() {
 
   const handleSelectStar = (star: number) => {
     setRatingStars(star);
-    void Haptics.selectionAsync().catch(() => {});
   };
 
   const handleSendRating = async () => {
@@ -184,7 +187,7 @@ export default function ClientHistory() {
               <Text style={styles.providerName} numberOfLines={1}>
                 {item.providerName || 'Central evaluando solicitud'}
               </Text>
-              <Text style={styles.serviceCategory}>
+              <Text style={styles.serviceCategory} numberOfLines={1}>
                 {item.serviceLabel || item.specialty || 'Servicio técnico'}
               </Text>
             </View>
@@ -200,7 +203,7 @@ export default function ClientHistory() {
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
             <Ionicons name="calendar-outline" size={14} color={BaseColors.gray500} />
-            <Text style={styles.metaText}>
+            <Text style={styles.metaText} numberOfLines={1}>
               {item.createdAt
                 ? new Date(item.createdAt.seconds * 1000).toLocaleString('es-PE', {
                     month: 'short',
@@ -214,7 +217,7 @@ export default function ClientHistory() {
 
           <View style={styles.metaItem}>
             <Ionicons name="cash-outline" size={14} color={BaseColors.accent} />
-            <Text style={styles.priceText}>
+            <Text style={styles.priceText} numberOfLines={2}>
               {item.price_agreed || 'S/ Por cotizar'}
             </Text>
           </View>
@@ -256,7 +259,7 @@ export default function ClientHistory() {
               {item.review_comment ? (
                 <View style={styles.commentBubble}>
                   <Text style={styles.commentText}>
-                    "{item.review_comment}"
+                    {`"${item.review_comment}"`}
                   </Text>
                 </View>
               ) : null}
@@ -319,15 +322,14 @@ export default function ClientHistory() {
       />
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={BaseColors.accent} />
-        </View>
+        <ListSkeleton />
       ) : (
         <FlatList
+          overScrollMode="never"
           data={requests}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarClearance + 16 }]}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.emptyState}>
@@ -425,7 +427,7 @@ export default function ClientHistory() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BaseColors.gray50,
@@ -446,6 +448,7 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
@@ -467,17 +470,22 @@ const styles = StyleSheet.create({
   },
   providerName: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   serviceCategory: {
     fontSize: 12,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 1,
   },
   metaRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 12,
+    rowGap: 6,
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
@@ -487,20 +495,24 @@ const styles = StyleSheet.create({
   },
   metaItem: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
   },
   metaText: {
     fontSize: 12,
+    flexShrink: 1,
     color: BaseColors.gray600,
   },
   priceText: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.accent,
   },
   addressRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 4,
     marginBottom: 12,
@@ -516,6 +528,7 @@ const styles = StyleSheet.create({
   },
   evidenceLabel: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.semiBold,
     color: BaseColors.gray700,
     marginBottom: 6,
@@ -536,16 +549,19 @@ const styles = StyleSheet.create({
   },
   ratingHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   ratingLabel: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.semiBold,
     color: BaseColors.gray700,
   },
   starsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 3,
   },
   commentBubble: {
@@ -558,6 +574,7 @@ const styles = StyleSheet.create({
   },
   commentText: {
     fontSize: 12,
+    flexShrink: 1,
     color: BaseColors.gray700,
     fontStyle: 'italic',
   },
@@ -567,11 +584,13 @@ const styles = StyleSheet.create({
   },
   editRatingText: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.accent,
   },
   rateButton: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -584,11 +603,13 @@ const styles = StyleSheet.create({
   },
   rateButtonText: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: '#B45309',
   },
   actionsContainer: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
     marginTop: 4,
   },
@@ -608,12 +629,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: BaseTypography.sizes.lg,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     marginBottom: 6,
   },
   emptyText: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     color: BaseColors.gray500,
     textAlign: 'center',
     lineHeight: 20,
@@ -623,6 +646,7 @@ const styles = StyleSheet.create({
   },
   starPickerRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
     marginVertical: 12,
   },
@@ -631,6 +655,7 @@ const styles = StyleSheet.create({
   },
   ratingFeedback: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray800,
     marginBottom: 16,
@@ -648,6 +673,7 @@ const styles = StyleSheet.create({
   },
   charCounter: {
     fontSize: 11,
+    flexShrink: 1,
     color: BaseColors.gray400,
     alignSelf: 'flex-end',
     marginTop: 4,

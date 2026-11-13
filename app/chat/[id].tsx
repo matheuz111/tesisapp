@@ -203,13 +203,15 @@ export default function ChatScreen() {
 
   // ══════ #2: useMemo para paleta de colores (Estilo WhatsApp) ══════
   const chatColors = useMemo(() => ({
-    chatBg: isDark ? '#0F172A' : '#F8FAFC',
-    bubbleOutBg: isDark ? '#0284C7' : '#0369A1',
-    bubbleInBg: isDark ? '#1F2C34' : '#FFFFFF',
-    bubbleInText: isDark ? '#E9EDEF' : '#111827',
-    bubbleOutText: '#FFFFFF',
-    tsOut: 'rgba(255,255,255,0.70)',
-    tsIn: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)',
+    // Paleta del kit "Text Chat Bubbles UI Kit" (Figma): enviado verdoso, recibido neutro, fondo cálido/negro.
+    chatBg: isDark ? '#0B141A' : '#EFEAE2',
+    bubbleOutBg: isDark ? '#005C4B' : '#D9FDD3',
+    bubbleInBg: isDark ? '#202C33' : '#FFFFFF',
+    bubbleInText: isDark ? '#E9EDEF' : '#111B21',
+    bubbleOutText: isDark ? '#E9EDEF' : '#111B21',
+    tsOut: isDark ? 'rgba(233,237,239,0.65)' : 'rgba(17,27,33,0.55)',
+    tsIn: isDark ? 'rgba(233,237,239,0.55)' : 'rgba(17,27,33,0.5)',
+    checkColor: isDark ? '#8FA3AD' : '#6B7C85',
     toolbarBg: 'transparent',
     inputBg: isDark ? '#1F2C34' : '#FFFFFF',
     inputText: isDark ? '#E9EDEF' : '#111111',
@@ -404,7 +406,7 @@ export default function ChatScreen() {
       if (targetTokens && targetTokens.length > 0) {
         sendDemoPushNotification(
           targetTokens,
-          `💬 ${senderName}`,
+          senderName,
           text,
           {
             requestId: id,
@@ -476,7 +478,7 @@ export default function ChatScreen() {
       if (targetTokens && targetTokens.length > 0) {
         sendDemoPushNotification(
           targetTokens,
-          `💬 ${senderName}`,
+          senderName,
           '📷 Imagen',
           {
             requestId: id,
@@ -618,7 +620,7 @@ export default function ChatScreen() {
               <Image source={{ uri: item.mediaUrl }} style={styles.chatImage} resizeMode="cover" />
               <View style={styles.imageTimeRow}>
                 <Text style={styles.imageTimeText}>
-                  {formatTime(item.createdAt)}{isMe ? ' ✓✓' : ''}
+                  {formatTime(item.createdAt)}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -639,9 +641,19 @@ export default function ChatScreen() {
               <Text style={[styles.msgText, { color: isMe ? chatColors.bubbleOutText : chatColors.bubbleInText }]}>
                 {item.text}
               </Text>
-              <Text style={[styles.msgTime, { color: isMe ? chatColors.tsOut : chatColors.tsIn }]}>
-                {isOptimistic ? '⏳' : formatTime(item.createdAt)}{isMe && !isOptimistic ? ' ✓✓' : ''}
-              </Text>
+              <View style={styles.metaRow}>
+                <Text style={[styles.msgTime, { color: isMe ? chatColors.tsOut : chatColors.tsIn }]}>
+                  {isOptimistic ? 'Enviando…' : formatTime(item.createdAt)}
+                </Text>
+                {isMe ? (
+                  <Ionicons
+                    name={isOptimistic ? 'time-outline' : 'checkmark-done'}
+                    size={15}
+                    color={chatColors.checkColor}
+                    accessibilityLabel={isOptimistic ? 'Enviando' : 'Enviado'}
+                  />
+                ) : null}
+              </View>
             </View>
           </Pressable>
         )}
@@ -1207,6 +1219,7 @@ const styles = StyleSheet.create({
   headerTyping: { color: '#25D366', fontSize: 12, fontWeight: '600', fontStyle: 'italic' },
   headerQuickAction: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 10,
@@ -1251,11 +1264,11 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
 
   // ── Burbujas comunes ───────────────────
-  msgWrapper: { marginBottom: 4, maxWidth: '78%' },
+  msgWrapper: { marginBottom: 6, maxWidth: '80%' },
   wrapperMe: { alignSelf: 'flex-end' },
   wrapperOther: { alignSelf: 'flex-start' },
-  bubbleMeRadius: { borderRadius: 18, borderBottomRightRadius: 4 },
-  bubbleOtherRadius: { borderRadius: 18, borderBottomLeftRadius: 4 },
+  bubbleMeRadius: { borderRadius: 16, borderBottomRightRadius: 4 },
+  bubbleOtherRadius: { borderRadius: 16, borderBottomLeftRadius: 4 },
 
   textBubble: {
     paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6,
@@ -1266,7 +1279,8 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
   },
   msgText: { fontSize: 15.5, lineHeight: 21 },
-  msgTime: { fontSize: 10.5, alignSelf: 'flex-end', marginTop: 4 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 3, marginTop: 2 },
+  msgTime: { fontSize: 11 },
 
   imageBubble: {
     overflow: 'hidden',
@@ -1300,6 +1314,7 @@ const styles = StyleSheet.create({
   // ── #8: Closed banner ─────────────────
   closedBanner: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -1310,6 +1325,7 @@ const styles = StyleSheet.create({
   // ── Toolbar Estilo WhatsApp ─────────────
   toolbar: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'flex-end',
     paddingHorizontal: 8,
     paddingTop: 6,
@@ -1358,6 +1374,7 @@ const styles = StyleSheet.create({
   sendBtnDisabled: { opacity: 0.5 },
   closedToolbar: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 14,
@@ -1401,6 +1418,7 @@ const styles = StyleSheet.create({
   previewOverlay: { flex: 1 },
   previewHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -1412,6 +1430,7 @@ const styles = StyleSheet.create({
   previewFooter: { paddingHorizontal: 20, paddingTop: 12 },
   previewSendBtn: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'center', alignItems: 'center',
     paddingVertical: 16, borderRadius: 14,
     elevation: 3,
@@ -1476,6 +1495,7 @@ const styles = StyleSheet.create({
   profileCardName: { fontSize: 22, fontWeight: '800', marginBottom: 6 },
   profileCardRoleBadge: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 12,
@@ -1492,6 +1512,7 @@ const styles = StyleSheet.create({
   },
   profileCardRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     paddingVertical: 8,

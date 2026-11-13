@@ -9,7 +9,8 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BaseColors, BaseRadii, BaseTypography } from './BaseTokens';
+import { BaseRadii, BaseTypography } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 
 export interface BaseInputProps extends TextInputProps {
   label?: string;
@@ -35,6 +36,8 @@ export const BaseInput: React.FC<BaseInputProps> = ({
   secureTextEntry,
   ...props
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const [isFocused, setIsFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -131,12 +134,13 @@ export const BaseInput: React.FC<BaseInputProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   wrapper: {
     marginBottom: 14,
   },
   label: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.medium,
     color: BaseColors.gray700,
     marginBottom: 6,
@@ -144,6 +148,7 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     borderRadius: BaseRadii.md,
     minHeight: 46,
@@ -165,6 +170,7 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 11,
+    flexShrink: 1,
     marginTop: 4,
     lineHeight: 14,
   },

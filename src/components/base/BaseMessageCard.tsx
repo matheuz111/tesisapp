@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BaseColors, BaseRadii, BaseTypography, BaseElevation } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 import { BaseButton } from './BaseButton';
 
 export interface BaseMessageCardProps {
@@ -35,6 +36,8 @@ export const BaseMessageCard: React.FC<BaseMessageCardProps> = ({
   onDismiss,
   style,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   return (
     <View style={[styles.card, BaseElevation.sm, style]}>
       {onDismiss && (
@@ -54,7 +57,7 @@ export const BaseMessageCard: React.FC<BaseMessageCardProps> = ({
           <Ionicons name={icon} size={22} color={iconColor} />
         </View>
         <View style={styles.textContainer}>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.title} numberOfLines={2}>{title}</Text>
           <Text style={styles.description}>{description}</Text>
         </View>
       </View>
@@ -85,7 +88,7 @@ export const BaseMessageCard: React.FC<BaseMessageCardProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   card: {
     backgroundColor: BaseColors.white,
     borderRadius: BaseRadii.lg,
@@ -103,6 +106,7 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'flex-start',
   },
   iconContainer: {
@@ -119,18 +123,21 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   description: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray600,
     marginTop: 4,
     lineHeight: 18,
   },
   actionRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'flex-end',
     alignItems: 'center',
     gap: 8,

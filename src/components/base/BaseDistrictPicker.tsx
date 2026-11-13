@@ -10,8 +10,8 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import { BaseColors, BaseRadii, BaseTypography } from './BaseTokens';
+import { BaseRadii, BaseTypography } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { BaseTag } from './BaseBadge';
 import { COMPLETE_DISTRICTS_CATALOG, type DistrictOption } from '../../config/operationalConfig';
@@ -46,6 +46,8 @@ export const BaseDistrictPicker: React.FC<BaseDistrictPickerProps> = ({
   containerStyle,
   disabled = false,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const [modalVisible, setModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedZoneFilter, setSelectedZoneFilter] = useState('TODOS');
@@ -68,11 +70,6 @@ export const BaseDistrictPicker: React.FC<BaseDistrictPickerProps> = ({
   }, [searchQuery, selectedZoneFilter]);
 
   const handleSelect = (district: DistrictOption) => {
-    try {
-      void Haptics.selectionAsync();
-    } catch {
-      // ignore
-    }
     onSelectDistrict(district.name, district.zone);
     setModalVisible(false);
     setSearchQuery('');
@@ -246,7 +243,7 @@ export const BaseDistrictPicker: React.FC<BaseDistrictPickerProps> = ({
               <View style={styles.emptyContainer}>
                 <Ionicons name="search" size={32} color={BaseColors.gray400} />
                 <Text style={styles.emptyText}>
-                  No se encontraron distritos para "{searchQuery}".
+                  {`No se encontraron distritos para "${searchQuery}".`}
                 </Text>
               </View>
             }
@@ -257,12 +254,13 @@ export const BaseDistrictPicker: React.FC<BaseDistrictPickerProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   wrapper: {
     marginBottom: 14,
   },
   label: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.medium,
     color: BaseColors.gray700,
     marginBottom: 6,
@@ -270,6 +268,7 @@ const styles = StyleSheet.create({
   },
   triggerContainer: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     borderRadius: BaseRadii.md,
     minHeight: 46,
@@ -289,6 +288,7 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 11,
+    flexShrink: 1,
     marginTop: 4,
     lineHeight: 14,
   },
@@ -297,6 +297,7 @@ const styles = StyleSheet.create({
   },
   searchBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     backgroundColor: BaseColors.gray100,
     borderRadius: BaseRadii.md,
@@ -315,6 +316,7 @@ const styles = StyleSheet.create({
   },
   zonesFilterRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     flexWrap: 'wrap',
     gap: 6,
     marginBottom: 12,
@@ -329,10 +331,11 @@ const styles = StyleSheet.create({
   },
   zoneChipActive: {
     backgroundColor: BaseColors.accentLight,
-    borderColor: '#BAE6FD',
+    borderColor: BaseColors.accentBorder,
   },
   zoneChipText: {
     fontSize: 11,
+    flexShrink: 1,
     color: BaseColors.gray600,
     fontWeight: BaseTypography.weights.medium,
   },
@@ -345,6 +348,7 @@ const styles = StyleSheet.create({
   },
   districtItem: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 10,
@@ -353,7 +357,7 @@ const styles = StyleSheet.create({
     borderBottomColor: BaseColors.gray100,
   },
   districtItemChosen: {
-    backgroundColor: '#F0F9FF',
+    backgroundColor: BaseColors.accentSoft,
     borderRadius: BaseRadii.md,
     paddingHorizontal: 10,
   },
@@ -363,6 +367,7 @@ const styles = StyleSheet.create({
   },
   districtName: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.semiBold,
     color: BaseColors.gray900,
   },
@@ -372,6 +377,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 8,
     textAlign: 'center',

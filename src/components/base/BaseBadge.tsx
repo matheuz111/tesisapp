@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View, ViewStyle, TextStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BaseColors, BaseRadii, BaseTypography } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 
 // ============================================================================
 // 1. NOTIFICATION BADGE (Numerical indicator)
@@ -18,11 +19,15 @@ export interface NotificationBadgeProps {
 export const NotificationBadge: React.FC<NotificationBadgeProps> = ({
   count,
   maxCount = 99,
-  color = BaseColors.negative,
-  textColor = BaseColors.white,
+  color: colorProp,
+  textColor: textColorProp,
   size = 'md',
   style,
 }) => {
+  const BaseColors = useBaseColors();
+  const color = colorProp ?? BaseColors.negative;
+  const textColor = textColorProp ?? BaseColors.onSolid;
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   if (count === undefined || count <= 0) return null;
 
   const displayCount = count > maxCount ? `${maxCount}+` : `${count}`;
@@ -83,6 +88,8 @@ export const HintBadge: React.FC<HintBadgeProps> = ({
   showRing = false,
   style,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const { dot, ring } = HINT_COLORS[status] || HINT_COLORS.neutral;
 
   if (showRing) {
@@ -146,7 +153,7 @@ export interface BaseTagProps {
   textStyle?: TextStyle;
 }
 
-const TAG_STYLES: Record<TagVariant, { bg: string; text: string; border: string }> = {
+const getTagStyles = (BaseColors: BaseColorSet): Record<TagVariant, { bg: string; text: string; border: string }> => ({
   positive: {
     bg: BaseColors.positiveLight,
     text: BaseColors.positive,
@@ -165,14 +172,14 @@ const TAG_STYLES: Record<TagVariant, { bg: string; text: string; border: string 
   accent: {
     bg: BaseColors.accentLight,
     text: BaseColors.accent,
-    border: '#BAE6FD',
+    border: BaseColors.accentBorder,
   },
   neutral: {
     bg: BaseColors.gray100,
     text: BaseColors.gray700,
     border: BaseColors.gray200,
   },
-};
+});
 
 export const BaseTag: React.FC<BaseTagProps> = ({
   label,
@@ -183,7 +190,10 @@ export const BaseTag: React.FC<BaseTagProps> = ({
   style,
   textStyle,
 }) => {
-  const current = TAG_STYLES[variant] || TAG_STYLES.neutral;
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
+  const tagStyles = React.useMemo(() => getTagStyles(BaseColors), [BaseColors]);
+  const current = tagStyles[variant] || tagStyles.neutral;
   const isSm = size === 'sm';
 
   return (
@@ -224,7 +234,7 @@ export const BaseTag: React.FC<BaseTagProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   notificationBadge: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -243,6 +253,7 @@ const styles = StyleSheet.create({
   },
   tagContainer: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     borderWidth: 1,
     alignSelf: 'flex-start',

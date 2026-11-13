@@ -1,6 +1,7 @@
+import { useTheme, type ThemeColors } from '../../src/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const SLIDES = [
@@ -9,25 +10,27 @@ const SLIDES = [
     title: "Encuentra Expertos",
     description: "Localiza técnicos verificados cerca de tu ubicación en tiempo real.",
     icon: "map",
-    color: "#007bff"
+    color: "#0369A1"
   },
   {
     id: 2,
     title: "Seguridad Garantizada",
     description: "Todos los servicios se cierran con evidencia fotográfica.",
     icon: "shield-checkmark",
-    color: "#2ecc71"
+    color: "#166534"
   },
   {
     id: 3,
     title: "Comunicación Directa",
     description: "Chatea con tu proveedor sin compartir tu número personal.",
     icon: "chatbubbles",
-    color: "#9b59b6"
+    color: "#5B21B6"
   }
 ];
 
 export default function OnboardingScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
   const [currentSlide, setCurrentSlide] = useState(0);
 
@@ -45,7 +48,7 @@ export default function OnboardingScreen() {
         <View style={[styles.iconContainer, { backgroundColor: SLIDES[currentSlide].color }]}>
             <Ionicons name={SLIDES[currentSlide].icon as any} size={80} color="#fff" />
         </View>
-        <Text style={styles.title}>{SLIDES[currentSlide].title}</Text>
+        <Text style={styles.title} numberOfLines={2}>{SLIDES[currentSlide].title}</Text>
         <Text style={styles.description}>{SLIDES[currentSlide].description}</Text>
       </View>
 
@@ -66,8 +69,8 @@ export default function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', justifyContent: 'space-between', paddingVertical: 50 },
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.card, justifyContent: 'space-between', paddingVertical: 50 },
   slideContainer: { alignItems: 'center', paddingHorizontal: 40, marginTop: 50 },
   iconContainer: { width: 150, height: 150, borderRadius: 75, justifyContent: 'center', alignItems: 'center', marginBottom: 40, elevation: 10 },
   title: { fontSize: 28, fontWeight: 'bold', color: '#333', textAlign: 'center', marginBottom: 15 },

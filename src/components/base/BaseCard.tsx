@@ -7,7 +7,20 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { BaseColors, BaseRadii, BaseTypography, BaseElevation } from './BaseTokens';
+import { BaseRadii, BaseTypography, BaseElevation } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
+
+// Props de distribución de hijos: el contenido vive en un View interno (body), así que deben aplicarse allí.
+const BODY_LAYOUT_KEYS = ['flexDirection', 'flexWrap', 'alignItems', 'justifyContent', 'gap', 'rowGap', 'columnGap'] as const;
+
+function splitCardStyle(style?: ViewStyle) {
+  const container: Record<string, unknown> = { ...(StyleSheet.flatten(style) || {}) };
+  const body: Record<string, unknown> = {};
+  for (const key of BODY_LAYOUT_KEYS) {
+    if (key in container) { body[key] = container[key]; delete container[key]; }
+  }
+  return { container: container as ViewStyle, body: body as ViewStyle };
+}
 
 export type CardVariant = 'elevated' | 'outlined' | 'filled';
 
@@ -46,6 +59,8 @@ export const BaseCard: React.FC<BaseCardProps> = ({
   subtitleStyle,
   showDivider = false,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const getRadius = () => {
     switch (radius) {
       case 'md': return BaseRadii.md;
@@ -80,6 +95,7 @@ export const BaseCard: React.FC<BaseCardProps> = ({
     borderWidth = 1;
   }
 
+  const split = splitCardStyle(style);
   const hasHeader = Boolean(title || subtitle || headerRight);
 
   const cardContent = (
@@ -104,7 +120,7 @@ export const BaseCard: React.FC<BaseCardProps> = ({
 
       {hasHeader && showDivider && <View style={styles.divider} />}
 
-      {children && <View style={[styles.body, bodyStyle]}>{children}</View>}
+      {children && <View style={[styles.body, split.body, bodyStyle]}>{children}</View>}
 
       {footer && (
         <>
@@ -124,7 +140,7 @@ export const BaseCard: React.FC<BaseCardProps> = ({
       borderRadius: getRadius(),
     },
     getElevationStyle(),
-    style,
+    split.container,
   ];
 
   if (onPress) {
@@ -144,7 +160,7 @@ export const BaseCard: React.FC<BaseCardProps> = ({
   return <View style={containerStyle}>{cardContent}</View>;
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   card: {
     overflow: 'hidden',
   },
@@ -153,6 +169,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
   },
@@ -161,12 +178,14 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: BaseTypography.sizes.md,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   subtitle: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 2,
   },

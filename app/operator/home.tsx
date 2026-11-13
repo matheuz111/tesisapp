@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { resetToLogin } from '../../src/navigation/resetStack';
 import { useRouter } from 'expo-router';
 import { signOutWithNotifications } from '../../utils/pushNotifications';
 import { collection, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
@@ -10,7 +11,7 @@ import { ActivityIndicator, Alert, Image, Linking, Modal, Platform, ScrollView, 
 import Toast from 'react-native-toast-message';
 import { ServiceMap, TechnicianMapMarker } from '../../src/components/ServiceMap';
 import { auth, db } from '../../src/config/firebase';
-import { useTheme } from '../../src/context/ThemeContext';
+import { useTheme, type ThemeColors } from '../../src/context/ThemeContext';
 import { useSession } from '../../src/context/SessionContext';
 import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
 import { formatPrice, parsePriceCents } from '../../src/services/pricing';
@@ -86,6 +87,7 @@ const SERVICES = [
 export default function OperatorHome() {
   const router = useRouter();
   const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user, profile, loading: profileLoading, error: profileError, retry } = useSession();
   const authorized = profile?.role === 'OPERATOR' || profile?.role === 'ADMIN';
   const [feedError, setFeedError] = useState<string | null>(null);
@@ -361,7 +363,7 @@ export default function OperatorHome() {
 
         sendDemoPushNotification(
           providerTokens,
-          'Nuevo servicio asignado 🔧',
+          'Nuevo servicio asignado',
           `${clientName} solicita ${serviceType} en ${districtName}.`,
           {
             requestId: selectedRequest.id,
@@ -428,7 +430,7 @@ export default function OperatorHome() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <View style={{ flex: 1 }}><Text style={[styles.eyebrow, { color: colors.primary }]}>CENTRAL DE OPERACIONES</Text><Text style={[styles.title, { color: colors.text }]}>Maestro a Domicilio</Text></View>
-          <TouchableOpacity style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={async () => { try { await signOutWithNotifications(); router.replace('/auth/login'); } catch { Alert.alert('No se pudo cerrar sesión', 'Revisa tu conexión e intenta nuevamente.'); } }}><Ionicons name="log-out-outline" size={23} color={colors.danger} /></TouchableOpacity>
+          <TouchableOpacity style={[styles.iconButton, { backgroundColor: colors.card }]} onPress={async () => { try { await signOutWithNotifications(); resetToLogin(router); } catch { Alert.alert('No se pudo cerrar sesión', 'Revisa tu conexión e intenta nuevamente.'); } }}><Ionicons name="log-out-outline" size={23} color={colors.danger} /></TouchableOpacity>
         </View>
 
         {feedError ? <View style={{ padding: 12, backgroundColor: colors.card }}><Text style={{ color: colors.text }}>{feedError}</Text><TouchableOpacity style={{ paddingVertical: 10 }} onPress={() => setFeedAttempt((value) => value + 1)}><Text style={{ color: colors.primary }}>Volver a intentar</Text></TouchableOpacity></View> : null}
@@ -481,8 +483,8 @@ export default function OperatorHome() {
                 <Text style={[styles.cardTitle, { color: colors.text }]}>{request.serviceLabel || request.specialty || 'Servicio general'}</Text>
                 <Text style={[styles.muted, { color: colors.subtext }]}>{request.clientName || 'Cliente'} · {request.district || 'Distrito pendiente'}</Text>
               </View>
-              <View style={[styles.badge, { backgroundColor: request.status === 'REQUIRES_REASSIGNMENT' ? '#FDEDEC' : `${colors.primary}16` }]}>
-                <Text style={{ color: request.status === 'REQUIRES_REASSIGNMENT' ? '#C0392B' : colors.primary, fontWeight: '800', fontSize: 11 }}>{statusLabel(request.status)}</Text>
+              <View style={[styles.badge, { backgroundColor: request.status === 'REQUIRES_REASSIGNMENT' ? colors.states.danger.bg : `${colors.primary}16` }]}>
+                <Text style={{ color: request.status === 'REQUIRES_REASSIGNMENT' ? colors.states.danger.fg : colors.primary, fontWeight: '800', fontSize: 11 }}>{statusLabel(request.status)}</Text>
               </View>
             </View>
             {request.description ? <Text style={[styles.description, { color: colors.text }]}>{request.description}</Text> : null}
@@ -527,7 +529,7 @@ export default function OperatorHome() {
                 {request.rating_given ? (
                   <View style={{ marginVertical: 4 }}>
                     <Text style={{ fontSize: 12, color: colors.subtext }}>
-                      Calificación del cliente: {'⭐'.repeat(request.rating_given)} ({request.rating_given}/5)
+                      Calificación del cliente: {'★'.repeat(request.rating_given)} ({request.rating_given}/5)
                     </Text>
                     {request.review_comment ? (
                       <Text style={{ fontSize: 12, fontStyle: 'italic', color: colors.text }}>&quot;{request.review_comment}&quot;</Text>
@@ -709,13 +711,21 @@ export default function OperatorHome() {
   );
 }
 
-function Metric({ label, value, color }: { label: string; value: number; color: string }) { return <View style={[styles.metric, { borderTopColor: color }]}><Text style={[styles.metricValue, { color }]}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>; }
-function TabButton({ active, label, onPress, color }: { active: boolean; label: string; onPress: () => void; color: string }) { return <TouchableOpacity style={[styles.tab, active && { backgroundColor: `${color}18` }]} onPress={onPress}><Text style={{ color: active ? color : '#7B8794', fontWeight: '800' }}>{label}</Text></TouchableOpacity>; }
+function Metric({ label, value, color }: { label: string; value: number; color: string }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return <View style={[styles.metric, { borderTopColor: color }]}><Text style={[styles.metricValue, { color }]}>{value}</Text><Text style={styles.metricLabel} numberOfLines={2}>{label}</Text></View>;
+}
+function TabButton({ active, label, onPress, color }: { active: boolean; label: string; onPress: () => void; color: string }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return <TouchableOpacity style={[styles.tab, active && { backgroundColor: `${color}18` }]} onPress={onPress}><Text style={{ color: active ? color : colors.textMuted, fontWeight: '800' }}>{label}</Text></TouchableOpacity>;
+}
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center' }, content: { width: '100%', maxWidth: 980, alignSelf: 'center', padding: 18, paddingTop: Platform.OS === 'android' ? 50 : 62, paddingBottom: 50 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 }, eyebrow: { fontSize: 11, fontWeight: '900', letterSpacing: 1.4 }, title: { fontSize: 27, fontWeight: '900', marginTop: 3 }, iconButton: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  metrics: { flexDirection: 'row', gap: 10, marginBottom: 16 }, metric: { flex: 1, backgroundColor: '#fff', borderRadius: 15, padding: 13, borderTopWidth: 4 }, metricValue: { fontSize: 25, fontWeight: '900' }, metricLabel: { color: '#687481', fontSize: 11, fontWeight: '700' },
+  metrics: { flexDirection: 'row', gap: 10, marginBottom: 16 }, metric: { flex: 1, backgroundColor: colors.card, borderRadius: 15, padding: 13, borderTopWidth: 4 }, metricValue: { fontSize: 25, fontWeight: '900' }, metricLabel: { color: '#687481', fontSize: 11, fontWeight: '700' },
   tabs: { flexDirection: 'row', borderRadius: 15, padding: 4, marginBottom: 14 }, tab: { flex: 1, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   card: { borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 }, cardTitle: { fontSize: 17, fontWeight: '900' }, muted: { fontSize: 12, lineHeight: 18 }, description: { fontSize: 14, lineHeight: 20, marginVertical: 12 }, badge: { borderRadius: 10, paddingHorizontal: 9, paddingVertical: 6 }, issuePhoto: { width: '100%', height: 180, borderRadius: 13, marginBottom: 12, backgroundColor: '#0f172a' },
   primaryButton: { height: 45, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 13 }, primaryText: { color: '#fff', fontWeight: '900' }, assignment: { flexDirection: 'row', alignItems: 'center', gap: 7, padding: 11, borderRadius: 12, marginTop: 12 }, onlineDot: { width: 12, height: 12, borderRadius: 6 },

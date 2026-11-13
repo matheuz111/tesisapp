@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { useTheme } from '../context/ThemeContext';
+import { runWhenIdle } from '../utils/idle';
 import MapView, { MapPressEvent, Marker, Polyline, Region } from 'react-native-maps';
 import { toMapCoordinate } from '../services/monitoring';
 import { fetchRouteWithEta, RouteInfo } from '../services/routing';
@@ -46,6 +48,12 @@ export function ServiceMap({
 }: Props) {
   const location = useMemo(() => toMapCoordinate(rawLocation), [rawLocation]);
   const mapRef = useRef<MapView>(null);
+  const { colors } = useTheme();
+  // Montar el MapView nativo es costoso: se difiere hasta terminar transiciones/animaciones para evitar tirones.
+  const [mapReady, setMapReady] = useState(false);
+  useEffect(() => {
+    return runWhenIdle(() => setMapReady(true));
+  }, []);
   const [routeCoordinates, setRouteCoordinates] = useState<MapCoordinate[]>([]);
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
 
@@ -98,7 +106,9 @@ export function ServiceMap({
     if (editable) onLocationChange?.(event.nativeEvent.coordinate);
   };
 
-  const mapView = (
+  const mapView = !mapReady ? (
+    <View style={[showEtaBadge ? StyleSheet.absoluteFill : style, { backgroundColor: colors.input }]} accessibilityLabel="Cargando mapa" />
+  ) : (
     <MapView
       ref={mapRef}
       style={showEtaBadge ? StyleSheet.absoluteFill : style}
@@ -158,7 +168,7 @@ export function ServiceMap({
       {routeInfo && routeInfo.distanceMeters > 0 ? (
         <View style={etaStyles.etaBadge}>
           <Text style={etaStyles.etaText}>
-            ⏱️ Llegada estimada: <Text style={{ fontWeight: '900' }}>~{routeInfo.durationText}</Text> ({routeInfo.distanceText})
+            Llegada estimada: <Text style={{ fontWeight: '900' }}>~{routeInfo.durationText}</Text> ({routeInfo.distanceText})
           </Text>
         </View>
       ) : null}
@@ -187,6 +197,7 @@ const etaStyles = StyleSheet.create({
   etaText: {
     color: '#F8FAFC',
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
   },
 });

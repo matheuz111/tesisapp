@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
+import { resetTo } from '../../src/navigation/resetStack';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import {
+  Image,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -17,16 +19,17 @@ import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/aut
 import { auth } from '../../src/config/firebase';
 import { useSession } from '../../src/context/SessionContext';
 import {
-  BaseColors,
   BaseElevation,
-  BaseRadii,
   BaseTypography,
   BaseButton,
   BaseInput,
   BaseCard,
 } from '../../src/components/base';
+import { useBaseColors, type BaseColorSet } from '../../src/components/base/useBaseColors';
 
 export default function LoginScreen() {
+  const BaseColors = useBaseColors();
+  const styles = useMemo(() => createStyles(BaseColors), [BaseColors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, authLoading } = useSession();
@@ -41,7 +44,7 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && user && auth.currentUser?.uid === user.uid) router.replace('/');
+    if (!authLoading && user && auth.currentUser?.uid === user.uid) resetTo(router, '/');
   }, [user, authLoading, router]);
 
   const [email, setEmail] = useState('');
@@ -89,7 +92,7 @@ export default function LoginScreen() {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
       if (mounted.current && auth.currentUser?.uid === userCredential.user.uid) {
-        router.replace('/');
+        resetTo(router, '/');
       }
     } catch (error: any) {
       console.error('Error en login:', error);
@@ -165,7 +168,12 @@ export default function LoginScreen() {
         {/* Brand Header */}
         <View style={styles.header}>
           <View style={styles.brandIconWrapper}>
-            <Ionicons name="construct" size={28} color={BaseColors.accent} />
+            <Image
+              source={require('../../assets/brand/logo-icon.png')}
+              style={styles.brandLogo}
+              resizeMode="contain"
+              accessibilityLabel="Logo de Maestro a Domicilio"
+            />
           </View>
           <Text style={styles.title}>Iniciar Sesión</Text>
           <Text style={styles.subtitle}>
@@ -251,7 +259,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BaseColors.gray50,
@@ -265,26 +273,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
+  // Tarjeta blanca fija: la llave del logo es negra y se perdería sobre el fondo oscuro.
   brandIconWrapper: {
-    width: 56,
-    height: 56,
-    borderRadius: BaseRadii.lg,
-    backgroundColor: BaseColors.accentLight,
+    width: 88,
+    height: 88,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#BAE6FD',
+    borderColor: BaseColors.gray200,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
     ...BaseElevation.sm,
   },
+  brandLogo: { width: 62, height: 60 },
   title: {
     fontSize: BaseTypography.sizes.xl,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   subtitle: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 4,
   },
@@ -299,6 +311,7 @@ const styles = StyleSheet.create({
   },
   forgotText: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.accent,
     fontWeight: BaseTypography.weights.semiBold,
   },
@@ -311,6 +324,7 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     color: BaseColors.gray600,
   },
   footerBold: {
@@ -319,12 +333,14 @@ const styles = StyleSheet.create({
   },
   tutorialLink: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
     padding: 6,
   },
   tutorialText: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray500,
     fontWeight: BaseTypography.weights.medium,
   },

@@ -1,3 +1,5 @@
+import { BrandColors } from '../../theme/tokens';
+
 /**
  * BASE GALLERY DESIGN SYSTEM TOKENS
  * Inspirado en "Base Gallery UI Kit for Figma"
@@ -8,10 +10,10 @@ export const BaseColors = {
   // Brand & Accent (Base Gallery)
   black: '#000000',
   white: '#FFFFFF',
-  accent: '#0369A1',         // Maestro Brand Primary (accesible WCAG AA)
-  accentHover: '#075985',
+  accent: BrandColors.primary,         // Una sola fuente de verdad: theme/tokens.ts
+  accentHover: BrandColors.primaryHover,
   accentLight: '#E0F2FE',
-  accentDark: '#0C4A6E',
+  accentDark: BrandColors.primaryActive,
 
   // Grayscale (Base Gallery scale)
   gray50: '#F8FAFC',

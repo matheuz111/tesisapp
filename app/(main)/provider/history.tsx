@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useTabBarClearance } from '../../../src/components/navigation/FloatingTabBar';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useMemo, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,9 +13,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { auth, db } from '../../src/config/firebase';
+import { auth, db } from '../../../src/config/firebase';
 import {
-  BaseColors,
   BaseElevation,
   BaseRadii,
   BaseTypography,
@@ -22,9 +22,14 @@ import {
   BaseCard,
   BaseTag,
   BaseButton,
-} from '../../src/components/base';
+} from '../../../src/components/base';
+import { ListSkeleton } from '../../../src/components/Skeleton';
+import { useBaseColors, type BaseColorSet } from '../../../src/components/base/useBaseColors';
 
 export default function ProviderHistoryScreen() {
+  const tabBarClearance = useTabBarClearance();
+  const BaseColors = useBaseColors();
+  const styles = useMemo(() => createStyles(BaseColors), [BaseColors]);
   const router = useRouter();
 
   const [user, setUser] = useState(auth.currentUser);
@@ -76,9 +81,10 @@ export default function ProviderHistoryScreen() {
     }
   }, [user]);
 
-  useEffect(() => {
-    if (user) loadDashboard();
-  }, [user, loadDashboard]);
+  // Las pestañas permanecen montadas: se recarga cada vez que la pantalla recupera el foco.
+  useFocusEffect(useCallback(() => {
+    if (user) void loadDashboard();
+  }, [user, loadDashboard]));
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -102,7 +108,7 @@ export default function ProviderHistoryScreen() {
             <Text style={styles.clientName} numberOfLines={1}>
               {item.clientName || 'Cliente'}
             </Text>
-            <Text style={styles.serviceType}>
+            <Text style={styles.serviceType} numberOfLines={1}>
               {item.serviceType || item.serviceLabel || item.specialty || 'Servicio Técnico'}
             </Text>
           </View>
@@ -117,7 +123,7 @@ export default function ProviderHistoryScreen() {
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
             <Ionicons name="calendar-outline" size={14} color={BaseColors.gray500} />
-            <Text style={styles.metaText}>
+            <Text style={styles.metaText} numberOfLines={1}>
               {item.createdAt
                 ? new Date(item.createdAt.seconds * 1000).toLocaleDateString('es-PE', {
                     year: 'numeric',
@@ -129,7 +135,7 @@ export default function ProviderHistoryScreen() {
           </View>
           <View style={styles.metaItem}>
             <Ionicons name="cash-outline" size={14} color={BaseColors.accent} />
-            <Text style={styles.priceText}>
+            <Text style={styles.priceText} numberOfLines={2}>
               {item.price_agreed || 'S/ 0'}
             </Text>
           </View>
@@ -152,8 +158,8 @@ export default function ProviderHistoryScreen() {
             </View>
             {item.review_comment ? (
               <View style={styles.reviewCommentBox}>
-                <Text style={styles.reviewCommentText}>
-                  "{item.review_comment}"
+                <Text style={styles.reviewCommentText} numberOfLines={4}>
+                  {`"${item.review_comment}"`}
                 </Text>
               </View>
             ) : null}
@@ -191,15 +197,14 @@ export default function ProviderHistoryScreen() {
       />
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={BaseColors.accent} />
-        </View>
+        <ListSkeleton />
       ) : (
         <FlatList
+          overScrollMode="never"
           data={history}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarClearance + 16 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -213,11 +218,11 @@ export default function ProviderHistoryScreen() {
               {/* Stats Panel */}
               <BaseCard variant="elevated" elevation="sm" style={styles.statsCard}>
                 <View style={styles.statBox}>
-                  <View style={[styles.statIconCircle, { backgroundColor: '#FFFBEB' }]}>
-                    <Ionicons name="star" size={20} color="#D97706" />
+                  <View style={[styles.statIconCircle, { backgroundColor: BaseColors.warningLight }]}>
+                    <Ionicons name="star" size={20} color={BaseColors.warning} />
                   </View>
-                  <Text style={styles.statValue}>{stats.rating}</Text>
-                  <Text style={styles.statLabel}>
+                  <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats.rating}</Text>
+                  <Text style={styles.statLabel} numberOfLines={1}>
                     {stats.reviewCount > 0 ? `${stats.reviewCount} reseñas` : 'Reputación'}
                   </Text>
                 </View>
@@ -228,8 +233,8 @@ export default function ProviderHistoryScreen() {
                   <View style={[styles.statIconCircle, { backgroundColor: BaseColors.accentLight }]}>
                     <Ionicons name="briefcase" size={20} color={BaseColors.accent} />
                   </View>
-                  <Text style={styles.statValue}>{stats.jobs}</Text>
-                  <Text style={styles.statLabel}>Servicios</Text>
+                  <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats.jobs}</Text>
+                  <Text style={styles.statLabel} numberOfLines={1}>Servicios</Text>
                 </View>
 
                 <View style={styles.dividerVertical} />
@@ -238,10 +243,10 @@ export default function ProviderHistoryScreen() {
                   <View style={[styles.statIconCircle, { backgroundColor: BaseColors.positiveLight }]}>
                     <Ionicons name="cash" size={20} color={BaseColors.positive} />
                   </View>
-                  <Text style={[styles.statValue, { color: BaseColors.positive }]}>
+                  <Text style={[styles.statValue, { color: BaseColors.positive }]} numberOfLines={1} adjustsFontSizeToFit>
                     S/ {totalEarnings.toFixed(0)}
                   </Text>
-                  <Text style={styles.statLabel}>Acumulado</Text>
+                  <Text style={styles.statLabel} numberOfLines={1}>Acumulado</Text>
                 </View>
               </BaseCard>
 
@@ -267,7 +272,7 @@ export default function ProviderHistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BaseColors.gray50,
@@ -287,6 +292,7 @@ const styles = StyleSheet.create({
   },
   statsCard: {
     flexDirection: 'row',
+    flexShrink: 1,
     padding: 16,
     marginBottom: 20,
     alignItems: 'center',
@@ -305,12 +311,14 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: BaseTypography.sizes.lg,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   statLabel: {
     fontSize: 11,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 2,
   },
@@ -321,6 +329,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     marginBottom: 12,
@@ -331,37 +340,46 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 10,
   },
   clientName: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   serviceType: {
     fontSize: 12,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 2,
   },
   metaRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
+    columnGap: 12,
+    rowGap: 6,
     marginBottom: 10,
   },
   metaItem: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 4,
   },
   metaText: {
     fontSize: 12,
+    flexShrink: 1,
     color: BaseColors.gray500,
   },
   priceText: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.accent,
   },
@@ -373,16 +391,19 @@ const styles = StyleSheet.create({
   },
   ratingRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   ratingLabel: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.medium,
     color: BaseColors.gray700,
   },
   starsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 2,
   },
   reviewCommentBox: {
@@ -393,6 +414,7 @@ const styles = StyleSheet.create({
   },
   reviewCommentText: {
     fontSize: 12,
+    flexShrink: 1,
     fontStyle: 'italic',
     color: BaseColors.gray700,
   },
@@ -404,6 +426,7 @@ const styles = StyleSheet.create({
   },
   evidenceLabel: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.semiBold,
     color: BaseColors.gray700,
     marginBottom: 6,
@@ -430,12 +453,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     marginBottom: 4,
   },
   emptyText: {
     fontSize: 13,
+    flexShrink: 1,
     color: BaseColors.gray500,
     textAlign: 'center',
     lineHeight: 18,

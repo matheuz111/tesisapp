@@ -8,7 +8,8 @@ import {
   TextStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BaseColors, BaseRadii, BaseTypography } from './BaseTokens';
+import { BaseRadii, BaseTypography } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 
 export type BannerVariant = 'accent' | 'positive' | 'warning' | 'negative' | 'neutral';
 
@@ -25,7 +26,7 @@ export interface BaseSystemBannerProps {
   descriptionStyle?: TextStyle;
 }
 
-const BANNER_CONFIG: Record<
+const getBannerConfig = (BaseColors: BaseColorSet): Record<
   BannerVariant,
   {
     bg: string;
@@ -35,36 +36,36 @@ const BANNER_CONFIG: Record<
     icon: keyof typeof Ionicons.glyphMap;
     iconColor: string;
   }
-> = {
+> => ({
   accent: {
-    bg: '#F0F9FF',
-    border: '#BAE6FD',
-    text: '#0C4A6E',
-    description: '#0369A1',
+    bg: BaseColors.accentSoft,
+    border: BaseColors.accentBorder,
+    text: BaseColors.isDark ? BaseColors.gray900 : '#0C4A6E',
+    description: BaseColors.isDark ? BaseColors.gray600 : '#0369A1',
     icon: 'information-circle',
     iconColor: BaseColors.accent,
   },
   positive: {
     bg: BaseColors.positiveLight,
     border: BaseColors.positiveBorder,
-    text: '#065F46',
-    description: '#047857',
+    text: BaseColors.isDark ? BaseColors.gray900 : '#065F46',
+    description: BaseColors.isDark ? BaseColors.gray600 : '#047857',
     icon: 'checkmark-circle',
     iconColor: BaseColors.positive,
   },
   warning: {
     bg: BaseColors.warningLight,
     border: BaseColors.warningBorder,
-    text: '#92400E',
-    description: '#B45309',
+    text: BaseColors.isDark ? BaseColors.gray900 : '#92400E',
+    description: BaseColors.isDark ? BaseColors.gray600 : '#B45309',
     icon: 'alert-circle',
     iconColor: BaseColors.warning,
   },
   negative: {
     bg: BaseColors.negativeLight,
     border: BaseColors.negativeBorder,
-    text: '#991B1B',
-    description: '#B91C1C',
+    text: BaseColors.isDark ? BaseColors.gray900 : '#991B1B',
+    description: BaseColors.isDark ? BaseColors.gray600 : '#B91C1C',
     icon: 'close-circle',
     iconColor: BaseColors.negative,
   },
@@ -76,7 +77,7 @@ const BANNER_CONFIG: Record<
     icon: 'notifications',
     iconColor: BaseColors.gray500,
   },
-};
+});
 
 export const BaseSystemBanner: React.FC<BaseSystemBannerProps> = ({
   variant = 'accent',
@@ -90,7 +91,10 @@ export const BaseSystemBanner: React.FC<BaseSystemBannerProps> = ({
   titleStyle,
   descriptionStyle,
 }) => {
-  const config = BANNER_CONFIG[variant] || BANNER_CONFIG.accent;
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
+  const bannerConfig = React.useMemo(() => getBannerConfig(BaseColors), [BaseColors]);
+  const config = bannerConfig[variant] || bannerConfig.accent;
   const resolvedIcon = icon || config.icon;
 
   return (
@@ -146,9 +150,10 @@ export const BaseSystemBanner: React.FC<BaseSystemBannerProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   banner: {
     flexDirection: 'row',
+    flexShrink: 1,
     borderRadius: BaseRadii.md,
     borderWidth: 1,
     padding: 12,
@@ -163,16 +168,19 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     includeFontPadding: false,
   },
   description: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     marginTop: 2,
     lineHeight: 16,
   },
   actionButton: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     marginTop: 6,
     gap: 4,
@@ -180,6 +188,7 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     textDecorationLine: 'underline',
   },

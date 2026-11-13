@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme, type ThemeColors } from '../context/ThemeContext';
 import { StatusBadge } from './StatusBadge';
 import { OPERATIONAL_CONFIG } from '../config/operationalConfig';
 import { TouchTargets, Typography } from '../theme/tokens';
@@ -39,6 +39,7 @@ export function QuoteApprovalView({
   rejecting,
 }: QuoteApprovalViewProps) {
   const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string>('HIGH_PRICE');
 
@@ -168,7 +169,7 @@ export function QuoteApprovalView({
           onPress={() => setRejectModalVisible(true)}
           disabled={approving || rejecting}
         >
-          <Text style={[styles.secondaryButtonText, { color: '#DC2626' }]}>✕ Rechazar Propuesta</Text>
+          <Text style={[styles.secondaryButtonText, { color: colors.danger }]}>✕ Rechazar Propuesta</Text>
         </TouchableOpacity>
 
         {/* Botón Terciario: Hablar con la Central */}
@@ -205,7 +206,7 @@ export function QuoteApprovalView({
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.modalHeader}>
-              <Ionicons name="alert-circle" size={24} color="#DC2626" />
+              <Ionicons name="alert-circle" size={24} color={colors.danger} />
               <Text style={[styles.modalTitle, { color: colors.text }]}>¿Rechazar cotización?</Text>
             </View>
 
@@ -261,7 +262,7 @@ export function QuoteApprovalView({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     borderRadius: 14,
     borderWidth: 1.5,
@@ -270,23 +271,27 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
   },
   eyebrow: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '700',
     letterSpacing: 0.8,
     marginBottom: 2,
   },
   serviceTitle: {
     fontSize: 18,
+    flexShrink: 1,
     fontWeight: '800',
   },
   codeText: {
     fontFamily: Typography.fontFamily.mono,
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
     marginTop: 2,
   },
@@ -299,6 +304,7 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '700',
     letterSpacing: 0.5,
     marginBottom: 4,
@@ -306,10 +312,12 @@ const styles = StyleSheet.create({
   totalAmount: {
     fontFamily: Typography.fontFamily.mono,
     fontSize: 32,
+    flexShrink: 1,
     fontWeight: '800',
   },
   totalHint: {
     fontSize: 12,
+    flexShrink: 1,
     marginTop: 4,
   },
   breakdownSection: {
@@ -317,11 +325,13 @@ const styles = StyleSheet.create({
   },
   sectionHeading: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '700',
     marginBottom: 8,
   },
   breakdownRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     paddingVertical: 8,
     borderBottomWidth: 1,
@@ -332,20 +342,24 @@ const styles = StyleSheet.create({
   },
   breakdownItemTitle: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '600',
   },
   breakdownItemSub: {
     fontSize: 11,
+    flexShrink: 1,
     marginTop: 2,
     lineHeight: 15,
   },
   breakdownItemPrice: {
     fontFamily: Typography.fontFamily.mono,
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
   },
   validityBadge: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     borderRadius: 10,
@@ -355,10 +369,12 @@ const styles = StyleSheet.create({
   },
   validityTitle: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
   },
   validitySub: {
     fontSize: 11,
+    flexShrink: 1,
     marginTop: 1,
   },
   actionsContainer: {
@@ -373,6 +389,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    flexShrink: 1,
     fontWeight: '700',
   },
   secondaryButton: {
@@ -384,10 +401,12 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '700',
   },
   tertiaryRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 8,
     marginTop: 4,
   },
@@ -403,6 +422,7 @@ const styles = StyleSheet.create({
   },
   tertiaryButtonText: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '600',
   },
   modalOverlay: {
@@ -420,16 +440,19 @@ const styles = StyleSheet.create({
   },
   modalHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 8,
     marginBottom: 10,
   },
   modalTitle: {
     fontSize: 18,
+    flexShrink: 1,
     fontWeight: '800',
   },
   modalExplanation: {
     fontSize: 13,
+    flexShrink: 1,
     lineHeight: 18,
     marginBottom: 14,
   },
@@ -439,6 +462,7 @@ const styles = StyleSheet.create({
   },
   reasonOption: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     padding: 12,
@@ -447,10 +471,12 @@ const styles = StyleSheet.create({
   },
   reasonLabel: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '600',
   },
   modalButtonsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
   },
   modalCancelButton: {
@@ -462,6 +488,7 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '700',
   },
   modalConfirmRejectButton: {
@@ -473,6 +500,7 @@ const styles = StyleSheet.create({
   modalConfirmRejectText: {
     color: '#FFFFFF',
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '700',
   },
 });

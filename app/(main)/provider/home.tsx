@@ -1,5 +1,9 @@
-import { signOutWithNotifications } from '../../utils/pushNotifications';
-import { notifyCentral } from '../../src/services/centralNotifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { resetToLogin } from '../../../src/navigation/resetStack';
+import { signOutWithNotifications } from '../../../utils/pushNotifications';
+import { HomeSkeleton } from '../../../src/components/Skeleton';
+import { withTimeout } from '../../../src/services/async';
+import { notifyCentral } from '../../../src/services/centralNotifications';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
@@ -33,23 +37,23 @@ import {
   addDoc,
   where,
 } from 'firebase/firestore';
-import { TechnicianRejectModal, type RejectionReasonCode } from '../../src/components/TechnicianRejectModal';
+import { TechnicianRejectModal, type RejectionReasonCode } from '../../../src/components/TechnicianRejectModal';
 import * as geofire from 'geofire-common';
-import { ProviderDashboard } from '../../src/components/ProviderDashboard';
-import { auth, db } from '../../src/config/firebase';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useSession } from '../../src/context/SessionContext';
-import { transitionServiceStatus } from '../../src/domain/serviceRequestTransition';
-import { uploadServiceImage } from '../../src/services/mediaStorage';
-import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
-import { confirmProviderPayment } from '../../src/services/payment';
-import { createAdaptivePresencePublisher, updateProviderPresence } from '../../src/services/providerPresenceService';
-import { startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../src/services/backgroundLocationTask';
-import { FEATURE_FLAGS } from '../../src/config/featureFlags';
-import { useBackgroundLocationConsent } from '../../src/hooks/useBackgroundLocationConsent';
-import { OfflineBanner } from '../../src/components/OfflineBanner';
-import { useNetworkStatus } from '../../src/services/networkStatus';
-import { offlinePhotoQueue } from '../../src/services/offlinePhotoQueue';
+import { ProviderDashboard } from '../../../src/components/ProviderDashboard';
+import { auth, db } from '../../../src/config/firebase';
+import { useTheme } from '../../../src/context/ThemeContext';
+import { useSession } from '../../../src/context/SessionContext';
+import { transitionServiceStatus } from '../../../src/domain/serviceRequestTransition';
+import { uploadServiceImage } from '../../../src/services/mediaStorage';
+import { queueDemoPushNotification as sendDemoPushNotification } from '../../../src/services/demoPushService';
+import { confirmProviderPayment } from '../../../src/services/payment';
+import { createAdaptivePresencePublisher, updateProviderPresence } from '../../../src/services/providerPresenceService';
+import { setBackgroundTrackingContext, startBackgroundLocationUpdates, stopBackgroundLocationUpdates } from '../../../src/services/backgroundLocationTask';
+import { FEATURE_FLAGS } from '../../../src/config/featureFlags';
+import { useBackgroundLocationConsent } from '../../../src/hooks/useBackgroundLocationConsent';
+import { OfflineBanner } from '../../../src/components/OfflineBanner';
+import { useNetworkStatus } from '../../../src/services/networkStatus';
+import { offlinePhotoQueue } from '../../../src/services/offlinePhotoQueue';
 
 
 // ─────────────────────────────────────────────
@@ -108,6 +112,9 @@ export default function ProviderHome() {
   const [verifyingPin, setVerifyingPin] = useState(false);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [dismissedCompletedId, setDismissedCompletedId] = useState<string | null>(null);
+  // Refs: los callbacks de suscripciones y publicadores viven más que un render y no deben leer valores viejos.
+  const currentJobRef = useRef<any>(null);
+  const dismissedCompletedRef = useRef<string | null>(null);
   const [pinAttempts, setPinAttempts] = useState(0);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [rejectionModalVisible, setRejectionModalVisible] = useState(false);
@@ -190,7 +197,7 @@ export default function ProviderHome() {
       incomingId = incoming?.id || null;
       setIncomingRequest(incoming);
       const activeJob = requests.find((request) => request.status !== 'PENDING') || null;
-      if (activeJob && activeJob.status === 'COMPLETED' && activeJob.id === dismissedCompletedId) {
+      if (activeJob && activeJob.status === 'COMPLETED' && activeJob.id === dismissedCompletedRef.current) {
         setCurrentJob(null);
       } else {
         setCurrentJob(activeJob);
@@ -238,7 +245,7 @@ export default function ProviderHome() {
         const providerName = user?.displayName || 'El técnico';
         sendDemoPushNotification(
           clientTokens,
-          'Técnico en camino 🚀',
+          'Técnico en camino',
           `${providerName} ha aceptado tu solicitud y va en camino.`,
           {
             requestId: targetRequest.id,
@@ -330,7 +337,7 @@ export default function ProviderHome() {
     if (!currentJob || !user) return;
     if (lockoutSeconds > 0) {
       Alert.alert(
-        'Ingreso Temporalmente Bloqueado 🔒',
+        'Ingreso Temporalmente Bloqueado',
         `Por motivos de seguridad, espera ${lockoutSeconds} segundos antes de volver a ingresar el PIN.`
       );
       return;
@@ -355,14 +362,14 @@ export default function ProviderHome() {
           'REQUIRES_REASSIGNMENT'
         );
         Alert.alert(
-          'Límite de Intentos Superado 🔒',
+          'Límite de Intentos Superado',
           'Has ingresado un PIN incorrecto 3 veces consecutivas. Por seguridad se bloqueó el ingreso por 60 segundos y se alertó a la central.'
         );
       } else {
         const remaining = 3 - nextAttempts;
         Alert.alert(
-          'PIN Incorrecto ❌',
-          `El código no coincide. Te quedan ${remaining} ${remaining === 1 ? 'intento' : 'intentos'} antes del bloqueo temporal.`
+          'PIN Incorrecto',
+          `PIN incorrecto. Te quedan ${remaining} ${remaining === 1 ? 'intento' : 'intentos'} antes del bloqueo de seguridad.`
         );
       }
       return;
@@ -391,7 +398,7 @@ export default function ProviderHome() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({
         type: 'success',
-        text1: '¡Llegada confirmada! 📍',
+        text1: '¡Llegada confirmada!',
         text2: 'PIN validado. Presiona "Iniciar trabajo" cuando comiences el desmontaje o revisión.',
       });
     } catch (err) {
@@ -424,7 +431,7 @@ export default function ProviderHome() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({
         type: 'success',
-        text1: 'Servicio en Ejecución 🛠️',
+        text1: 'Servicio en Ejecución',
         text2: 'Captura la fotografía inicial (Antes) para auditoría de calidad.',
       });
 
@@ -434,7 +441,7 @@ export default function ProviderHome() {
         const providerName = user?.displayName || 'El técnico';
         sendDemoPushNotification(
           clientTokens,
-          'Servicio en ejecución 🛠️',
+          'Servicio en ejecución',
           `${providerName} ha iniciado los trabajos de reparación.`,
           { requestId: currentJob.id, screen: 'client_home', type: 'IN_PROGRESS' },
           { requestId: currentJob.id, eventType: 'IN_PROGRESS' }
@@ -521,7 +528,7 @@ export default function ProviderHome() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Toast.show({
           type: 'success',
-          text1: 'Foto inicial guardada 📸',
+          text1: 'Foto inicial guardada',
           text2: 'Se registró el estado del problema (Antes) para auditoría y garantía.',
         });
       }
@@ -566,7 +573,7 @@ export default function ProviderHome() {
         const providerName = user?.displayName || 'El técnico';
         sendDemoPushNotification(
           clientTokens,
-          'Trabajo culminado 🎉',
+          'Trabajo culminado',
           `${providerName} ha completado el trabajo.`,
           {
             requestId: currentJob.id,
@@ -610,10 +617,7 @@ export default function ProviderHome() {
   };
 
   const handleDismissJob = () => {
-    if (currentJob?.id) {
-      setDismissedCompletedId(currentJob.id);
-      setCurrentJob(null);
-    }
+    if (currentJob?.id) void releaseAfterJob(currentJob.id);
   };
 
   // ── Detención limpia de seguimiento y descarte de suscripciones ────────
@@ -626,14 +630,255 @@ export default function ProviderHome() {
 
     const uid = targetUid || user?.uid;
     if (uid) {
-      await updateDoc(doc(db, 'users', uid), { is_active: false }).catch(() => {});
-      await setDoc(doc(db, 'provider_presence', uid), {
-        status: 'OFFLINE',
-        updatedAt: serverTimestamp(),
-        lastSeenAt: serverTimestamp(),
-      }, { merge: true }).catch((err) => console.warn('Error al marcar presencia offline:', err));
+      // En paralelo y con tope: sin red, las escrituras de Firestore no resuelven y no deben bloquear el cierre.
+      await withTimeout(Promise.allSettled([
+        updateDoc(doc(db, 'users', uid), { is_active: false }),
+        setDoc(doc(db, 'provider_presence', uid), {
+          status: 'OFFLINE',
+          updatedAt: serverTimestamp(),
+          lastSeenAt: serverTimestamp(),
+        }, { merge: true }),
+      ]), 1200).catch(() => console.warn('No se confirmó el estado desconectado; se sincronizará al recuperar la red.'));
     }
   };
+
+  const availabilityKey = (uid: string) => `provider-available:${uid}`;
+  const resumedRef = useRef(false);
+
+  /**
+   * Conecta al técnico: permisos, ubicación, presencia y seguimiento. Con interactive=false (reanudación
+   * al abrir la app) nunca muestra diálogos ni pide permisos: si falta algo, simplemente no conecta.
+   */
+  const goOnline = async (interactive: boolean): Promise<boolean> => {
+    if (!user) return false;
+    if (interactive && FEATURE_FLAGS.ENABLE_BACKGROUND_LOCATION_CONSENT && Platform.OS !== 'web' && !bgConsent.hasConsent) {
+      await bgConsent.requestConsentAndPermissions();
+    }
+
+    const { status } = interactive
+      ? await Location.requestForegroundPermissionsAsync()
+      : await Location.getForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      if (interactive) Alert.alert('Permiso Requerido', 'Debes otorgar permisos de ubicación para recibir servicios en tu zona.');
+      return false;
+    }
+
+    try {
+      const providerStatus = await Location.getProviderStatusAsync();
+      if (!providerStatus.locationServicesEnabled) {
+        if (Platform.OS === 'android' && interactive) {
+          try {
+            await Location.enableNetworkProviderAsync();
+          } catch {
+            if (interactive) Alert.alert('GPS Desactivado', 'Debes activar los servicios de ubicación (GPS) para recibir solicitudes.');
+            return false;
+          }
+        } else {
+          if (interactive) Alert.alert('GPS Desactivado', 'Por favor activa el GPS en los ajustes de tu dispositivo para poder conectarte.');
+          return false;
+        }
+      }
+    } catch (provErr) {
+      console.warn('No se pudo verificar el estado del proveedor de ubicación:', provErr);
+    }
+
+    const locationData = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    const coords = locationData.coords;
+
+    setLocation({
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      latitudeDelta: 0.005,
+      longitudeDelta: 0.005,
+    });
+
+    const hash = geofire.geohashForLocation([coords.latitude, coords.longitude]);
+
+    await updateDoc(doc(db, 'users', user.uid), {
+      is_active: true,
+      specialty,
+      service_radius_km: serviceRadius,
+      current_location: new GeoPoint(coords.latitude, coords.longitude),
+      geohash: hash,
+    });
+
+    if (FEATURE_FLAGS.ENABLE_PROVIDER_PRESENCE) {
+      // 1. Publicar de inmediato la ubicación actual en provider_presence
+      await updateProviderPresence(db, {
+        providerId: user.uid,
+        providerName: providerName || 'Técnico',
+        providerPhone: profile?.phone || '',
+        status: currentJobRef.current ? 'BUSY' : 'AVAILABLE',
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracy: coords.accuracy,
+        specialties: specialty ? [specialty] : ['General'],
+        activeRequestId: currentJobRef.current?.id || null,
+      }).catch((err) => console.warn('Error al actualizar provider_presence inmediata:', err));
+
+      // 2. Instanciar publicador adaptativo (Heartbeat quieto cada 45s, movimiento cada 15s si >= 25m)
+      publisherRef.current = createAdaptivePresencePublisher(
+        async (c) => {
+          if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;
+          await updateProviderPresence(db, {
+            providerId: user.uid,
+            providerName: providerName || 'Técnico',
+            providerPhone: profile?.phone || '',
+            status: currentJobRef.current ? 'BUSY' : 'AVAILABLE',
+            latitude: c.latitude,
+            longitude: c.longitude,
+            accuracy: c.accuracy,
+            specialties: specialty ? [specialty] : ['General'],
+            activeRequestId: currentJobRef.current?.id || null,
+          });
+        },
+        {
+          stationaryIntervalMs: 45000,
+          motionIntervalMs: 15000,
+          motionThresholdMeters: 25,
+        }
+      );
+
+      // 3. Suscripción en primer plano con watchPositionAsync
+      locationWatcherRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 10000,
+          distanceInterval: 15,
+        },
+        (sample) => {
+          setLocation({
+            latitude: sample.coords.latitude,
+            longitude: sample.coords.longitude,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+          });
+          publisherRef.current?.onLocationSample(sample.coords);
+        }
+      );
+
+      // 4. Iniciar seguimiento en segundo plano con control de Expo Go
+      if (FEATURE_FLAGS.ENABLE_BACKGROUND_LOCATION_CONSENT && Platform.OS !== 'web' && bgConsent.hasConsent) {
+        const bgRes = await startBackgroundLocationUpdates({
+          providerId: user.uid,
+          providerName: providerName || 'Técnico',
+          providerPhone: profile?.phone || '',
+          specialties: specialty ? [specialty] : ['General'],
+          activeRequestId: currentJobRef.current?.id || null,
+        });
+        if (bgRes.isExpoGo) {
+          Toast.show({
+            type: 'info',
+            text1: 'Modo Expo Go',
+            text2: 'Seguimiento en primer plano activo. Background requiere build nativo/APK.',
+          });
+        }
+      }
+    }
+
+    void AsyncStorage.setItem(availabilityKey(user.uid), 'true').catch(() => {});
+    if (interactive) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Toast.show({ type: 'success', text1: interactive ? '¡Disponible!' : 'Disponibilidad restablecida', text2: interactive ? 'La central ya puede asignarte servicios cercanos.' : 'Sigues conectado: la central puede asignarte servicios cercanos.' });
+    return true;
+  };
+
+  // Al iniciar sesión o reabrir la app, restablece la disponibilidad si el técnico estaba conectado.
+  // Sin diálogos: si faltan permisos o GPS, se deja desconectado de forma coherente en Firestore.
+  useEffect(() => { resumedRef.current = false; }, [user?.uid]);
+  useEffect(() => {
+    if (!user || loading || !isVerified || !specialty.trim() || resumedRef.current) return;
+    resumedRef.current = true;
+    void (async () => {
+      const wanted = await AsyncStorage.getItem(availabilityKey(user.uid)).catch(() => null);
+      if (publisherRef.current || auth.currentUser?.uid !== user.uid) return;
+      if (wanted !== 'true' && !isActive) return;
+      setIsActive(true);
+      const connected = await goOnline(false).catch(() => false);
+      if (!connected && auth.currentUser?.uid === user.uid) {
+        setIsActive(false);
+        await stopAllTracking(user.uid);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, loading, isVerified, specialty]);
+
+  // ── Disponibilidad automática al terminar un trabajo ────────────────────
+  useEffect(() => { currentJobRef.current = currentJob; }, [currentJob]);
+  useEffect(() => { dismissedCompletedRef.current = dismissedCompletedId; }, [dismissedCompletedId]);
+
+  /** Apaga la disponibilidad a petición del técnico (botón "Descansar"). */
+  const pauseAvailability = async () => {
+    if (!user) return;
+    setIsActive(false);
+    await stopAllTracking(user.uid);
+    void AsyncStorage.setItem(availabilityKey(user.uid), 'false').catch(() => {});
+    Toast.show({ type: 'info', text1: 'Desconectado', text2: 'Ya no recibirás solicitudes.' });
+  };
+
+  /**
+   * Cierra el servicio terminado y deja al técnico disponible otra vez, solo si lo estaba antes.
+   * Si apagó su disponibilidad a propósito, no se reactiva.
+   */
+  const releaseAfterJob = async (jobId: string) => {
+    if (!user || currentJobRef.current?.id !== jobId) return;
+    dismissedCompletedRef.current = jobId;
+    currentJobRef.current = null;
+    setDismissedCompletedId(jobId);
+    setCurrentJob(null);
+
+    const stored = await AsyncStorage.getItem(availabilityKey(user.uid)).catch(() => null);
+    if (!(isActive || stored === 'true')) return;
+
+    if (!publisherRef.current) {
+      setIsActive(true);
+      const connected = await goOnline(false).catch(() => false);
+      if (!connected) {
+        setIsActive(false);
+        await stopAllTracking(user.uid);
+        return;
+      }
+    } else if (location) {
+      await updateProviderPresence(db, {
+        providerId: user.uid,
+        providerName: providerName || 'Técnico',
+        providerPhone: profile?.phone || '',
+        status: 'AVAILABLE',
+        latitude: location.latitude,
+        longitude: location.longitude,
+        specialties: specialty ? [specialty] : ['General'],
+        activeRequestId: null,
+      }).catch((err) => console.warn('No se pudo marcar disponibilidad tras el servicio:', err));
+    }
+    Toast.show({
+      type: 'success',
+      text1: 'Ya estás disponible',
+      text2: 'La central puede asignarte otro servicio. Toca aquí si prefieres descansar.',
+      visibilityTime: 7000,
+      onPress: () => { Toast.hide(); void pauseAvailability(); },
+    });
+  };
+
+  // Cobro confirmado: tras una breve pausa para ver el resultado, el técnico vuelve a estar disponible.
+  useEffect(() => {
+    if (!user || !currentJob || currentJob.status !== 'COMPLETED' || currentJob.paymentStatus !== 'CONFIRMED') return;
+    const jobId = currentJob.id;
+    const timer = setTimeout(() => { void releaseAfterJob(jobId); }, 2500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, currentJob?.id, currentJob?.status, currentJob?.paymentStatus]);
+
+  // El seguimiento en segundo plano debe reportar BUSY/AVAILABLE según el servicio actual.
+  useEffect(() => {
+    if (!user || !isActive || Platform.OS === 'web' || !bgConsent.hasConsent) return;
+    void setBackgroundTrackingContext({
+      providerId: user.uid,
+      providerName: providerName || 'Técnico',
+      providerPhone: profile?.phone || '',
+      specialties: specialty ? [specialty] : ['General'],
+      activeRequestId: currentJob?.id || null,
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, isActive, currentJob?.id, bgConsent.hasConsent]);
 
   // ── Toggle online/offline ───────────────
   const toggleSwitch = async () => {
@@ -658,136 +903,11 @@ export default function ProviderHome() {
 
     try {
       if (newState) {
-        if (FEATURE_FLAGS.ENABLE_BACKGROUND_LOCATION_CONSENT && Platform.OS !== 'web' && !bgConsent.hasConsent) {
-          await bgConsent.requestConsentAndPermissions();
-        }
-
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permiso Requerido', 'Debes otorgar permisos de ubicación para recibir servicios en tu zona.');
-          setIsActive(false);
-          return;
-        }
-
-        try {
-          const providerStatus = await Location.getProviderStatusAsync();
-          if (!providerStatus.locationServicesEnabled) {
-            if (Platform.OS === 'android') {
-              try {
-                await Location.enableNetworkProviderAsync();
-              } catch {
-                Alert.alert('GPS Desactivado', 'Debes activar los servicios de ubicación (GPS) para recibir solicitudes.');
-                setIsActive(false);
-                return;
-              }
-            } else {
-              Alert.alert('GPS Desactivado', 'Por favor activa el GPS en los ajustes de tu dispositivo para poder conectarte.');
-              setIsActive(false);
-              return;
-            }
-          }
-        } catch (provErr) {
-          console.warn('No se pudo verificar el estado del proveedor de ubicación:', provErr);
-        }
-
-        const locationData = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        const coords = locationData.coords;
-
-        setLocation({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
-        });
-
-        const hash = geofire.geohashForLocation([coords.latitude, coords.longitude]);
-
-        await updateDoc(doc(db, 'users', user.uid), {
-          is_active: true,
-          specialty,
-          service_radius_km: serviceRadius,
-          current_location: new GeoPoint(coords.latitude, coords.longitude),
-          geohash: hash,
-        });
-
-        if (FEATURE_FLAGS.ENABLE_PROVIDER_PRESENCE) {
-          // 1. Publicar de inmediato la ubicación actual en provider_presence
-          await updateProviderPresence(db, {
-            providerId: user.uid,
-            providerName: providerName || 'Técnico',
-            providerPhone: profile?.phone || '',
-            status: currentJob ? 'BUSY' : 'AVAILABLE',
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            accuracy: coords.accuracy,
-            specialties: specialty ? [specialty] : ['General'],
-            activeRequestId: currentJob?.id || null,
-          }).catch((err) => console.warn('Error al actualizar provider_presence inmediata:', err));
-
-          // 2. Instanciar publicador adaptativo (Heartbeat quieto cada 45s, movimiento cada 15s si >= 25m)
-          publisherRef.current = createAdaptivePresencePublisher(
-            async (c) => {
-              if (!auth.currentUser || auth.currentUser.uid !== user.uid) return;
-              await updateProviderPresence(db, {
-                providerId: user.uid,
-                providerName: providerName || 'Técnico',
-                providerPhone: profile?.phone || '',
-                status: currentJob ? 'BUSY' : 'AVAILABLE',
-                latitude: c.latitude,
-                longitude: c.longitude,
-                accuracy: c.accuracy,
-                specialties: specialty ? [specialty] : ['General'],
-                activeRequestId: currentJob?.id || null,
-              });
-            },
-            {
-              stationaryIntervalMs: 45000,
-              motionIntervalMs: 15000,
-              motionThresholdMeters: 25,
-            }
-          );
-
-          // 3. Suscripción en primer plano con watchPositionAsync
-          locationWatcherRef.current = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.Balanced,
-              timeInterval: 10000,
-              distanceInterval: 15,
-            },
-            (sample) => {
-              setLocation({
-                latitude: sample.coords.latitude,
-                longitude: sample.coords.longitude,
-                latitudeDelta: 0.005,
-                longitudeDelta: 0.005,
-              });
-              publisherRef.current?.onLocationSample(sample.coords);
-            }
-          );
-
-          // 4. Iniciar seguimiento en segundo plano con control de Expo Go
-          if (FEATURE_FLAGS.ENABLE_BACKGROUND_LOCATION_CONSENT && Platform.OS !== 'web' && bgConsent.hasConsent) {
-            const bgRes = await startBackgroundLocationUpdates({
-              providerId: user.uid,
-              providerName: providerName || 'Técnico',
-              providerPhone: profile?.phone || '',
-              specialties: specialty ? [specialty] : ['General'],
-              activeRequestId: currentJob?.id || null,
-            });
-            if (bgRes.isExpoGo) {
-              Toast.show({
-                type: 'info',
-                text1: 'Modo Expo Go',
-                text2: 'Seguimiento en primer plano activo. Background requiere build nativo/APK.',
-              });
-            }
-          }
-        }
-
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Toast.show({ type: 'success', text1: '¡Disponible!', text2: 'La central ya puede asignarte servicios cercanos.' });
+        const connected = await goOnline(true);
+        if (!connected) setIsActive(false);
       } else {
         await stopAllTracking(user.uid);
+        void AsyncStorage.setItem(availabilityKey(user.uid), 'false').catch(() => {});
         Toast.show({ type: 'info', text1: 'Desconectado', text2: 'Ya no recibirás solicitudes.' });
       }
     } catch (error) {
@@ -810,7 +930,7 @@ export default function ProviderHome() {
             Alert.alert('No se pudo cerrar sesión', 'Vuelve a intentar.');
             return;
           }
-          router.replace('/auth/login');
+          resetToLogin(router);
         },
       },
     ]);
@@ -819,8 +939,8 @@ export default function ProviderHome() {
   // ── Loading ─────────────────────────────
   if (loading) {
     return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <HomeSkeleton />
         <TouchableOpacity onPress={() => router.push('/profile')} style={{ padding: 16 }}><Text style={{ color: colors.primary }}>Abrir mi perfil</Text></TouchableOpacity>
       </View>
     );

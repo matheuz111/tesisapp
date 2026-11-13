@@ -1,56 +1,64 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useTabBarClearance } from '../../../src/components/navigation/FloatingTabBar';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { signOutWithNotifications } from '../../utils/pushNotifications';
 import { GeoPoint, collection, doc, getDoc, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { getNextServiceRequestCode } from '../../src/domain/counterService';
-import { createInitialStatusHistoryRecord, transitionServiceStatus } from '../../src/domain/serviceRequestTransition';
+import { getNextServiceRequestCode } from '../../../src/domain/counterService';
+import { createInitialStatusHistoryRecord, transitionServiceStatus } from '../../../src/domain/serviceRequestTransition';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Toast from 'react-native-toast-message';
-import { MapCoordinate, ServiceMap } from '../../src/components/ServiceMap';
-import { auth, db } from '../../src/config/firebase';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useSession } from '../../src/context/SessionContext';
-import { uploadServiceImage } from '../../src/services/mediaStorage';
-import { queueDemoPushNotification as sendDemoPushNotification } from '../../src/services/demoPushService';
-import { notifyCentral } from '../../src/services/centralNotifications';
-import { withTimeout } from '../../src/services/async';
+import { MapCoordinate, ServiceMap } from '../../../src/components/ServiceMap';
+import { auth, db } from '../../../src/config/firebase';
+import { useTheme, type ThemeColors } from '../../../src/context/ThemeContext';
+import { useSession } from '../../../src/context/SessionContext';
+import { uploadServiceImage } from '../../../src/services/mediaStorage';
+import { queueDemoPushNotification as sendDemoPushNotification } from '../../../src/services/demoPushService';
+import { notifyCentral } from '../../../src/services/centralNotifications';
+import { withTimeout } from '../../../src/services/async';
 import * as Haptics from 'expo-haptics';
-import { submitServiceRating, MAX_REVIEW_COMMENT_LENGTH } from '../../src/services/ratings';
-import { submitClientPayment, PAYMENT_METHODS, type PaymentMethod } from '../../src/services/payment';
-import { getDefaultVisitFee, getFormattedVisitFee } from '../../src/services/pricingPolicyService';
-import { resolveOperationalZone } from '../../src/types/canonical';
-import { SPECIALTIES_CATALOG, OPERATIONAL_CONFIG } from '../../src/config/operationalConfig';
-import { QuoteApprovalView } from '../../src/components/QuoteApprovalView';
-import { CsatSurveyModal } from '../../src/components/CsatSurveyModal';
-import { ClientConformityView } from '../../src/components/ClientConformityView';
-import { OfflineBanner } from '../../src/components/OfflineBanner';
-import { useNetworkStatus } from '../../src/services/networkStatus';
-import { AnimatedPressable } from '../../src/components/AnimatedPressable';
-import { AnimatedFadeIn } from '../../src/components/AnimatedFadeIn';
-import { SemanticColors, DisplayPin } from '../../src/theme/tokens';
-import { BaseDistrictPicker } from '../../src/components/base/BaseDistrictPicker';
+import { submitServiceRating, MAX_REVIEW_COMMENT_LENGTH } from '../../../src/services/ratings';
+import { submitClientPayment, PAYMENT_METHODS, type PaymentMethod } from '../../../src/services/payment';
+import { getDefaultVisitFee, getFormattedVisitFee } from '../../../src/services/pricingPolicyService';
+import { resolveOperationalZone } from '../../../src/types/canonical';
+import { SPECIALTIES_CATALOG, OPERATIONAL_CONFIG } from '../../../src/config/operationalConfig';
+import { QuoteApprovalView } from '../../../src/components/QuoteApprovalView';
+import { CsatSurveyModal } from '../../../src/components/CsatSurveyModal';
+import { ClientConformityView } from '../../../src/components/ClientConformityView';
+import { OfflineBanner } from '../../../src/components/OfflineBanner';
+import { useNetworkStatus } from '../../../src/services/networkStatus';
+import { AnimatedPressable } from '../../../src/components/AnimatedPressable';
+import { SpecialtyGrid } from '../../../src/components/client/SpecialtyGrid';
+import { ServiceModeSelector } from '../../../src/components/client/ServiceModeSelector';
+import { HomeSkeleton } from '../../../src/components/Skeleton';
+import { TechnicianCard } from '../../../src/components/client/TechnicianCard';
+import { AnimatedFadeIn } from '../../../src/components/AnimatedFadeIn';
+import { SemanticColors, Typography, DisplayPin } from '../../../src/theme/tokens';
+import { BaseDistrictPicker } from '../../../src/components/base/BaseDistrictPicker';
 
 const ORGANIZATION_ID = 'maestro-a-domicilio';
 const ACTIVE_STATUSES = ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT', 'PENDING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'];
 const SERVICES = SPECIALTIES_CATALOG;
 
 const STATUS_COPY: Record<string, { label: string; detail: string; step: number; icon: any }> = {
-  PENDING_ASSIGNMENT: { label: 'Buscando al técnico adecuado', detail: 'La central de operaciones está evaluando tu solicitud.', step: 1, icon: 'search-outline' },
+  PENDING_ASSIGNMENT: { label: 'Buscando un técnico calificado', detail: 'La central está asignando al técnico más cercano a tu domicilio.', step: 1, icon: 'search-outline' },
   QUOTED: { label: 'Cotización técnica disponible', detail: 'Revisa la proforma y el alcance antes de continuar.', step: 1, icon: 'receipt-outline' },
   REQUIRES_REASSIGNMENT: { label: 'Reasignando técnico', detail: 'La central está gestionando otro técnico disponible para ti.', step: 1, icon: 'repeat-outline' },
   PENDING: { label: 'Técnico asignado', detail: 'Esperando confirmación de salida del técnico propio.', step: 2, icon: 'person-outline' },
-  ACCEPTED: { label: 'Técnico en camino a tu domicilio', detail: 'El técnico va hacia la dirección indicada. Prepara tu PIN.', step: 3, icon: 'navigate-outline' },
+  ACCEPTED: { label: 'Tu técnico va en camino', detail: 'Tiene tu dirección. Ten listo tu PIN de seguridad y díctalo solo cuando toque tu timbre.', step: 3, icon: 'navigate-outline' },
   IN_PROGRESS: { label: 'Servicio en ejecución', detail: 'El técnico se encuentra atendiendo la labor en tu domicilio.', step: 4, icon: 'construct-outline' },
-  COMPLETED: { label: '¡Trabajo culminado por el técnico!', detail: 'Verifica la evidencia fotográfica, registra tu pago y califica.', step: 4, icon: 'checkmark-circle-outline' },
+  COMPLETED: { label: 'Trabajo culminado', detail: 'Revisa la foto de evidencia tomada por el técnico antes de pagar y calificar.', step: 4, icon: 'checkmark-circle-outline' },
 };
 
 export default function ClientHome() {
   const router = useRouter();
   const { category } = useLocalSearchParams<{ category?: string }>();
-  const { colors } = useTheme();
+  const { colors, theme, toggleTheme } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+  const tabBarClearance = useTabBarClearance();
   const { user, profile } = useSession();
   const { isOnline } = useNetworkStatus();
   const [csatModalVisible, setCsatModalVisible] = useState(false);
@@ -60,6 +68,10 @@ export default function ClientHome() {
   const [loadingRequest, setLoadingRequest] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [service, setService] = useState('');
+  const [description, setDescription] = useState('');
+  const [district, setDistrict] = useState('');
+  const [address, setAddress] = useState('');
+  const [addressReference, setAddressReference] = useState('');
 
   // Pre-llenado de dirección y distrito desde el perfil del usuario
   useEffect(() => {
@@ -67,7 +79,7 @@ export default function ClientHome() {
       if (profile.district && !district) setDistrict(profile.district);
       if (profile.address && !address) setAddress(profile.address);
     }
-  }, [profile, activeRequest]);
+  }, [profile, activeRequest, district, address]);
 
   const [serviceType, setServiceType] = useState<'WITH_QUOTE' | 'SIMPLE'>('WITH_QUOTE');
   const [approvingQuote, setApprovingQuote] = useState(false);
@@ -86,10 +98,6 @@ export default function ClientHome() {
     }
   }, [category]);
 
-  const [description, setDescription] = useState('');
-  const [district, setDistrict] = useState('');
-  const [address, setAddress] = useState('');
-  const [addressReference, setAddressReference] = useState('');
   const manuallySelected = useRef(false);
   const [geocoding, setGeocoding] = useState(false);
   const [urgency, setUrgency] = useState<'NOW' | 'TODAY' | 'SCHEDULED'>('TODAY');
@@ -619,24 +627,6 @@ export default function ClientHome() {
     }
   };
 
-  const handleLogout = () => {
-    Alert.alert('Cerrar Sesión', '¿Estás seguro de que deseas salir de tu cuenta?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Cerrar Sesión',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await signOutWithNotifications();
-            router.replace('/auth/login');
-          } catch (error: any) {
-            Alert.alert('Error', error.message || 'No se pudo cerrar sesión.');
-          }
-        },
-      },
-    ]);
-  };
-
   const handleCallCentral = () => {
     Linking.openURL('tel:017008899').catch(() => {
       Alert.alert('Atención Telefónica', 'Comunícate con la central al (01) 700-8899');
@@ -644,11 +634,7 @@ export default function ClientHome() {
   };
 
   if (loadingRequest) {
-    return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={SemanticColors.primary.main} />
-      </View>
-    );
+    return <HomeSkeleton />;
   }
 
   const status = activeRequest ? STATUS_COPY[activeRequest.status] || STATUS_COPY.PENDING_ASSIGNMENT : null;
@@ -657,14 +643,18 @@ export default function ClientHome() {
   return (
     <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <OfflineBanner />
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      {/* Franja bajo la barra de estado: evita que el contenido se lea mezclado con la hora/iconos del sistema */}
+      <View pointerEvents="none" style={[styles.statusBarBackdrop, { height: insets.top, backgroundColor: colors.background }]} />
+      <ScrollView overScrollMode="never" contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: tabBarClearance + 16 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         
         {/* CABECERA ESTILO UBER ADAPTADA A MAESTRO A DOMICILIO */}
         <AnimatedFadeIn duration={180}>
           <View style={styles.topHeader}>
             <View style={{ flex: 1 }}>
               <View style={styles.brandBadge}>
-                <View style={styles.brandDot} />
+                <View style={styles.brandLogoTile}>
+                  <Image source={require('../../../assets/brand/logo-icon.png')} style={styles.brandLogo} resizeMode="contain" accessibilityLabel="Logo de Maestro a Domicilio" />
+                </View>
                 <Text style={styles.brandText}>MAESTRO A DOMICILIO</Text>
               </View>
               <Text style={[styles.mainTitle, { color: colors.text }]}>Servicio Técnico</Text>
@@ -680,30 +670,21 @@ export default function ClientHome() {
 
             <View style={styles.headerActions}>
               <AnimatedPressable
-                accessibilityLabel="Historial de solicitudes"
+                accessibilityRole="button"
+                accessibilityLabel="Llamar a la central de operaciones"
                 style={[styles.headerIconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => router.push('/client/history')}
-                hapticFeedback="light"
+                onPress={handleCallCentral}
               >
-                <Ionicons name="receipt-outline" size={20} color={SemanticColors.primary.main} />
+                <Ionicons name="call-outline" size={20} color={colors.primary} />
               </AnimatedPressable>
 
               <AnimatedPressable
-                accessibilityLabel="Mi perfil"
+                accessibilityRole="button"
+                accessibilityLabel={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
                 style={[styles.headerIconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => router.push('/profile')}
-                hapticFeedback="light"
+                onPress={toggleTheme}
               >
-                <Ionicons name="person-outline" size={20} color={colors.text} />
-              </AnimatedPressable>
-
-              <AnimatedPressable
-                accessibilityLabel="Cerrar sesión"
-                style={[styles.headerIconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={handleLogout}
-                hapticFeedback="medium"
-              >
-                <Ionicons name="log-out-outline" size={20} color="#991B1B" />
+                <Ionicons name={theme === 'dark' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.text} />
               </AnimatedPressable>
             </View>
           </View>
@@ -717,7 +698,6 @@ export default function ClientHome() {
               <AnimatedPressable
                 style={[styles.primaryCtaBtn, { marginTop: 14 }]}
                 onPress={() => setRequestAttempt((value) => value + 1)}
-                hapticFeedback="light"
               >
                 <Text style={styles.primaryCtaText}>Volver a intentar</Text>
               </AnimatedPressable>
@@ -760,7 +740,7 @@ export default function ClientHome() {
                   ))}
                 </View>
                 <View style={styles.statusTitleRow}>
-                  <View style={[styles.statusIconWrap, { backgroundColor: '#E0F2FE' }]}>
+                  <View style={[styles.statusIconWrap, { backgroundColor: colors.primaryStrong }]}>
                     <Ionicons name={status.icon} size={22} color={SemanticColors.primary.main} />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -776,58 +756,27 @@ export default function ClientHome() {
                   <View style={styles.pinHeroCard}>
                     <View style={styles.pinHeader}>
                       <Ionicons name="shield-checkmark" size={18} color="#0369A1" />
-                      <Text style={styles.pinHeaderLabel}>CÓDIGO DE LLEGADA AL DOMICILIO</Text>
+                      <Text style={styles.pinHeaderLabel}>PIN DE SEGURIDAD</Text>
                     </View>
-                    <Text style={styles.pinDigitsDisplay}>
+                    <Text
+                      style={styles.pinDigitsDisplay}
+                      accessibilityLabel={activeRequest.securityPin ? `PIN de seguridad de cuatro dígitos: ${String(activeRequest.securityPin).split('').join(', ')}` : 'PIN de seguridad aún no disponible'}
+                    >
                       {activeRequest.securityPin || '----'}
                     </Text>
                     <Text style={styles.pinInstructionText}>
-                      Muestra este código de 4 dígitos al técnico cuando toque tu puerta para autorizar el ingreso.
+                      Díctaselo al técnico únicamente cuando toque tu timbre.
                     </Text>
                   </View>
                 </AnimatedFadeIn>
               ) : null}
 
-              {/* FICHA DEL TÉCNICO ASIGNADO (UBER DRIVER PROFILE CARD) */}
               {activeRequest.providerName ? (
-                <View style={[styles.technicianCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <View style={styles.technicianAvatar}>
-                    <Ionicons name="person" size={26} color="#FFFFFF" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.technicianName, { color: colors.text }]}>
-                      {activeRequest.providerName}
-                    </Text>
-                    <View style={styles.technicianBadgeRow}>
-                      <View style={styles.verifiedBadge}>
-                        <Ionicons name="checkmark-circle" size={12} color="#166534" />
-                        <Text style={styles.verifiedBadgeText}>Técnico Propio</Text>
-                      </View>
-                      <Text style={[styles.ratingPill, { color: colors.subtext }]}>★ 4.9 · Homologado</Text>
-                    </View>
-                  </View>
-
-                  {/* Acciones de Contacto Rápido */}
-                  <View style={styles.technicianActions}>
-                    <AnimatedPressable
-                      style={styles.callTechnicianBtn}
-                      onPress={handleCallCentral}
-                      hapticFeedback="medium"
-                      accessibilityLabel="Llamar a la Central"
-                    >
-                      <Ionicons name="call" size={18} color="#FFFFFF" />
-                    </AnimatedPressable>
-
-                    <AnimatedPressable
-                      style={[styles.chatTechnicianBtn, { borderColor: colors.border }]}
-                      onPress={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}
-                      hapticFeedback="light"
-                      accessibilityLabel="Abrir chat del servicio"
-                    >
-                      <Ionicons name="chatbubble-ellipses" size={18} color={SemanticColors.primary.main} />
-                    </AnimatedPressable>
-                  </View>
-                </View>
+                <TechnicianCard
+                  providerName={activeRequest.providerName}
+                  onCall={handleCallCentral}
+                  onChat={() => router.push({ pathname: '/chat/[id]', params: { id: activeRequest.id } })}
+                />
               ) : null}
 
               {/* Componente Formal de Aprobación de Cotización (Fase 2) */}
@@ -847,7 +796,7 @@ export default function ClientHome() {
                   <View style={styles.summaryMetaRow}>
                     <Text style={styles.summaryMetaLabel}>CÓDIGO DE SERVICIO</Text>
                     <View style={styles.codeBadge}>
-                      <Text style={styles.codeBadgeText}>{activeRequest.code}</Text>
+                      <Text style={styles.codeBadgeText} numberOfLines={2}>{activeRequest.code}</Text>
                     </View>
                   </View>
                 ) : null}
@@ -888,7 +837,7 @@ export default function ClientHome() {
                   ) : (
                     <>
                       <View style={styles.conformityAcceptedBox}>
-                        <Ionicons name="shield-checkmark" size={20} color="#166534" />
+                        <Ionicons name="shield-checkmark" size={20} color={colors.success} />
                         <Text style={styles.conformityAcceptedText}>
                           Trabajo verificado con tu conformidad. Procede al pago y evaluación.
                         </Text>
@@ -905,7 +854,7 @@ export default function ClientHome() {
                           <View style={styles.paymentSuccessBox}>
                             <Ionicons name="checkmark-circle" size={24} color="#16A34A" />
                             <View style={{ flex: 1 }}>
-                              <Text style={{ color: '#166534', fontWeight: '800', fontSize: 13 }}>
+                              <Text style={{ color: colors.success, fontWeight: '800', fontSize: 13 }}>
                                 {activeRequest.paymentStatus === 'CONFIRMED' ? 'Pago confirmado por el técnico' : 'Comprobante enviado'}
                               </Text>
                               <Text style={{ color: colors.subtext, fontSize: 11 }}>
@@ -930,7 +879,7 @@ export default function ClientHome() {
                                       styles.paymentMethodChip,
                                       {
                                         borderColor: isSel ? SemanticColors.primary.main : colors.border,
-                                        backgroundColor: isSel ? '#F0F9FF' : colors.card,
+                                        backgroundColor: isSel ? colors.primarySoft : colors.card,
                                       },
                                     ]}
                                   >
@@ -944,7 +893,7 @@ export default function ClientHome() {
 
                             {voucher ? (
                               <View style={styles.voucherPreview}>
-                                <Image source={{ uri: voucher.uri }} style={styles.voucherImage} resizeMode="contain" />
+                                <Image source={{ uri: voucher.uri }} style={styles.voucherImage} resizeMode="contain" accessibilityLabel="Captura del comprobante de pago adjunta" />
                                 <AnimatedPressable style={styles.removeVoucherBtn} onPress={() => setVoucher(null)}>
                                   <Ionicons name="close" size={16} color="#fff" />
                                 </AnimatedPressable>
@@ -960,7 +909,7 @@ export default function ClientHome() {
                               style={[styles.primaryCtaBtn, { marginTop: 10 }]}
                               onPress={handleSendPayment}
                               disabled={submittingPayment}
-                              hapticFeedback="heavy"
+                              hapticFeedback="medium"
                             >
                               {submittingPayment ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryCtaText}>Confirmar y Registrar Pago</Text>}
                             </AnimatedPressable>
@@ -986,7 +935,7 @@ export default function ClientHome() {
                                 {activeRequest.rating_given}/5 estrellas
                               </Text>
                             </View>
-                            <Text style={{ color: '#166534', fontSize: 11, fontWeight: '700', marginTop: 4 }}>
+                            <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700', marginTop: 4 }}>
                               ✓ Evaluación completada para auditoría de calidad
                             </Text>
                           </View>
@@ -998,7 +947,6 @@ export default function ClientHome() {
                             <AnimatedPressable
                               style={styles.primaryCtaBtn}
                               onPress={() => setCsatModalVisible(true)}
-                              hapticFeedback="medium"
                             >
                               <Ionicons name="star" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
                               <Text style={styles.primaryCtaText}>Realizar Evaluación CSAT (5 Pasos)</Text>
@@ -1014,7 +962,6 @@ export default function ClientHome() {
                     <AnimatedPressable
                       style={[styles.outlineBtn, { borderColor: SemanticColors.primary.main }]}
                       onPress={() => setDismissedCompletedId(activeRequest.id)}
-                      hapticFeedback="light"
                     >
                       <Text style={{ color: SemanticColors.primary.main, fontWeight: '800' }}>Solicitar un nuevo servicio</Text>
                     </AnimatedPressable>
@@ -1027,7 +974,6 @@ export default function ClientHome() {
                     <AnimatedPressable
                       style={styles.cancelRequestBtn}
                       onPress={cancelRequest}
-                      hapticFeedback="medium"
                     >
                       <Text style={styles.cancelRequestBtnText}>Cancelar Solicitud</Text>
                     </AnimatedPressable>
@@ -1041,105 +987,11 @@ export default function ClientHome() {
           /* MODO DESCUBRIMIENTO Y NUEVA SOLICITUD (ESTILO UBER HOME & BOTTOM SHEET)   */
           /* ========================================================================= */
           <AnimatedFadeIn duration={220}>
-            {/* 1. Selector de Modalidad Oficial: Con Cotización vs Atención Simple */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Modalidad del Servicio</Text>
-            </View>
-            <View style={styles.serviceModeGrid}>
-              <AnimatedPressable
-                onPress={() => setServiceType('WITH_QUOTE')}
-                scaleTo={0.97}
-                style={[
-                  styles.serviceModeCard,
-                  {
-                    borderColor: serviceType === 'WITH_QUOTE' ? SemanticColors.primary.main : colors.border,
-                    backgroundColor: serviceType === 'WITH_QUOTE' ? '#F0F9FF' : colors.card,
-                  },
-                ]}
-              >
-                <View style={styles.modeCardHeader}>
-                  <View style={[styles.modeIconCircle, { backgroundColor: serviceType === 'WITH_QUOTE' ? '#E0F2FE' : '#F1F5F9' }]}>
-                    <Ionicons name="document-text" size={20} color={serviceType === 'WITH_QUOTE' ? SemanticColors.primary.main : colors.subtext} />
-                  </View>
-                  {serviceType === 'WITH_QUOTE' ? (
-                    <View style={styles.activeCheckPill}>
-                      <Ionicons name="checkmark" size={12} color="#FFFFFF" />
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={[styles.modeTitle, { color: serviceType === 'WITH_QUOTE' ? SemanticColors.primary.main : colors.text }]}>
-                  Con Cotización
-                </Text>
-                <Text style={[styles.modeSubtitle, { color: colors.subtext }]}>
-                  Visita técnica con presupuesto formal previo antes de asignar la cuadrilla.
-                </Text>
-              </AnimatedPressable>
+            <ServiceModeSelector value={serviceType} onChange={setServiceType} />
 
-              <AnimatedPressable
-                onPress={() => setServiceType('SIMPLE')}
-                scaleTo={0.97}
-                style={[
-                  styles.serviceModeCard,
-                  {
-                    borderColor: serviceType === 'SIMPLE' ? SemanticColors.primary.main : colors.border,
-                    backgroundColor: serviceType === 'SIMPLE' ? '#F0F9FF' : colors.card,
-                  },
-                ]}
-              >
-                <View style={styles.modeCardHeader}>
-                  <View style={[styles.modeIconCircle, { backgroundColor: serviceType === 'SIMPLE' ? '#E0F2FE' : '#F1F5F9' }]}>
-                    <Ionicons name="flash" size={20} color={serviceType === 'SIMPLE' ? SemanticColors.primary.main : colors.subtext} />
-                  </View>
-                  {serviceType === 'SIMPLE' ? (
-                    <View style={styles.activeCheckPill}>
-                      <Ionicons name="checkmark" size={12} color="#FFFFFF" />
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={[styles.modeTitle, { color: serviceType === 'SIMPLE' ? SemanticColors.primary.main : colors.text }]}>
-                  Atención Simple
-                </Text>
-                <Text style={[styles.modeSubtitle, { color: colors.subtext }]}>
-                  Inspección y labor directa con tarifa regulada de visita técnica.
-                </Text>
-              </AnimatedPressable>
-            </View>
 
-            {/* 2. Selector de Especialidades Técnicas (Uber Suggestions Grid) */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>¿En qué área requieres apoyo?</Text>
-            </View>
-            <View style={styles.specialtyGrid}>
-              {SERVICES.map((item) => {
-                const isSelected = service === item.id;
-                return (
-                  <AnimatedPressable
-                    key={item.id}
-                    onPress={() => setService(item.id)}
-                    scaleTo={0.96}
-                    hapticFeedback="light"
-                    style={[
-                      styles.specialtyCard,
-                      {
-                        backgroundColor: isSelected ? '#F0F9FF' : colors.card,
-                        borderColor: isSelected ? SemanticColors.primary.main : colors.border,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.specialtyIconWrap, { backgroundColor: isSelected ? '#E0F2FE' : colors.background }]}>
-                      <Ionicons
-                        name={item.icon as any}
-                        size={24}
-                        color={isSelected ? SemanticColors.primary.main : colors.text}
-                      />
-                    </View>
-                    <Text style={[styles.specialtyLabel, { color: isSelected ? SemanticColors.primary.main : colors.text }]}>
-                      {item.label}
-                    </Text>
-                  </AnimatedPressable>
-                );
-              })}
-            </View>
+            <SpecialtyGrid items={SERVICES} selectedId={service} onSelect={setService} />
+
 
             {/* 3. Hoja de Solicitud de Servicio Técnico */}
             <View style={[styles.requestFormCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1204,7 +1056,7 @@ export default function ClientHome() {
                 />
               </View>
 
-              <Text style={[styles.mapStatus, { color: serviceLocation ? '#166534' : colors.subtext }]}>
+              <Text style={[styles.mapStatus, { color: serviceLocation ? colors.success : colors.subtext }]}>
                 <Ionicons name={serviceLocation ? 'checkmark-circle' : 'information-circle-outline'} size={15} />{' '}
                 {serviceLocation ? 'Ubicación confirmada para la central' : 'Falta seleccionar la ubicación exacta'}
               </Text>
@@ -1225,7 +1077,7 @@ export default function ClientHome() {
                         styles.urgencyChip,
                         {
                           borderColor: isSel ? SemanticColors.primary.main : colors.border,
-                          backgroundColor: isSel ? '#F0F9FF' : colors.card,
+                          backgroundColor: isSel ? colors.primarySoft : colors.card,
                         },
                       ]}
                       onPress={() => setUrgency(value as typeof urgency)}
@@ -1258,7 +1110,7 @@ export default function ClientHome() {
               {/* Adjuntar Fotografía */}
               {photo ? (
                 <View style={styles.photoPreview}>
-                  <Image source={{ uri: photo.uri }} style={styles.photo} resizeMode="contain" />
+                  <Image source={{ uri: photo.uri }} style={styles.photo} resizeMode="contain" accessibilityLabel="Fotografía del desperfecto adjunta a la solicitud" />
                   <AnimatedPressable style={styles.removePhoto} onPress={() => setPhoto(null)}>
                     <Ionicons name="close" size={18} color="#fff" />
                   </AnimatedPressable>
@@ -1275,7 +1127,7 @@ export default function ClientHome() {
               {/* Tarjeta de Tarifa de Visita Técnica y Transparencia */}
               <View style={[styles.visitFeeCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
                 <View style={styles.visitFeeHeader}>
-                  <View style={[styles.visitFeeIconBox, { backgroundColor: '#E0F2FE' }]}>
+                  <View style={[styles.visitFeeIconBox, { backgroundColor: colors.primaryStrong }]}>
                     <Ionicons name="cash-outline" size={22} color={SemanticColors.primary.main} />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -1309,7 +1161,7 @@ export default function ClientHome() {
                           styles.visitPaymentChip,
                           {
                             borderColor: isSelected ? SemanticColors.primary.main : colors.border,
-                            backgroundColor: isSelected ? '#F0F9FF' : colors.card,
+                            backgroundColor: isSelected ? colors.primarySoft : colors.card,
                           },
                         ]}
                         onPress={() => setVisitFeePaymentMethod(method)}
@@ -1339,7 +1191,7 @@ export default function ClientHome() {
                 ]}
                 onPress={submitRequest}
                 disabled={submitting || !isOnline}
-                hapticFeedback="heavy"
+                hapticFeedback="medium"
               >
                 {submitting ? (
                   <ActivityIndicator color="#FFFFFF" />
@@ -1372,8 +1224,9 @@ export default function ClientHome() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1 },
+  statusBarBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: {
     paddingHorizontal: 16,
@@ -1385,16 +1238,29 @@ const styles = StyleSheet.create({
   },
   topHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 20,
   },
   brandBadge: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
     marginBottom: 4,
   },
+  brandLogoTile: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandLogo: { width: 22, height: 21 },
   brandDot: {
     width: 7,
     height: 7,
@@ -1403,28 +1269,33 @@ const styles = StyleSheet.create({
   },
   brandText: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '900',
-    color: '#0369A1',
+    color: colors.primary,
     letterSpacing: 1.2,
   },
   mainTitle: {
     fontSize: 24,
+    flexShrink: 1,
     fontWeight: '800',
     letterSpacing: -0.4,
   },
   locationPill: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 4,
     marginTop: 4,
   },
   locationPillText: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '600',
-    color: '#0369A1',
+    color: colors.primary,
   },
   headerActions: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 8,
     marginTop: 2,
   },
@@ -1436,97 +1307,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionHeaderRow: {
-    marginBottom: 10,
-    marginTop: 4,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-  },
-  serviceModeGrid: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 18,
-  },
-  serviceModeCard: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1.5,
-  },
-  modeCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  modeIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeCheckPill: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#0369A1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modeTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  modeSubtitle: {
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  specialtyGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 20,
-  },
-  specialtyCard: {
-    width: '48.5%',
-    borderWidth: 1.5,
-    borderRadius: 14,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    minHeight: 64,
-  },
-  specialtyIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  specialtyLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    flex: 1,
-  },
   requestFormCard: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 20,
   },
   formCardHeading: {
     fontSize: 17,
+    flexShrink: 1,
     fontWeight: '800',
     marginBottom: 12,
   },
   fieldLabel: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
     marginTop: 6,
     marginBottom: 6,
@@ -1538,9 +1333,11 @@ const styles = StyleSheet.create({
     padding: 12,
     textAlignVertical: 'top',
     fontSize: 14,
+    flexShrink: 1,
   },
   charCountHelper: {
     fontSize: 11,
+    flexShrink: 1,
     textAlign: 'right',
     marginTop: 4,
     marginBottom: 8,
@@ -1551,14 +1348,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     fontSize: 14,
+    flexShrink: 1,
     marginBottom: 8,
   },
   helper: {
     fontSize: 12,
+    flexShrink: 1,
     lineHeight: 16,
   },
   locationHeaderRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     marginTop: 8,
@@ -1566,16 +1366,18 @@ const styles = StyleSheet.create({
   },
   mapSectionLabel: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
   },
   locationHint: {
     fontSize: 11,
+    flexShrink: 1,
     lineHeight: 15,
   },
   mapFrame: {
     height: 190,
     borderWidth: 1.5,
-    borderRadius: 14,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   map: {
@@ -1584,12 +1386,14 @@ const styles = StyleSheet.create({
   },
   mapStatus: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
     marginTop: 6,
     marginBottom: 10,
   },
   urgencyRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 8,
     marginBottom: 12,
   },
@@ -1608,6 +1412,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderRadius: 12,
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1638,12 +1443,13 @@ const styles = StyleSheet.create({
   },
   visitFeeCard: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     marginBottom: 16,
   },
   visitFeeHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
   },
@@ -1656,39 +1462,45 @@ const styles = StyleSheet.create({
   },
   visitFeeTitle: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '800',
   },
   visitFeeSubtitle: {
     fontSize: 11,
+    flexShrink: 1,
     marginTop: 1,
   },
   visitFeeAmount: {
     fontSize: 17,
+    flexShrink: 1,
     fontWeight: '900',
   },
   visitFeeNoteBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
     padding: 8,
     borderRadius: 8,
-    backgroundColor: '#E0F2FE',
+    backgroundColor: colors.primaryStrong,
     marginTop: 8,
   },
   visitFeeNoteText: {
     fontSize: 11,
-    color: '#0369A1',
+    color: colors.primary,
     flex: 1,
     lineHeight: 15,
   },
   visitFeeMethodLabel: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
     marginTop: 8,
     marginBottom: 6,
   },
   visitPaymentRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     flexWrap: 'wrap',
     gap: 6,
   },
@@ -1700,10 +1512,11 @@ const styles = StyleSheet.create({
   },
   visitPaymentChipText: {
     fontSize: 11,
+    flexShrink: 1,
   },
   primaryCtaBtn: {
     height: 52,
-    borderRadius: 14,
+    borderRadius: 12,
     backgroundColor: '#0369A1',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1711,10 +1524,12 @@ const styles = StyleSheet.create({
   primaryCtaText: {
     color: '#FFFFFF',
     fontSize: 15,
+    flexShrink: 1,
     fontWeight: '800',
   },
   disclaimer: {
     fontSize: 11,
+    flexShrink: 1,
     lineHeight: 16,
     textAlign: 'center',
     marginTop: 10,
@@ -1722,13 +1537,13 @@ const styles = StyleSheet.create({
   mapContainer: {
     height: 240,
     borderWidth: 1.5,
-    borderRadius: 16,
+    borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 14,
   },
   trackingSheet: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 20,
   },
@@ -1737,6 +1552,7 @@ const styles = StyleSheet.create({
   },
   stepProgressRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 6,
     marginBottom: 12,
   },
@@ -1747,6 +1563,7 @@ const styles = StyleSheet.create({
   },
   statusTitleRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 12,
   },
@@ -1759,113 +1576,54 @@ const styles = StyleSheet.create({
   },
   statusTitle: {
     fontSize: 16,
+    flexShrink: 1,
     fontWeight: '800',
   },
   statusSubtitle: {
     fontSize: 12,
+    flexShrink: 1,
     marginTop: 2,
     lineHeight: 16,
   },
   pinHeroCard: {
-    backgroundColor: '#E0F2FE',
+    backgroundColor: colors.primaryStrong,
     borderWidth: 1.5,
-    borderColor: '#BAE6FD',
-    borderRadius: 14,
+    borderColor: colors.border,
+    borderRadius: 12,
     padding: 14,
     alignItems: 'center',
     marginVertical: 12,
   },
   pinHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
     marginBottom: 4,
   },
   pinHeaderLabel: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#0369A1',
+    color: colors.primary,
     letterSpacing: 0.8,
   },
   pinDigitsDisplay: {
     fontSize: 36,
+    flexShrink: 1,
     fontWeight: '900',
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    color: '#0369A1',
+    color: colors.primary,
     letterSpacing: 8,
     marginVertical: 4,
   },
   pinInstructionText: {
     fontSize: 12,
-    color: '#0C4A6E',
+    flexShrink: 1,
+    color: colors.text,
     textAlign: 'center',
     lineHeight: 16,
     paddingHorizontal: 8,
-  },
-  technicianCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 14,
-    marginVertical: 10,
-  },
-  technicianAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#0369A1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  technicianName: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  technicianBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 2,
-  },
-  verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  verifiedBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#166534',
-  },
-  ratingPill: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  technicianActions: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  callTechnicianBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: '#166534',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chatTechnicianBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   serviceSummaryBox: {
     borderWidth: 1,
@@ -1876,32 +1634,37 @@ const styles = StyleSheet.create({
   },
   summaryMetaRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: colors.border,
     marginBottom: 4,
   },
   summaryMetaLabel: {
     fontSize: 10,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#64748B',
+    color: colors.subtext,
     letterSpacing: 0.6,
   },
   codeBadge: {
-    backgroundColor: '#E0F2FE',
+    backgroundColor: colors.primaryStrong,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
   },
   codeBadgeText: {
-    color: '#0369A1',
+    fontFamily: Typography.fontFamily.mono,
+    color: colors.primary,
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '800',
   },
   summaryDetailRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 8,
   },
@@ -1916,17 +1679,18 @@ const styles = StyleSheet.create({
   },
   conformityAcceptedBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 8,
     padding: 10,
     borderRadius: 10,
-    backgroundColor: '#DCFCE7',
+    backgroundColor: colors.states.completed.bg,
     marginBottom: 12,
   },
   conformityAcceptedText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#166534',
+    color: colors.success,
     flex: 1,
   },
   paymentCard: {
@@ -1937,25 +1701,29 @@ const styles = StyleSheet.create({
   },
   completedSubheading: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '800',
     marginBottom: 4,
   },
   paymentAmount: {
     fontSize: 19,
+    flexShrink: 1,
     fontWeight: '900',
     marginVertical: 4,
   },
   paymentSuccessBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     padding: 8,
     borderRadius: 8,
-    backgroundColor: '#DCFCE7',
+    backgroundColor: colors.states.completed.bg,
     marginTop: 6,
   },
   paymentMethodsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     flexWrap: 'wrap',
     gap: 6,
     marginBottom: 8,
@@ -1995,6 +1763,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderRadius: 8,
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -2020,18 +1789,19 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#991B1B',
+    borderColor: colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelRequestBtnText: {
-    color: '#991B1B',
+    color: colors.danger,
     fontWeight: '700',
     fontSize: 13,
+    flexShrink: 1,
   },
   card: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
     marginVertical: 12,
   },

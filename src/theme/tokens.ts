@@ -119,6 +119,9 @@ export const Palette = {
     primary: BrandColors.primary,
     border: '#E2E8F0',
     input: '#F1F5F9',
+    primarySoft: '#F0F9FF',    // Fondo de selección / banner informativo
+    primaryStrong: '#E0F2FE',  // Fondo de icono seleccionado
+    onPrimary: '#FFFFFF',      // Texto sobre botón primario
     focusRing: BrandColors.focusRing,
     shadow: '#000000',
     states: StatusTokens.light,
@@ -132,6 +135,9 @@ export const Palette = {
     primary: '#38BDF8',      // Sky claro para contraste en tema oscuro
     border: '#233055',
     input: '#1C294D',
+    primarySoft: 'rgba(56, 189, 248, 0.12)',
+    primaryStrong: 'rgba(56, 189, 248, 0.24)',
+    onPrimary: '#0B1329',
     focusRing: '#38BDF8',
     shadow: '#000000',
     states: StatusTokens.dark,

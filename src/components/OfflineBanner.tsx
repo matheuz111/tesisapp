@@ -1,4 +1,5 @@
-import React from 'react';
+import { useTheme, type ThemeColors } from '../context/ThemeContext';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNetworkStatus } from '../services/networkStatus';
@@ -8,6 +9,8 @@ interface Props {
 }
 
 export function OfflineBanner({ customMessage }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { isOnline, checkConnectivity } = useNetworkStatus();
   const [checking, setChecking] = React.useState(false);
 
@@ -24,7 +27,7 @@ export function OfflineBanner({ customMessage }: Props) {
 
   return (
     <View style={styles.banner}>
-      <Ionicons name="cloud-offline" size={18} color="#92400E" />
+      <Ionicons name="cloud-offline" size={18} color={colors.states.pending.fg} />
       <View style={{ flex: 1 }}>
         <Text style={styles.bannerText}>
           {customMessage || 'Sin conexión a internet · Modo de solo lectura activo'}
@@ -37,7 +40,7 @@ export function OfflineBanner({ customMessage }: Props) {
         accessibilityLabel="Reintentar conexión a internet"
       >
         {checking ? (
-          <ActivityIndicator size="small" color="#92400E" />
+          <ActivityIndicator size="small" color={colors.states.pending.fg} />
         ) : (
           <Text style={styles.retryText}>Reintentar</Text>
         )}
@@ -46,21 +49,23 @@ export function OfflineBanner({ customMessage }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   banner: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: colors.states.pending.bg,
     borderBottomWidth: 1,
-    borderBottomColor: '#FDE68A',
+    borderBottomColor: colors.states.pending.border,
     paddingHorizontal: 14,
     paddingVertical: 9,
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     zIndex: 9999,
   },
   bannerText: {
-    color: '#92400E',
+    color: colors.states.pending.fg,
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
     lineHeight: 16,
   },
@@ -73,6 +78,7 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#78350F',
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '800',
   },
 });

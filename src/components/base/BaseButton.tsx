@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { BaseColors, BaseRadii, BaseTypography } from './BaseTokens';
+import { BaseRadii, BaseTypography } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 
 export type ButtonVariant = 'solid' | 'outline' | 'minimal' | 'pill';
 export type ButtonIntent = 'primary' | 'secondary' | 'positive' | 'negative' | 'warning' | 'dark';
@@ -32,44 +33,44 @@ export interface BaseButtonProps {
   textStyle?: TextStyle;
 }
 
-const INTENT_COLORS: Record<ButtonIntent, { main: string; hover: string; light: string; textOnSolid: string }> = {
+const getIntentColors = (BaseColors: BaseColorSet): Record<ButtonIntent, { main: string; hover: string; light: string; textOnSolid: string }> => ({
   primary: {
     main: BaseColors.accent,
     hover: BaseColors.accentHover,
     light: BaseColors.accentLight,
-    textOnSolid: BaseColors.white,
+    textOnSolid: BaseColors.onSolid,
   },
   dark: {
     main: BaseColors.gray900,
     hover: BaseColors.black,
     light: BaseColors.gray200,
-    textOnSolid: BaseColors.white,
+    textOnSolid: BaseColors.onSolid,
   },
   secondary: {
     main: BaseColors.gray600,
     hover: BaseColors.gray700,
     light: BaseColors.gray100,
-    textOnSolid: BaseColors.white,
+    textOnSolid: BaseColors.onSolid,
   },
   positive: {
     main: BaseColors.positive,
     hover: '#047857',
     light: BaseColors.positiveLight,
-    textOnSolid: BaseColors.white,
+    textOnSolid: BaseColors.onSolid,
   },
   negative: {
     main: BaseColors.negative,
     hover: '#B91C1C',
     light: BaseColors.negativeLight,
-    textOnSolid: BaseColors.white,
+    textOnSolid: BaseColors.onSolid,
   },
   warning: {
     main: BaseColors.warning,
     hover: '#B45309',
     light: BaseColors.warningLight,
-    textOnSolid: BaseColors.white,
+    textOnSolid: BaseColors.onSolid,
   },
-};
+});
 
 export const BaseButton: React.FC<BaseButtonProps> = ({
   title,
@@ -82,11 +83,14 @@ export const BaseButton: React.FC<BaseButtonProps> = ({
   loading = false,
   disabled = false,
   fullWidth = false,
-  haptic = true,
+  haptic = false,
   style,
   textStyle,
 }) => {
-  const currentIntent = INTENT_COLORS[intent] || INTENT_COLORS.primary;
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
+  const intentColors = React.useMemo(() => getIntentColors(BaseColors), [BaseColors]);
+  const currentIntent = intentColors[intent] || intentColors.primary;
   const isPill = variant === 'pill';
   const isOutline = variant === 'outline';
   const isMinimal = variant === 'minimal';
@@ -94,11 +98,7 @@ export const BaseButton: React.FC<BaseButtonProps> = ({
   const handlePress = () => {
     if (disabled || loading) return;
     if (haptic) {
-      try {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch {
-        // Ignorar si haptics falla o no está disponible en la plataforma
-      }
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
     onPress();
   };
@@ -227,15 +227,17 @@ export const BaseButton: React.FC<BaseButtonProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   button: {
     paddingHorizontal: 18,
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
+    flexShrink: 1,
   },
   contentRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
-  BaseColors,
   BaseElevation,
   BaseRadii,
   BaseTypography,
@@ -11,6 +10,7 @@ import {
   BaseCard,
   BaseButton,
 } from '../../src/components/base';
+import { useBaseColors, type BaseColorSet } from '../../src/components/base/useBaseColors';
 
 const FAQS = [
   {
@@ -46,6 +46,8 @@ const FAQS = [
 ];
 
 export default function HelpScreen() {
+  const BaseColors = useBaseColors();
+  const styles = useMemo(() => createStyles(BaseColors), [BaseColors]);
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -117,7 +119,7 @@ export default function HelpScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BaseColors.gray50,
@@ -129,6 +131,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     marginBottom: 14,
@@ -139,6 +142,7 @@ const styles = StyleSheet.create({
   },
   questionRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 10,
@@ -158,6 +162,7 @@ const styles = StyleSheet.create({
   },
   answerText: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray600,
     lineHeight: 18,
   },
@@ -179,12 +184,14 @@ const styles = StyleSheet.create({
   },
   contactTitle: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     textAlign: 'center',
   },
   contactSubtitle: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray500,
     textAlign: 'center',
     marginTop: 6,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -17,29 +17,22 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ServiceMap } from './ServiceMap';
 import { TechnicianPinKeypad } from './TechnicianPinKeypad';
-import { SemanticColors, TouchTarget } from '../theme/tokens';
+import { SemanticColors, TouchTarget, Typography } from '../theme/tokens';
+import { useTheme, type ThemeColors } from '../context/ThemeContext';
+import { useTabBarClearance } from './navigation/FloatingTabBar';
+import { OPERATIONAL_CONFIG } from '../config/operationalConfig';
 
 export function ProviderDashboard(props: any) {
   const insets = useSafeAreaInsets();
+  const tabBarClearance = useTabBarClearance();
   const router = useRouter();
   const { currentJob: job, incomingRequest: incoming, location } = props;
   const [showPinInput, setShowPinInput] = useState(false);
 
-  // Colores de alto contraste para exteriores / luz solar (Prohibido text-muted)
-  const sunTheme = {
-    background: '#F8FAFC',
-    card: '#FFFFFF',
-    border: '#CBD5E1',
-    primary: SemanticColors.primary.main, // #0369A1
-    text: '#0F172A',
-    textSecondary: '#334155',
-    successBg: '#DCFCE7',
-    successText: '#166534',
-    warningBg: '#FEF3C7',
-    warningText: '#92400E',
-    dangerBg: '#FEE2E2',
-    dangerText: '#991B1B',
-  };
+  // Alto contraste para exteriores / luz solar en claro; paleta del tema en oscuro.
+  const { colors, theme, toggleTheme } = useTheme();
+  const sunTheme = useMemo(() => createSunTheme(colors, theme === 'dark'), [colors, theme]);
+  const styles = useMemo(() => createStyles(sunTheme), [sunTheme]);
 
   const cardStyle = {
     backgroundColor: sunTheme.card,
@@ -68,21 +61,22 @@ export function ProviderDashboard(props: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        overScrollMode="never"
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 28 },
+          { paddingTop: insets.top + 16, paddingBottom: tabBarClearance + 16 },
         ]}
         keyboardShouldPersistTaps="handled"
       >
                 {/* Indicador de Evidencias en Cola Offline (Fase 4) */}
         {Boolean(props.offlinePhotosCount && props.offlinePhotosCount > 0) && (
-          <View style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B', borderWidth: 1, padding: 12, borderRadius: 12, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Ionicons name="cloud-offline" size={22} color="#92400E" />
+          <View style={{ backgroundColor: sunTheme.warningBg, borderColor: sunTheme.warningBorder, borderWidth: 1, padding: 12, borderRadius: 12, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Ionicons name="cloud-offline" size={22} color={sunTheme.warningText} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: '#92400E', fontSize: 13, fontWeight: '800' }}>
+              <Text style={{ color: sunTheme.warningText, fontSize: 13, fontWeight: '800' }}>
                 {props.offlinePhotosCount} evidencia(s) fotográfica(s) en cola offline
               </Text>
-              <Text style={{ color: '#B45309', fontSize: 11, marginTop: 2, lineHeight: 15 }}>
+              <Text style={{ color: sunTheme.warningText, fontSize: 11, marginTop: 2, lineHeight: 15 }}>
                 Se sincronizarán automáticamente con el servidor apenas se recupere la conexión a internet.
               </Text>
             </View>
@@ -92,47 +86,47 @@ export function ProviderDashboard(props: any) {
         {/* Cabecera Principal */}
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.brand, { color: sunTheme.primary }]}>MAESTRO A DOMICILIO</Text>
+            <View style={styles.brandRow}>
+              <View style={[styles.brandLogoTile, { borderColor: sunTheme.border }]}>
+                <Image source={require('../../assets/brand/logo-icon.png')} style={styles.brandLogo} resizeMode="contain" accessibilityLabel="Logo de Maestro a Domicilio" />
+              </View>
+              <Text style={[styles.brand, { color: sunTheme.primary }]}>MAESTRO A DOMICILIO</Text>
+            </View>
             <Text style={[styles.title, { color: sunTheme.text }]}>Hola, {props.providerName || 'Técnico'}</Text>
             <Text style={[styles.techSubtitle, { color: sunTheme.textSecondary }]}>
               Equipo Técnico Operativo · {props.specialty || 'Especialidad pendiente'}
             </Text>
           </View>
           <TouchableOpacity
-            accessibilityLabel="Historial"
+            accessibilityRole="button"
+            accessibilityLabel="Llamar a la central de operaciones"
             style={[styles.iconBtn, cardStyle]}
-            onPress={() => router.push('/provider/history')}
+            onPress={() => Linking.openURL(`tel:${OPERATIONAL_CONFIG.CENTRAL_EMERGENCY_PHONE}`).catch(() => props.onError('No se pudo iniciar la llamada a la central.'))}
           >
-            <Ionicons name="receipt-outline" size={22} color={sunTheme.primary} />
+            <Ionicons name="call-outline" size={22} color={sunTheme.primary} />
           </TouchableOpacity>
           <TouchableOpacity
-            accessibilityLabel="Perfil"
+            accessibilityRole="button"
+            accessibilityLabel={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
             style={[styles.iconBtn, cardStyle]}
-            onPress={() => router.push('/profile')}
+            onPress={toggleTheme}
           >
-            <Ionicons name="person-outline" size={22} color={sunTheme.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            accessibilityLabel="Cerrar sesión"
-            style={[styles.iconBtn, cardStyle]}
-            onPress={props.handleLogout}
-          >
-            <Ionicons name="log-out-outline" size={22} color="#DC2626" />
+            <Ionicons name={theme === 'dark' ? 'sunny-outline' : 'moon-outline'} size={22} color={sunTheme.text} />
           </TouchableOpacity>
         </View>
 
         {/* Métricas del Técnico */}
         <View style={styles.metricsRow}>
           <View style={[styles.metricCard, cardStyle]}>
-            <Text style={[styles.metricValue, { color: sunTheme.primary }]}>{props.totalRating || '5.0'}</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.metricValue, { color: sunTheme.primary }]}>{props.totalRating || '5.0'}</Text>
             <Text style={[styles.metricLabel, { color: sunTheme.textSecondary }]}>Calificación</Text>
           </View>
           <View style={[styles.metricCard, cardStyle]}>
-            <Text style={[styles.metricValue, { color: sunTheme.primary }]}>{props.jobsCompleted || 0}</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.metricValue, { color: sunTheme.primary }]}>{props.jobsCompleted || 0}</Text>
             <Text style={[styles.metricLabel, { color: sunTheme.textSecondary }]}>Servicios</Text>
           </View>
           <View style={[styles.metricCard, cardStyle]}>
-            <Text style={[styles.metricValue, { color: props.isVerified ? '#166534' : '#92400E' }]}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[styles.metricValue, { color: props.isVerified ? sunTheme.successText : sunTheme.warningText }]}>
               {props.isVerified ? 'Habilitado' : 'Pendiente'}
             </Text>
             <Text style={[styles.metricLabel, { color: sunTheme.textSecondary }]}>Estado</Text>
@@ -143,7 +137,7 @@ export function ProviderDashboard(props: any) {
         {job ? (
           <View style={[styles.card, cardStyle]}>
             {/* Banner de Estado Operativo */}
-            <View style={[styles.statusBanner, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }]}>
+            <View style={[styles.statusBanner, { backgroundColor: sunTheme.infoBg, borderColor: sunTheme.infoBorder }]}>
               <Ionicons name="construct" size={18} color={sunTheme.primary} />
               <Text style={[styles.statusBannerText, { color: sunTheme.primary }]}>
                 {getJobHeading()}
@@ -162,7 +156,7 @@ export function ProviderDashboard(props: any) {
               </View>
               {job.code && (
                 <View style={styles.codePill}>
-                  <Text style={styles.codeText}>{job.code}</Text>
+                  <Text style={styles.codeText} numberOfLines={2}>{job.code}</Text>
                 </View>
               )}
             </View>
@@ -208,7 +202,7 @@ export function ProviderDashboard(props: any) {
                   <View style={styles.stageContainer}>
                     {/* Botón Primario 1: Abrir en mapas */}
                     <TouchableOpacity
-                      style={[styles.primaryBtn, { backgroundColor: sunTheme.primary }]}
+                      style={[styles.primaryBtn, { backgroundColor: sunTheme.primarySolid }]}
                       onPress={openNavigation}
                     >
                       <Ionicons name="navigate" size={20} color="#FFFFFF" />
@@ -216,7 +210,7 @@ export function ProviderDashboard(props: any) {
                     </TouchableOpacity>
 
                     {/* Módulo de Validación de PIN al llegar */}
-                    <View style={[styles.pinModule, { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }]}>
+                    <View style={[styles.pinModule, { backgroundColor: sunTheme.surfaceAlt, borderColor: sunTheme.border }]}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                         <Ionicons name="keypad-outline" size={20} color={sunTheme.primary} />
                         <Text style={[styles.moduleTitle, { color: sunTheme.text }]}>
@@ -248,12 +242,12 @@ export function ProviderDashboard(props: any) {
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={[styles.secondaryBtn, { borderColor: '#FCA5A5' }]}
+                        style={[styles.secondaryBtn, { borderColor: sunTheme.dangerBorder }]}
                         onPress={props.cancelJobAsProvider}
                         disabled={props.cancelling}
                       >
-                        <Ionicons name="arrow-undo-outline" size={18} color="#DC2626" />
-                        <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>
+                        <Ionicons name="arrow-undo-outline" size={18} color={sunTheme.danger} />
+                        <Text style={[styles.secondaryBtnText, { color: sunTheme.danger }]}>
                           {props.cancelling ? 'Devolviendo...' : 'Solicitar reasignación'}
                         </Text>
                       </TouchableOpacity>
@@ -262,7 +256,7 @@ export function ProviderDashboard(props: any) {
                 ) : (
                   /* Sub-caso A2: PIN Validado -> Botón Primario 2: Iniciar Trabajo */
                   <View style={styles.stageContainer}>
-                    <View style={[styles.arrivalConfirmedBox, { backgroundColor: sunTheme.successBg, borderColor: '#86EFAC' }]}>
+                    <View style={[styles.arrivalConfirmedBox, { backgroundColor: sunTheme.successBg, borderColor: sunTheme.successBorder }]}>
                       <Ionicons name="checkmark-circle" size={24} color={sunTheme.successText} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.arrivalConfirmedTitle, { color: sunTheme.successText }]}>
@@ -293,12 +287,12 @@ export function ProviderDashboard(props: any) {
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={[styles.secondaryBtn, { borderColor: '#FCA5A5' }]}
+                        style={[styles.secondaryBtn, { borderColor: sunTheme.dangerBorder }]}
                         onPress={props.cancelJobAsProvider}
                         disabled={props.cancelling}
                       >
-                        <Ionicons name="arrow-undo-outline" size={18} color="#DC2626" />
-                        <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>Reasignar</Text>
+                        <Ionicons name="arrow-undo-outline" size={18} color={sunTheme.danger} />
+                        <Text style={[styles.secondaryBtnText, { color: sunTheme.danger }]}>Reasignar</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -310,7 +304,7 @@ export function ProviderDashboard(props: any) {
             {job.status === 'IN_PROGRESS' && (
               <View style={styles.stageContainer}>
                 {/* Control de Calidad y Evidencias */}
-                <View style={[styles.evidenceBox, { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }]}>
+                <View style={[styles.evidenceBox, { backgroundColor: sunTheme.surfaceAlt, borderColor: sunTheme.border }]}>
                   <Text style={[styles.evidenceSectionTitle, { color: sunTheme.text }]}>
                     Control de Calidad · Evidencia Fotográfica
                   </Text>
@@ -352,7 +346,7 @@ export function ProviderDashboard(props: any) {
 
                 {/* Botón Primario Único: Finalizar y Enviar Evidencia (Después) */}
                 <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: sunTheme.primary, marginTop: 14 }]}
+                  style={[styles.primaryBtn, { backgroundColor: sunTheme.primarySolid, marginTop: 14 }]}
                   onPress={props.finishJob}
                   disabled={props.uploading}
                 >
@@ -377,12 +371,12 @@ export function ProviderDashboard(props: any) {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.secondaryBtn, { borderColor: '#FCA5A5' }]}
+                    style={[styles.secondaryBtn, { borderColor: sunTheme.dangerBorder }]}
                     onPress={props.cancelJobAsProvider}
                     disabled={props.cancelling}
                   >
-                    <Ionicons name="arrow-undo-outline" size={18} color="#DC2626" />
-                    <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>Reasignar</Text>
+                    <Ionicons name="arrow-undo-outline" size={18} color={sunTheme.danger} />
+                    <Text style={[styles.secondaryBtnText, { color: sunTheme.danger }]}>Reasignar</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -391,13 +385,13 @@ export function ProviderDashboard(props: any) {
             {/* C) ESTADO: COMPLETED (Culminado · Confirmación de Cobro) */}
             {job.status === 'COMPLETED' && (
               <View style={[styles.stageContainer, { marginTop: 10 }]}>
-                <View style={[styles.paymentBox, { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }]}>
+                <View style={[styles.paymentBox, { backgroundColor: sunTheme.surfaceAlt, borderColor: sunTheme.border }]}>
                   <Text style={[styles.moduleTitle, { color: sunTheme.text }]}>
                     Confirmación de Recepción de Pago
                   </Text>
 
                   {job.paymentStatus === 'CONFIRMED' ? (
-                    <View style={[styles.arrivalConfirmedBox, { backgroundColor: sunTheme.successBg, borderColor: '#86EFAC', marginTop: 10 }]}>
+                    <View style={[styles.arrivalConfirmedBox, { backgroundColor: sunTheme.successBg, borderColor: sunTheme.successBorder, marginTop: 10 }]}>
                       <Ionicons name="checkmark-done-circle" size={24} color={sunTheme.successText} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.arrivalConfirmedTitle, { color: sunTheme.successText }]}>
@@ -476,9 +470,9 @@ export function ProviderDashboard(props: any) {
         {/* ── CASO 2: SOLICITUD ENTRANTE (PENDING) ── */}
         {incoming && !job ? (
           <View style={[styles.card, cardStyle, { borderColor: sunTheme.primary, borderWidth: 2 }]}>
-            <View style={[styles.statusBanner, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
-              <Ionicons name="notifications" size={18} color="#92400E" />
-              <Text style={[styles.statusBannerText, { color: '#92400E' }]}>
+            <View style={[styles.statusBanner, { backgroundColor: sunTheme.warningBg, borderColor: sunTheme.warningBorder }]}>
+              <Ionicons name="notifications" size={18} color={sunTheme.warningText} />
+              <Text style={[styles.statusBannerText, { color: sunTheme.warningText }]}>
                 Nueva Asignación de la Central
               </Text>
             </View>
@@ -527,12 +521,12 @@ export function ProviderDashboard(props: any) {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.secondaryBtn, { flex: 0.8, borderColor: '#FCA5A5' }]}
+                style={[styles.secondaryBtn, { flex: 0.8, borderColor: sunTheme.dangerBorder }]}
                 onPress={props.rejectJob}
                 disabled={props.accepting}
               >
-                <Ionicons name="close" size={18} color="#DC2626" />
-                <Text style={[styles.secondaryBtnText, { color: '#DC2626' }]}>Rechazar</Text>
+                <Ionicons name="close" size={18} color={sunTheme.danger} />
+                <Text style={[styles.secondaryBtnText, { color: sunTheme.danger }]}>Rechazar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -551,7 +545,7 @@ export function ProviderDashboard(props: any) {
             <TouchableOpacity
               style={[
                 styles.primaryBtn,
-                { backgroundColor: props.isActive ? '#DC2626' : sunTheme.primary },
+                { backgroundColor: props.isActive ? '#DC2626' : sunTheme.primarySolid },
               ]}
               onPress={props.toggleSwitch}
             >
@@ -574,7 +568,7 @@ export function ProviderDashboard(props: any) {
                 onChangeText={props.setSpecialty}
                 editable={!props.isActive}
                 placeholder="Ej. Gasfitero, Electricista"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={sunTheme.textSecondary}
                 style={[styles.inputField, { borderColor: sunTheme.border, color: sunTheme.text }]}
               />
 
@@ -590,8 +584,8 @@ export function ProviderDashboard(props: any) {
                     style={[
                       styles.kmChip,
                       {
-                        backgroundColor: props.serviceRadius === km ? sunTheme.primary : '#F1F5F9',
-                        borderColor: props.serviceRadius === km ? sunTheme.primary : '#CBD5E1',
+                        backgroundColor: props.serviceRadius === km ? sunTheme.primarySolid : sunTheme.surfaceAlt,
+                        borderColor: props.serviceRadius === km ? sunTheme.primarySolid : sunTheme.border,
                       },
                     ]}
                   >
@@ -638,7 +632,36 @@ export function ProviderDashboard(props: any) {
   );
 }
 
-const styles = StyleSheet.create({
+type SunTheme = ReturnType<typeof createSunTheme>;
+
+function createSunTheme(colors: ThemeColors, dark: boolean) {
+  const st = colors.states;
+  return {
+    background: colors.background,
+    card: colors.card,
+    surfaceAlt: dark ? colors.input : '#F8FAFC',
+    border: dark ? colors.border : '#CBD5E1',
+    primary: dark ? colors.primary : SemanticColors.primary.main, // texto/iconos de acento
+    primarySolid: SemanticColors.primary.main, // fondo sólido con texto blanco (AA en ambos temas)
+    text: colors.text,
+    textSecondary: dark ? colors.subtext : '#334155',
+    infoBg: colors.primarySoft,
+    infoStrong: colors.primaryStrong,
+    infoBorder: dark ? colors.border : '#BAE6FD',
+    successBg: st.completed.bg,
+    successText: st.completed.fg,
+    successBorder: dark ? st.completed.border : '#86EFAC',
+    warningBg: st.pending.bg,
+    warningText: st.pending.fg,
+    warningBorder: dark ? st.pending.border : '#FDE68A',
+    dangerBg: st.danger.bg,
+    dangerText: st.danger.fg,
+    danger: dark ? st.danger.fg : '#DC2626',
+    dangerBorder: dark ? st.danger.border : '#FCA5A5',
+  };
+}
+
+const createStyles = (sunTheme: SunTheme) => StyleSheet.create({
   content: {
     padding: 16,
     width: '100%',
@@ -647,22 +670,29 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     marginBottom: 16,
   },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  brandLogoTile: { width: 30, height: 30, borderRadius: 8, backgroundColor: '#FFFFFF', borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  brandLogo: { width: 22, height: 21 },
   brand: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '900',
     letterSpacing: 1.2,
   },
   title: {
     fontSize: 22,
+    flexShrink: 1,
     fontWeight: '900',
     marginVertical: 2,
   },
   techSubtitle: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '600',
   },
   iconBtn: {
@@ -675,6 +705,7 @@ const styles = StyleSheet.create({
   },
   metricsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 8,
     marginBottom: 16,
   },
@@ -686,17 +717,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   metricValue: {
+    alignSelf: 'stretch',
+    textAlign: 'center',
     fontSize: 20,
+    flexShrink: 1,
     fontWeight: '800',
   },
   metricLabel: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '600',
     marginTop: 2,
   },
   card: {
     borderWidth: 1.5,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 14,
     shadowColor: '#000',
@@ -707,6 +742,7 @@ const styles = StyleSheet.create({
   },
   statusBanner: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 12,
@@ -717,46 +753,55 @@ const styles = StyleSheet.create({
   },
   statusBannerText: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '800',
   },
   jobClientHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 10,
   },
   clientName: {
     fontSize: 18,
+    flexShrink: 1,
     fontWeight: '800',
   },
   serviceTypeLabel: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '600',
     marginTop: 2,
   },
   codePill: {
-    backgroundColor: '#E0F2FE',
+    backgroundColor: sunTheme.infoStrong,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
   },
   codeText: {
-    color: '#0369A1',
+    fontFamily: Typography.fontFamily.mono,
+    color: sunTheme.primary,
     fontWeight: '800',
     fontSize: 12,
+    flexShrink: 1,
   },
   priceContainer: {
     marginVertical: 10,
     padding: 10,
     borderRadius: 10,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: sunTheme.surfaceAlt,
   },
   priceTag: {
+    fontFamily: Typography.fontFamily.mono,
     fontSize: 22,
+    flexShrink: 1,
     fontWeight: '900',
   },
   priceNote: {
     fontSize: 12,
+    flexShrink: 1,
     marginTop: 2,
   },
   map: {
@@ -767,16 +812,19 @@ const styles = StyleSheet.create({
   },
   addressBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 8,
     alignItems: 'flex-start',
     marginVertical: 6,
   },
   addressText: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '700',
   },
   addressRef: {
     fontSize: 12,
+    flexShrink: 1,
     marginTop: 2,
   },
   stageContainer: {
@@ -786,6 +834,7 @@ const styles = StyleSheet.create({
     minHeight: TouchTarget.mobileMin,
     borderRadius: 12,
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
@@ -794,10 +843,12 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     color: '#FFFFFF',
     fontSize: 15,
+    flexShrink: 1,
     fontWeight: '800',
   },
   secondaryActionsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
     marginTop: 10,
   },
@@ -806,7 +857,7 @@ const styles = StyleSheet.create({
     minHeight: TouchTarget.mobileMin,
     borderRadius: 10,
     borderWidth: 1.5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: sunTheme.card,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -815,24 +866,28 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
   },
   pinModule: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     padding: 14,
     marginTop: 14,
   },
   moduleTitle: {
     fontSize: 15,
+    flexShrink: 1,
     fontWeight: '800',
   },
   moduleHelp: {
     fontSize: 12,
+    flexShrink: 1,
     lineHeight: 17,
   },
   arrivalConfirmedBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     padding: 12,
@@ -841,10 +896,12 @@ const styles = StyleSheet.create({
   },
   arrivalConfirmedTitle: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '800',
   },
   arrivalConfirmedSubtitle: {
     fontSize: 12,
+    flexShrink: 1,
     marginTop: 2,
     lineHeight: 16,
   },
@@ -856,35 +913,41 @@ const styles = StyleSheet.create({
   },
   evidenceSectionTitle: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '800',
     marginBottom: 10,
   },
   photoRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
   },
   photoLabel: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
   },
   photoHelper: {
     fontSize: 12,
+    flexShrink: 1,
     marginTop: 2,
   },
   photoActionBtn: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
     borderWidth: 1.5,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: sunTheme.card,
   },
   photoActionText: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
   },
   evidenceThumbnail: {
@@ -899,6 +962,7 @@ const styles = StyleSheet.create({
   },
   incomingDesc: {
     fontSize: 13,
+    flexShrink: 1,
     lineHeight: 18,
     marginVertical: 8,
   },
@@ -907,7 +971,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     fontSize: 14,
-    backgroundColor: '#FFFFFF',
+    flexShrink: 1,
+    backgroundColor: sunTheme.card,
   },
   kmChip: {
     flex: 1,

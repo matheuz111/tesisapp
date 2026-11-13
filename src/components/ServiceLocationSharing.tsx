@@ -217,7 +217,7 @@ function LocationSessionProvider({ children, uid, role }: { children: React.Reac
             {busy && <Text style={{ color: colors.subtext }}>Esperando permiso del teléfono…</Text>}
             {!busy && status.includes('Permiso') && <Text style={{ color: colors.subtext }}>{status}</Text>}
             <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={enable} style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: busy ? 0.6 : 1 }]}>
-              <Text style={styles.primaryLabel}>{busy ? 'Activando…' : 'Activar ubicación'}</Text>
+              <Text style={styles.primaryLabel} numberOfLines={2}>{busy ? 'Activando…' : 'Activar ubicación'}</Text>
             </TouchableOpacity>
             <TouchableOpacity accessibilityRole="button" onPress={() => { dismiss(); router.push('/profile'); }} style={styles.textButton}>
               <Text style={{ color: colors.primary, fontWeight: '700' }}>Configurar en mi perfil</Text>

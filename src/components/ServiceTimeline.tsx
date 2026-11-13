@@ -271,11 +271,13 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 17,
+    flexShrink: 1,
     fontWeight: '900',
     marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 12,
+    flexShrink: 1,
     marginBottom: 16,
   },
   timelineList: {
@@ -283,6 +285,7 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
+    flexShrink: 1,
   },
   nodeColumn: {
     alignItems: 'center',
@@ -309,6 +312,7 @@ const styles = StyleSheet.create({
   },
   titleRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
     flexWrap: 'wrap',
@@ -316,14 +320,17 @@ const styles = StyleSheet.create({
   },
   itemTitle: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '800',
   },
   timestamp: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '600',
   },
   itemSubtitle: {
     fontSize: 12,
+    flexShrink: 1,
     marginTop: 2,
     lineHeight: 16,
   },

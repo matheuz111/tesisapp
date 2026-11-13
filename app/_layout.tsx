@@ -1,15 +1,19 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { AnimatedSplash } from '../src/components/AnimatedSplash';
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ThemeProvider } from '../src/context/ThemeContext';
+import { ThemeProvider, useTheme } from '../src/context/ThemeContext';
+import { StatusBar } from 'expo-status-bar';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../src/config/firebase';
 import { registerForPushNotificationsAsync, watchServicePushTokens } from '../utils/pushNotifications';
 import { flushDemoPushOutbox } from '../src/services/demoPushService';
 import { ServiceLocationProvider } from '../src/components/ServiceLocationSharing';
-import { SessionProvider, useSession } from '../src/context/SessionContext';
+import { SessionProvider, getRoleHome, useSession } from '../src/context/SessionContext';
+import { resetToLogin } from '../src/navigation/resetStack';
 import { withTimeout } from '../src/services/async';
 import {
   Notifications,
@@ -17,6 +21,9 @@ import {
   type EventSubscription,
   type NotificationResponse,
 } from '../src/services/notificationsWrapper';
+
+// Mantiene el splash nativo hasta que AnimatedSplash toma el relevo (sin parpadeo blanco).
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function Layout() {
   return <SessionProvider><ThemeProvider><AppShell /></ThemeProvider></SessionProvider>;
@@ -29,14 +36,26 @@ function AppShell() {
   const uid = user?.uid;
   const role = profile?.role;
   const insets = useSafeAreaInsets();
+  const { colors, theme } = useTheme();
   const notificationListener = useRef<EventSubscription | null>(null);
   const responseListener = useRef<EventSubscription | null>(null);
   const handledNotificationId = useRef<string | null>(null);
 
   // Remove protected screens from the visible flow promptly when the local session ends.
   useEffect(() => {
-    if (!authLoading && !uid && !['auth', 'onboarding'].includes(segments[0] || '')) router.replace('/auth/login');
+    if (!authLoading && !uid && !['auth', 'onboarding'].includes(segments[0] || '')) resetToLogin(router);
   }, [authLoading, uid, segments, router]);
+
+  // Guardia de rol: nunca mostrar pantallas de otra cuenta (p. ej. la home de un técnico bajo una sesión de administrador).
+  useEffect(() => {
+    if (authLoading || !uid || !role) return;
+    const area = segments[0] === '(main)' ? String(segments[1] || '') : String(segments[0] || '');
+    const own = role === 'CLIENT' ? 'client' : role === 'PROVIDER' ? 'provider' : 'operator';
+    if (['client', 'provider', 'operator'].includes(area) && area !== own) {
+      const home = getRoleHome(role);
+      if (home) router.replace(home);
+    }
+  }, [authLoading, uid, role, segments, router]);
 
   useEffect(() => {
     if (isExpoGo || !uid) return;
@@ -125,30 +144,31 @@ function AppShell() {
     <ServiceLocationProvider>
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: '#FFFFFF' },
-          headerTintColor: '#0F172A',
+          headerStyle: { backgroundColor: colors.card },
+          headerTintColor: colors.text,
+          contentStyle: { backgroundColor: colors.background },
+          animation: 'slide_from_right',
+          animationDuration: 240,
           headerShadowVisible: false,
           headerTitleStyle: { fontWeight: 'bold' },
         }}
       >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/login" options={{ title: 'Iniciar Sesión', headerShown: false }} />
+        <Stack.Screen name="index" options={{ headerShown: false, animation: 'fade' }} />
+        <Stack.Screen name="auth/login" options={{ title: 'Iniciar Sesión', headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="auth/register" options={{ title: 'Crear Cuenta' }} />
         <Stack.Screen name="onboarding/index" options={{ headerShown: false }} />
 
-        <Stack.Screen name="client/home" options={{ headerShown: false }} />
-        <Stack.Screen name="client/history" options={{ headerShown: false }} />
-        <Stack.Screen name="provider/home" options={{ headerShown: false }} />
-        <Stack.Screen name="provider/history" options={{ headerShown: false }} />
+        <Stack.Screen name="(main)" options={{ headerShown: false, animation: 'fade' }} />
 
-        <Stack.Screen name="operator/home" options={{ headerShown: false }} />
+        <Stack.Screen name="operator/home" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="operator/monitor/[id]" options={{ headerShown: false }} />
 
-        <Stack.Screen name="profile/index" options={{ title: 'Mi Perfil' }} />
         <Stack.Screen name="profile/help" options={{ headerShown: false }} />
         <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
       </Stack>
       <Toast topOffset={insets.top + 12} bottomOffset={insets.bottom + 12} />
+      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+      <AnimatedSplash ready={!authLoading} />
     </ServiceLocationProvider>
   );
 }

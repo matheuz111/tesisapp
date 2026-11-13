@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -17,7 +17,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { auth, db } from '../../src/config/firebase';
 import { syncUserToGoogleSheet } from '../../src/services/googleSheetsSync';
 import {
-  BaseColors,
   BaseElevation,
   BaseRadii,
   BaseTypography,
@@ -28,10 +27,13 @@ import {
   BaseSystemBanner,
   BaseDistrictPicker,
 } from '../../src/components/base';
+import { useBaseColors, type BaseColorSet } from '../../src/components/base/useBaseColors';
 
 type Role = 'client' | 'provider';
 
 export default function RegisterScreen() {
+  const BaseColors = useBaseColors();
+  const styles = useMemo(() => createStyles(BaseColors), [BaseColors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams();
@@ -147,7 +149,7 @@ export default function RegisterScreen() {
     }
     if (!isPasswordSecure) {
       Alert.alert(
-        'Contraseña Insegura 🔒',
+        'Contraseña Insegura',
         'Tu contraseña debe contener:\n• Mínimo 8 caracteres\n• Al menos una letra MAYÚSCULA (A-Z)\n• Al menos una letra MINÚSCULA (a-z)\n• Al menos un NÚMERO (0-9)\n• Al menos un SÍMBOLO especial (!@#$%...)'
       );
       return;
@@ -195,7 +197,7 @@ export default function RegisterScreen() {
       void syncUserToGoogleSheet(userData);
 
       Alert.alert(
-        '¡Registro Exitoso! 🎉',
+        '¡Registro Exitoso!',
         `Bienvenido a Maestro a Domicilio, ${cleanName}. Ahora puedes iniciar sesión con tu correo.`,
         [{ text: 'Iniciar Sesión', onPress: () => router.replace('/auth/login') }]
       );
@@ -424,7 +426,7 @@ export default function RegisterScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BaseColors.gray50,
@@ -440,12 +442,14 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: BaseTypography.sizes.xl,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   subtitle: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 4,
     textAlign: 'center',
@@ -455,12 +459,14 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.semiBold,
     color: BaseColors.gray700,
     marginBottom: 8,
   },
   tilesRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
   },
   card: {
@@ -477,12 +483,14 @@ const styles = StyleSheet.create({
   },
   passwordReqTitle: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray700,
     marginBottom: 6,
   },
   reqGrid: {
     flexDirection: 'row',
+    flexShrink: 1,
     flexWrap: 'wrap',
     gap: 8,
   },
@@ -494,6 +502,7 @@ const styles = StyleSheet.create({
   },
   reqText: {
     fontSize: 10,
+    flexShrink: 1,
     color: BaseColors.gray500,
   },
   reqTextActive: {
@@ -506,6 +515,7 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     color: BaseColors.gray600,
   },
   linkBold: {

@@ -8,8 +8,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
-import { BaseColors, BaseTypography } from './BaseTokens';
+import { BaseTypography } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 import { NotificationBadge, HintBadge } from './BaseBadge';
 
 export interface TabItem {
@@ -34,14 +34,11 @@ export const BaseBottomNavigation: React.FC<BaseBottomNavigationProps> = ({
   onTabPress,
   style,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const insets = useSafeAreaInsets();
 
   const handlePress = (tabId: string) => {
-    try {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {
-      // ignore
-    }
     onTabPress(tabId);
   };
 
@@ -117,7 +114,7 @@ export const BaseBottomNavigation: React.FC<BaseBottomNavigationProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     backgroundColor: BaseColors.white,
     borderTopWidth: 1,
@@ -126,6 +123,7 @@ const styles = StyleSheet.create({
   },
   tabsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     height: 64,
     alignItems: 'center',
     justifyContent: 'space-around',
@@ -165,6 +163,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
+    flexShrink: 1,
     marginTop: 2,
     textAlign: 'center',
     includeFontPadding: false,

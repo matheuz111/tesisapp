@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
+import { useTheme, type ThemeColors } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { SemanticColors, TouchTarget } from '../theme/tokens';
 
@@ -27,6 +28,8 @@ export function ClientConformityView({
   confirming = false,
   disputing = false,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [problemModalVisible, setProblemModalVisible] = useState(false);
   const [disputeReason, setDisputeReason] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +54,7 @@ export function ClientConformityView({
       {/* Cabecera de Conformidad */}
       <View style={styles.headerBox}>
         <View style={styles.iconCircle}>
-          <Ionicons name="shield-checkmark" size={24} color="#0369A1" />
+          <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Revisión de Conformidad del Servicio</Text>
@@ -107,7 +110,7 @@ export function ClientConformityView({
         </View>
         <View style={[styles.summaryRow, { borderBottomWidth: 0, paddingBottom: 0 }]}>
           <Text style={styles.summaryLabel}>Total Liquidado:</Text>
-          <Text style={styles.summaryPrice}>{request.price_agreed || 'Tarifa fijada por central'}</Text>
+          <Text style={styles.summaryPrice} numberOfLines={2}>{request.price_agreed || 'Tarifa fijada por central'}</Text>
         </View>
       </View>
 
@@ -133,7 +136,7 @@ export function ClientConformityView({
           onPress={() => setProblemModalVisible(true)}
           disabled={confirming || disputing}
         >
-          <Ionicons name="alert-circle-outline" size={18} color="#B91C1C" />
+          <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
           <Text style={styles.btnDisputeText}>Reportar un problema a la Central</Text>
         </TouchableOpacity>
       </View>
@@ -148,7 +151,7 @@ export function ClientConformityView({
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Ionicons name="warning" size={24} color="#B91C1C" />
+              <Ionicons name="warning" size={24} color={colors.danger} />
               <Text style={styles.modalTitle}>Reportar inconveniente</Text>
             </View>
 
@@ -158,7 +161,7 @@ export function ClientConformityView({
 
             {error && (
               <View style={styles.errorBanner}>
-                <Ionicons name="alert-circle" size={16} color="#991B1B" />
+                <Ionicons name="alert-circle" size={16} color={colors.danger} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             )}
@@ -166,7 +169,7 @@ export function ClientConformityView({
             <TextInput
               style={styles.modalInput}
               placeholder="Describe detalladamente el motivo de tu disconformidad..."
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.textMuted}
               multiline
               maxLength={300}
               value={disputeReason}
@@ -201,37 +204,40 @@ export function ClientConformityView({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     marginVertical: 12,
   },
   headerBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 12,
     padding: 14,
     borderRadius: 12,
-    backgroundColor: '#F0F9FF',
+    backgroundColor: colors.primarySoft,
     borderWidth: 1,
-    borderColor: '#BAE6FD',
+    borderColor: colors.border,
     marginBottom: 12,
   },
   iconCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#E0F2FE',
+    backgroundColor: colors.primaryStrong,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 15,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#0369A1',
+    color: colors.primary,
   },
   subtitle: {
     fontSize: 12,
-    color: '#0C4A6E',
+    flexShrink: 1,
+    color: colors.text,
     marginTop: 2,
     lineHeight: 16,
   },
@@ -240,13 +246,15 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#475569',
+    color: colors.subtext,
     letterSpacing: 0.8,
     marginBottom: 6,
   },
   photosRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
   },
   photoCard: {
@@ -255,7 +263,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#0F172A',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
   },
   photoTag: {
     backgroundColor: '#0369A1',
@@ -265,6 +273,7 @@ const styles = StyleSheet.create({
   photoTagText: {
     color: '#FFFFFF',
     fontSize: 10,
+    flexShrink: 1,
     fontWeight: '800',
   },
   photoImg: {
@@ -272,36 +281,40 @@ const styles = StyleSheet.create({
     height: 120,
   },
   summaryCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.background,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     padding: 14,
     marginBottom: 14,
   },
   summaryRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingBottom: 8,
     marginBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: colors.border,
   },
   summaryLabel: {
     fontSize: 13,
-    color: '#475569',
+    flexShrink: 1,
+    color: colors.subtext,
     fontWeight: '600',
   },
   summaryVal: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
-    color: '#0F172A',
+    color: colors.text,
   },
   summaryPrice: {
     fontSize: 18,
+    flexShrink: 1,
     fontWeight: '900',
-    color: '#0369A1',
+    color: colors.primary,
   },
   actionsContainer: {
     gap: 10,
@@ -311,6 +324,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#166534',
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
@@ -319,23 +333,26 @@ const styles = StyleSheet.create({
   btnConfirmText: {
     color: '#FFFFFF',
     fontSize: 15,
+    flexShrink: 1,
     fontWeight: '800',
   },
   btnDispute: {
     minHeight: TouchTarget.mobileMin,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.card,
     borderWidth: 1.5,
-    borderColor: '#FCA5A5',
+    borderColor: colors.states.danger.border,
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     paddingHorizontal: 16,
   },
   btnDisputeText: {
-    color: '#B91C1C',
+    color: colors.danger,
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '700',
   },
   modalBackdrop: {
@@ -349,56 +366,63 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 480,
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.card,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
   },
   modalHeader: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 10,
     marginBottom: 10,
   },
   modalTitle: {
     fontSize: 17,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#0F172A',
+    color: colors.text,
   },
   modalDesc: {
     fontSize: 13,
-    color: '#475569',
+    flexShrink: 1,
+    color: colors.subtext,
     lineHeight: 18,
     marginBottom: 12,
   },
   errorBanner: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.states.danger.bg,
     padding: 8,
     borderRadius: 8,
     marginBottom: 10,
   },
   errorText: {
-    color: '#991B1B',
+    color: colors.danger,
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '600',
   },
   modalInput: {
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 12,
     fontSize: 13,
-    color: '#0F172A',
-    backgroundColor: '#F8FAFC',
+    flexShrink: 1,
+    color: colors.text,
+    backgroundColor: colors.background,
     minHeight: 80,
     textAlignVertical: 'top',
     marginBottom: 14,
   },
   modalActions: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
   },
   modalBtn: {
@@ -410,14 +434,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   modalBtnCancel: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.input,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
   },
   modalBtnCancelText: {
-    color: '#334155',
+    color: colors.subtext,
     fontWeight: '700',
     fontSize: 13,
+    flexShrink: 1,
   },
   modalBtnSend: {
     backgroundColor: '#DC2626',
@@ -426,5 +451,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 13,
+    flexShrink: 1,
   },
 });

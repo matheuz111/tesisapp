@@ -50,7 +50,7 @@ export function registerForPushNotificationsAsync(userId: string, options: Regis
         await withTimeout(Notifications.setNotificationChannelAsync('default', {
           name: 'Solicitudes y servicios', description: 'Asignaciones, mensajes y estados del servicio',
           importance: Notifications.AndroidImportance.MAX, vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#FF231F7C', sound: 'default', enableVibrate: true, showBadge: true,
+          lightColor: '#FF231F7C', enableVibrate: true, showBadge: true,
           lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         }), 5000);
       }
@@ -129,7 +129,7 @@ export function watchServicePushTokens(userId: string, role: string): () => void
   return session.stop;
 }
 
-/** Logout is a local auth operation. Remote cleanup is best effort with a single 1.5 s budget. */
+/** Logout is a local auth operation. Remote cleanup is best effort with a single 0.9 s budget. */
 export function signOutWithNotifications(): Promise<void> {
   if (signOutTask) return signOutTask;
   const uid = auth.currentUser?.uid;
@@ -154,7 +154,7 @@ export function signOutWithNotifications(): Promise<void> {
     if (outcomes.some((outcome) => outcome.status === 'rejected')) console.warn('La limpieza remota de notificaciones no se confirmó; la sesión local se cerrará.');
   };
   signOutTask = (async () => {
-    try { await withTimeout(cleanup(), 1500); }
+    try { await withTimeout(cleanup(), 900); }
     catch { console.warn('La limpieza remota tardó demasiado; se continúa con el cierre de sesión local.'); }
     finally {
       // Do not let a Firestore outage, permission error or pending write lock the user in.

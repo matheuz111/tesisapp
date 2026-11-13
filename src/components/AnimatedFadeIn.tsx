@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   StyleProp,
@@ -30,8 +30,8 @@ export const AnimatedFadeIn: React.FC<AnimatedFadeInProps> = ({
   translateDistance = 8,
   children,
 }) => {
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  const translateAnim = useRef(new Animated.Value(translateDistance)).current;
+  const opacityAnim = useMemo(() => new Animated.Value(0), []);
+  const translateAnim = useMemo(() => new Animated.Value(translateDistance), [translateDistance]);
   const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {

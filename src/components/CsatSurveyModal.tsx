@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useTheme, type ThemeColors } from '../context/ThemeContext';
+import React, { useMemo, useState } from 'react';
 import {
   Modal,
   View,
@@ -12,7 +13,6 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { SemanticColors, TouchTarget } from '../theme/tokens';
 import { AnimatedPressable } from './AnimatedPressable';
 import { AnimatedFadeIn } from './AnimatedFadeIn';
@@ -51,7 +51,7 @@ export const CSAT_QUESTIONS = [
 ] as const;
 
 export const LIKERT_OPTIONS = [
-  { value: 1, label: 'Muy en desacuerdo', sublabel: 'Totalmente insatisfecho', color: '#EF4444' },
+  { value: 1, label: 'Muy en desacuerdo', sublabel: 'Totalmente insatisfecho', color: '#DC2626' },
   { value: 2, label: 'En desacuerdo', sublabel: 'Insatisfecho', color: '#F97316' },
   { value: 3, label: 'Neutral', sublabel: 'Ni satisfecho ni insatisfecho', color: '#FBBF24' },
   { value: 4, label: 'De acuerdo', sublabel: 'Satisfecho', color: '#84CC16' },
@@ -66,6 +66,8 @@ interface Props {
 }
 
 export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   // Pasos: 0 a 4 = preguntas Likert 1 a 5; paso 5 = reseña opcional final
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -79,7 +81,6 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
 
   const handleSelectScore = (value: number) => {
     if (loading) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setAnswers((prev) => ({
       ...prev,
       [currentQuestion.id]: value,
@@ -145,7 +146,7 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} disabled={loading} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color="#64748B" />
+              <Ionicons name="close" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -173,7 +174,7 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
 
           {error && (
             <View style={styles.errorBox}>
-              <Ionicons name="alert-circle" size={16} color="#991B1B" />
+              <Ionicons name="alert-circle" size={16} color={colors.danger} />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
@@ -196,7 +197,6 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
                   return (
                     <AnimatedPressable
                       scaleTo={0.98}
-                      hapticFeedback="light"
                       key={opt.value}
                       disabled={loading}
                       onPress={() => handleSelectScore(opt.value)}
@@ -204,7 +204,7 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
                         styles.likertOption,
                         isSelected && {
                           borderColor: SemanticColors.primary.main,
-                          backgroundColor: '#F0F9FF',
+                          backgroundColor: colors.primarySoft,
                         },
                       ]}
                     >
@@ -212,15 +212,15 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
                         style={[
                           styles.scoreCircle,
                           {
-                            borderColor: isSelected ? SemanticColors.primary.main : '#CBD5E1',
-                            backgroundColor: isSelected ? SemanticColors.primary.main : '#F8FAFC',
+                            borderColor: isSelected ? SemanticColors.primary.main : colors.border,
+                            backgroundColor: isSelected ? SemanticColors.primary.main : colors.background,
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.scoreNumber,
-                            { color: isSelected ? '#FFFFFF' : '#334155' },
+                            { color: isSelected ? '#FFFFFF' : colors.subtext },
                           ]}
                         >
                           {opt.value}
@@ -230,12 +230,12 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
                         <Text
                           style={[
                             styles.optionLabel,
-                            { color: isSelected ? SemanticColors.primary.main : '#0F172A' },
+                            { color: isSelected ? SemanticColors.primary.main : colors.text },
                           ]}
                         >
                           {opt.label}
                         </Text>
-                        <Text style={styles.optionSublabel}>{opt.sublabel}</Text>
+                        <Text style={styles.optionSublabel} numberOfLines={2}>{opt.sublabel}</Text>
                       </View>
                       {isSelected && (
                         <Ionicons
@@ -265,7 +265,7 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
               <TextInput
                 style={styles.commentInput}
                 placeholder="Escribe tu reseña o comentario para el técnico y la empresa (opcional)..."
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={colors.textMuted}
                 multiline
                 maxLength={MAX_REVIEW_COMMENT_LENGTH}
                 value={comment}
@@ -287,7 +287,7 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
                 onPress={handleBack}
                 disabled={loading}
               >
-                <Ionicons name="arrow-back" size={18} color="#334155" />
+                <Ionicons name="arrow-back" size={18} color={colors.subtext} />
                 <Text style={styles.btnBackText}>Anterior</Text>
               </TouchableOpacity>
             )}
@@ -328,7 +328,7 @@ export function CsatSurveyModal({ visible, onClose, onSubmit, loading = false }:
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.75)',
@@ -341,9 +341,9 @@ const styles = StyleSheet.create({
     maxWidth: 500,
     maxHeight: '90%',
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     padding: 20,
     shadowColor: '#000',
     shadowOpacity: 0.15,
@@ -352,6 +352,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'flex-start',
     gap: 12,
     marginBottom: 12,
@@ -360,18 +361,20 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 12,
-    backgroundColor: '#E0F2FE',
+    backgroundColor: colors.primaryStrong,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 17,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#0F172A',
+    color: colors.text,
   },
   subtitle: {
     fontSize: 12,
-    color: '#475569',
+    flexShrink: 1,
+    color: colors.subtext,
     marginTop: 2,
     lineHeight: 16,
   },
@@ -383,24 +386,27 @@ const styles = StyleSheet.create({
   },
   progressLabelRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     justifyContent: 'space-between',
     marginBottom: 6,
   },
   stepIndicatorText: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '800',
     color: SemanticColors.primary.main,
     letterSpacing: 0.4,
   },
   percentText: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
-    color: '#64748B',
+    color: colors.textMuted,
   },
   progressBarBg: {
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: colors.border,
     overflow: 'hidden',
   },
   progressBarFill: {
@@ -410,15 +416,16 @@ const styles = StyleSheet.create({
   },
   errorBox: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.states.danger.bg,
     padding: 10,
     borderRadius: 8,
     marginBottom: 10,
   },
   errorText: {
-    color: '#991B1B',
+    color: colors.danger,
     fontSize: 12,
     fontWeight: '600',
     flex: 1,
@@ -427,15 +434,16 @@ const styles = StyleSheet.create({
     maxHeight: 380,
   },
   questionCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.background,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     padding: 14,
     marginBottom: 14,
   },
   questionCategory: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '900',
     color: SemanticColors.primary.main,
     letterSpacing: 0.8,
@@ -443,14 +451,16 @@ const styles = StyleSheet.create({
   },
   questionText: {
     fontSize: 15,
+    flexShrink: 1,
     fontWeight: '700',
-    color: '#0F172A',
+    color: colors.text,
     lineHeight: 22,
   },
   likertPrompt: {
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
-    color: '#475569',
+    color: colors.subtext,
     marginBottom: 8,
   },
   likertList: {
@@ -459,12 +469,13 @@ const styles = StyleSheet.create({
   },
   likertOption: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     padding: 10,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    backgroundColor: colors.card,
     minHeight: TouchTarget.mobileMin,
   },
   scoreCircle: {
@@ -478,60 +489,68 @@ const styles = StyleSheet.create({
   },
   scoreNumber: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '800',
   },
   optionLabel: {
     fontSize: 13,
+    flexShrink: 1,
     fontWeight: '700',
   },
   optionSublabel: {
     fontSize: 11,
-    color: '#64748B',
+    flexShrink: 1,
+    color: colors.textMuted,
     marginTop: 1,
   },
   summaryBox: {
     alignItems: 'center',
-    backgroundColor: '#F0F9FF',
+    backgroundColor: colors.primarySoft,
     borderRadius: 12,
     padding: 16,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#BAE6FD',
+    borderColor: colors.border,
   },
   summaryTitle: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#0369A1',
+    color: colors.primary,
     marginTop: 8,
     textAlign: 'center',
   },
   summaryDesc: {
     fontSize: 12,
-    color: '#0C4A6E',
+    flexShrink: 1,
+    color: colors.text,
     marginTop: 4,
     textAlign: 'center',
     lineHeight: 17,
   },
   commentInput: {
     borderWidth: 1.5,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 12,
     fontSize: 13,
-    color: '#0F172A',
-    backgroundColor: '#F8FAFC',
+    flexShrink: 1,
+    color: colors.text,
+    backgroundColor: colors.background,
     minHeight: 90,
     textAlignVertical: 'top',
   },
   charCount: {
     fontSize: 11,
-    color: '#64748B',
+    flexShrink: 1,
+    color: colors.textMuted,
     textAlign: 'right',
     marginTop: 4,
     marginBottom: 8,
   },
   footerRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 10,
     marginTop: 16,
   },
@@ -546,14 +565,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   btnBack: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.input,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
   },
   btnBackText: {
-    color: '#334155',
+    color: colors.subtext,
     fontWeight: '700',
     fontSize: 14,
+    flexShrink: 1,
   },
   btnPrimary: {
     backgroundColor: SemanticColors.primary.main,
@@ -562,5 +582,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 14,
+    flexShrink: 1,
   },
 });

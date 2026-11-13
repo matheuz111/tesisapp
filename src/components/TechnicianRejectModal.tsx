@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Modal,
   View,
@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme, type ThemeColors } from '../context/ThemeContext';
 import { SemanticColors, TouchTarget } from '../theme/tokens';
 
 export type RejectionReasonCode = 'DISTANCE' | 'BUSY' | 'OUT_OF_SPECIALTY' | 'OTHER';
@@ -59,6 +59,7 @@ interface Props {
 
 export function TechnicianRejectModal({ visible, onClose, onConfirm, loading = false }: Props) {
   const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [selectedCode, setSelectedCode] = useState<RejectionReasonCode | null>(null);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -92,11 +93,11 @@ export function TechnicianRejectModal({ visible, onClose, onConfirm, loading = f
         style={styles.backdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={[styles.card, { backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }]}>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {/* Cabecera */}
           <View style={styles.header}>
             <View style={styles.headerIcon}>
-              <Ionicons name="warning-outline" size={24} color="#B91C1C" />
+              <Ionicons name="warning-outline" size={24} color={colors.danger} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.title}>Rechazar asignación</Text>
@@ -110,13 +111,13 @@ export function TechnicianRejectModal({ visible, onClose, onConfirm, loading = f
               accessibilityLabel="Cerrar"
               style={styles.closeBtn}
             >
-              <Ionicons name="close" size={22} color="#475569" />
+              <Ionicons name="close" size={22} color={colors.subtext} />
             </TouchableOpacity>
           </View>
 
           {error && (
             <View style={styles.errorBanner}>
-              <Ionicons name="alert-circle" size={16} color="#991B1B" />
+              <Ionicons name="alert-circle" size={16} color={colors.danger} />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
@@ -137,22 +138,22 @@ export function TechnicianRejectModal({ visible, onClose, onConfirm, loading = f
                   style={[
                     styles.optionCard,
                     {
-                      borderColor: isSelected ? SemanticColors.primary.main : '#E2E8F0',
-                      backgroundColor: isSelected ? '#F0F9FF' : '#F8FAFC',
+                      borderColor: isSelected ? SemanticColors.primary.main : colors.border,
+                      backgroundColor: isSelected ? '#F0F9FF' : colors.background,
                     },
                   ]}
                 >
-                  <View style={[styles.radioCircle, { borderColor: isSelected ? SemanticColors.primary.main : '#94A3B8' }]}>
+                  <View style={[styles.radioCircle, { borderColor: isSelected ? SemanticColors.primary.main : colors.textMuted }]}>
                     {isSelected && <View style={[styles.radioInner, { backgroundColor: SemanticColors.primary.main }]} />}
                   </View>
                   <Ionicons
                     name={opt.icon}
                     size={20}
-                    color={isSelected ? SemanticColors.primary.main : '#475569'}
+                    color={isSelected ? SemanticColors.primary.main : colors.subtext}
                     style={{ marginRight: 8 }}
                   />
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.optionTitle, { color: isSelected ? SemanticColors.primary.main : '#0F172A' }]}>
+                    <Text style={[styles.optionTitle, { color: isSelected ? SemanticColors.primary.main : colors.text }]}>
                       {opt.label}
                     </Text>
                     <Text style={styles.optionDesc}>
@@ -169,7 +170,7 @@ export function TechnicianRejectModal({ visible, onClose, onConfirm, loading = f
           <TextInput
             style={styles.notesInput}
             placeholder="Ej: Estoy terminando servicio en San Miguel, me toma 45 min llegar..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textMuted}
             value={notes}
             onChangeText={setNotes}
             maxLength={180}
@@ -212,7 +213,7 @@ export function TechnicianRejectModal({ visible, onClose, onConfirm, loading = f
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.65)',
@@ -234,6 +235,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'flex-start',
     gap: 12,
     marginBottom: 14,
@@ -242,18 +244,20 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.states.danger.bg,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 18,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#0F172A',
+    color: colors.text,
   },
   subtitle: {
     fontSize: 13,
-    color: '#475569',
+    flexShrink: 1,
+    color: colors.subtext,
     marginTop: 2,
     lineHeight: 18,
   },
@@ -262,23 +266,25 @@ const styles = StyleSheet.create({
   },
   errorBanner: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.states.danger.bg,
     padding: 10,
     borderRadius: 8,
     marginBottom: 12,
   },
   errorText: {
-    color: '#991B1B',
+    color: colors.danger,
     fontSize: 13,
     fontWeight: '600',
     flex: 1,
   },
   sectionLabel: {
     fontSize: 11,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#475569',
+    color: colors.subtext,
     letterSpacing: 0.8,
     marginBottom: 6,
   },
@@ -287,6 +293,7 @@ const styles = StyleSheet.create({
   },
   optionCard: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     padding: 12,
     borderRadius: 10,
@@ -309,25 +316,29 @@ const styles = StyleSheet.create({
   },
   optionTitle: {
     fontSize: 14,
+    flexShrink: 1,
     fontWeight: '700',
   },
   optionDesc: {
     fontSize: 12,
-    color: '#475569',
+    flexShrink: 1,
+    color: colors.subtext,
     marginTop: 2,
   },
   notesInput: {
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 12,
     fontSize: 13,
-    color: '#0F172A',
-    backgroundColor: '#F8FAFC',
+    flexShrink: 1,
+    color: colors.text,
+    backgroundColor: colors.background,
     minHeight: 56,
   },
   actionsRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 12,
     marginTop: 18,
   },
@@ -342,14 +353,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   btnCancel: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.input,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
   },
   btnCancelText: {
-    color: '#334155',
+    color: colors.subtext,
     fontWeight: '700',
     fontSize: 14,
+    flexShrink: 1,
   },
   btnConfirm: {
     backgroundColor: '#DC2626',
@@ -358,5 +370,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 14,
+    flexShrink: 1,
   },
 });

@@ -118,6 +118,7 @@ export function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
 const styles = StyleSheet.create({
   badge: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     borderRadius: 6,
     borderWidth: 1,

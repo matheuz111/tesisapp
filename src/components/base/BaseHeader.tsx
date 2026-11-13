@@ -10,7 +10,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BaseColors, BaseTypography } from './BaseTokens';
+import { BaseTypography } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 
 export interface BaseHeaderProps {
   title: string;
@@ -33,6 +34,8 @@ export const BaseHeader: React.FC<BaseHeaderProps> = ({
   style,
   titleStyle,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -91,7 +94,7 @@ export const BaseHeader: React.FC<BaseHeaderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   container: {
     width: '100%',
     zIndex: 10,
@@ -99,6 +102,7 @@ const styles = StyleSheet.create({
   content: {
     height: 52,
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
@@ -122,6 +126,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: BaseTypography.sizes.md,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     textAlign: 'center',
@@ -129,6 +134,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 11,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 1,
     textAlign: 'center',

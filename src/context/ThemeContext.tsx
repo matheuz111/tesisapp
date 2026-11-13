@@ -1,16 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { Palette, StatusTokens, Spacing, Radii, TouchTargets, Typography } from '../theme/tokens';
+
+export type ThemeColors = typeof Palette.light & {
+  icon: string;
+  success: string;
+  danger: string;
+};
 
 export interface ThemeContextValue {
   theme: 'light' | 'dark';
   toggleTheme: () => void;
-  colors: typeof Palette.light & {
-    icon: string;
-    success: string;
-    danger: string;
-  };
+  colors: ThemeColors;
   spacing: typeof Spacing;
   radii: typeof Radii;
   touchTargets: typeof TouchTargets;
@@ -41,13 +43,13 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 
   const activePalette = Palette[theme];
 
-  const colors = {
+  const colors = useMemo(() => ({
     ...activePalette,
     // Compatibilidad backward para componentes existentes
     icon: activePalette.text,
     success: theme === 'light' ? StatusTokens.light.completed.fg : StatusTokens.dark.completed.fg,
     danger: theme === 'light' ? StatusTokens.light.danger.fg : StatusTokens.dark.danger.fg,
-  };
+  }), [activePalette, theme]);
 
   return (
     <ThemeContext.Provider

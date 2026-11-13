@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { useTheme, type ThemeColors } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { SemanticColors, TouchTarget, DisplayPin, Typography } from '../theme/tokens';
 import { AnimatedPressable } from './AnimatedPressable';
 
@@ -22,12 +22,13 @@ export function TechnicianPinKeypad({
   lockoutSeconds = 0,
   attemptsRemaining = 3,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const isLocked = lockoutSeconds > 0;
 
   const handleKeyPress = (num: string) => {
     if (isLocked || verifying) return;
     if (pin.length < 4) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       const newPin = pin + num;
       onChangePin(newPin);
       if (newPin.length === 4) {
@@ -39,14 +40,12 @@ export function TechnicianPinKeypad({
   const handleBackspace = () => {
     if (isLocked || verifying) return;
     if (pin.length > 0) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       onChangePin(pin.slice(0, -1));
     }
   };
 
   const handleClear = () => {
     if (isLocked || verifying) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     onChangePin('');
   };
 
@@ -77,14 +76,14 @@ export function TechnicianPinKeypad({
       {/* Alerta de bloqueo o intentos */}
       {isLocked ? (
         <View style={styles.lockoutBadge}>
-          <Ionicons name="lock-closed" size={16} color="#991B1B" />
+          <Ionicons name="lock-closed" size={16} color={colors.danger} />
           <Text style={styles.lockoutText}>
             Bloqueado por seguridad: reintenta en {lockoutSeconds}s
           </Text>
         </View>
       ) : attemptsRemaining < 3 ? (
         <Text style={styles.attemptsText}>
-          Intentos restantes: {attemptsRemaining} de 3
+          PIN incorrecto. Intento {3 - attemptsRemaining} de 3. Verifica con el cliente el código mostrado en su app.
         </Text>
       ) : null}
 
@@ -97,7 +96,6 @@ export function TechnicianPinKeypad({
             disabled={isLocked || verifying}
             onPress={() => handleKeyPress(digit)}
             scaleTo={0.92}
-            hapticFeedback="light"
             style={[
               styles.keyBtn,
               (isLocked || verifying) && styles.keyBtnDisabled,
@@ -113,7 +111,6 @@ export function TechnicianPinKeypad({
           disabled={isLocked || verifying || pin.length === 0}
           onPress={handleClear}
           scaleTo={0.92}
-          hapticFeedback="medium"
           style={[styles.keyBtn, styles.actionKeyBtn]}
         >
           <Text style={styles.actionKeyText}>C</Text>
@@ -124,7 +121,6 @@ export function TechnicianPinKeypad({
           disabled={isLocked || verifying}
           onPress={() => handleKeyPress('0')}
           scaleTo={0.92}
-          hapticFeedback="light"
           style={[
             styles.keyBtn,
             (isLocked || verifying) && styles.keyBtnDisabled,
@@ -138,10 +134,9 @@ export function TechnicianPinKeypad({
           disabled={isLocked || verifying || pin.length === 0}
           onPress={handleBackspace}
           scaleTo={0.92}
-          hapticFeedback="light"
           style={[styles.keyBtn, styles.actionKeyBtn]}
         >
-          <Ionicons name="backspace-outline" size={26} color="#334155" />
+          <Ionicons name="backspace-outline" size={26} color={colors.subtext} />
         </AnimatedPressable>
       </View>
 
@@ -153,13 +148,13 @@ export function TechnicianPinKeypad({
             backgroundColor:
               pin.length === 4 && !isLocked && !verifying
                 ? SemanticColors.primary.main
-                : '#94A3B8',
+                : colors.textMuted,
           },
         ]}
         disabled={pin.length !== 4 || isLocked || verifying}
         onPress={onSubmitPin}
         scaleTo={0.97}
-        hapticFeedback="heavy"
+        hapticFeedback="medium"
       >
         {verifying ? (
           <ActivityIndicator color="#FFFFFF" />
@@ -174,13 +169,14 @@ export function TechnicianPinKeypad({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     alignItems: 'center',
     marginVertical: 12,
   },
   digitsDisplayRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 12,
     marginBottom: 12,
   },
@@ -189,44 +185,48 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#CBD5E1',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    backgroundColor: colors.card,
     justifyContent: 'center',
     alignItems: 'center',
   },
   digitBoxFilled: {
     borderColor: SemanticColors.primary.main,
-    backgroundColor: '#F0F9FF',
+    backgroundColor: colors.primarySoft,
   },
   digitBoxLocked: {
     borderColor: '#EF4444',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.states.danger.bg,
   },
   digitText: {
     fontSize: DisplayPin.mobile.fontSize,
+    flexShrink: 1,
     lineHeight: DisplayPin.mobile.lineHeight,
     fontFamily: Typography.fontFamily.mono,
     fontWeight: '700',
-    color: '#0F172A',
+    color: colors.text,
   },
   lockoutBadge: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.states.danger.bg,
     marginBottom: 10,
   },
   lockoutText: {
-    color: '#991B1B',
+    color: colors.danger,
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '700',
   },
   attemptsText: {
-    color: '#D97706',
+    color: colors.states.pending.fg,
     fontSize: 12,
+    flexShrink: 1,
     fontWeight: '600',
     marginBottom: 8,
   },
@@ -241,9 +241,9 @@ const styles = StyleSheet.create({
     width: TouchTarget.pinKeySize, // 72px
     height: TouchTarget.pinKeySize, // 72px
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.card,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -254,22 +254,24 @@ const styles = StyleSheet.create({
   },
   keyBtnDisabled: {
     opacity: 0.4,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.input,
   },
   keyText: {
     fontSize: 26,
+    flexShrink: 1,
     fontWeight: '700',
     fontFamily: Typography.fontFamily.mono,
-    color: '#0F172A',
+    color: colors.text,
   },
   actionKeyBtn: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#CBD5E1',
+    backgroundColor: colors.background,
+    borderColor: colors.border,
   },
   actionKeyText: {
     fontSize: 20,
+    flexShrink: 1,
     fontWeight: '800',
-    color: '#475569',
+    color: colors.subtext,
   },
   submitBtn: {
     flexDirection: 'row',
@@ -286,6 +288,7 @@ const styles = StyleSheet.create({
   submitBtnText: {
     color: '#FFFFFF',
     fontSize: 15,
+    flexShrink: 1,
     fontWeight: '800',
   },
 });

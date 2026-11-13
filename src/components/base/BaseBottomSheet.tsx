@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BaseColors, BaseRadii, BaseTypography, BaseElevation } from './BaseTokens';
+import { BaseRadii, BaseTypography, BaseElevation } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 
 export interface BaseBottomSheetProps {
   visible: boolean;
@@ -37,6 +38,8 @@ export const BaseBottomSheet: React.FC<BaseBottomSheetProps> = ({
   scrollable = false,
   style,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const insets = useSafeAreaInsets();
 
   return (
@@ -123,7 +126,7 @@ export const BaseBottomSheet: React.FC<BaseBottomSheetProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   keyboardContainer: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -158,6 +161,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
@@ -171,12 +175,14 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: BaseTypography.sizes.md,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.bold,
     color: BaseColors.gray900,
     includeFontPadding: false,
   },
   subtitle: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 2,
   },

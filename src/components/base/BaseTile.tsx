@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { BaseColors, BaseRadii, BaseTypography, BaseElevation } from './BaseTokens';
+import { useBaseColors, type BaseColorSet } from './useBaseColors';
 
 export interface BaseTileProps {
   title: string;
@@ -44,22 +45,20 @@ export const BaseTile: React.FC<BaseTileProps> = ({
   style,
   titleStyle,
   subtitleStyle,
-  haptic = true,
+  haptic = false,
 }) => {
+  const BaseColors = useBaseColors();
+  const styles = React.useMemo(() => createStyles(BaseColors), [BaseColors]);
   const handlePress = () => {
     if (disabled) return;
     if (haptic) {
-      try {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch {
-        // ignore
-      }
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
     onPress();
   };
 
   const borderColor = selected ? BaseColors.accent : BaseColors.gray200;
-  const backgroundColor = selected ? '#F0F9FF' : BaseColors.white;
+  const backgroundColor = selected ? BaseColors.accentSoft : BaseColors.white;
 
   return (
     <Pressable
@@ -92,7 +91,7 @@ export const BaseTile: React.FC<BaseTileProps> = ({
             <Ionicons
               name={icon}
               size={22}
-              color={selected ? BaseColors.white : iconColor}
+              color={selected ? BaseColors.onAccent : iconColor}
             />
           </View>
         )}
@@ -146,12 +145,13 @@ export const BaseTile: React.FC<BaseTileProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (BaseColors: BaseColorSet) => StyleSheet.create({
   tile: {
     borderRadius: BaseRadii.lg,
     paddingVertical: 14,
     paddingHorizontal: 16,
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 56,
@@ -176,16 +176,19 @@ const styles = StyleSheet.create({
   },
   titleRow: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
   },
   title: {
     fontSize: BaseTypography.sizes.base,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.semiBold,
     includeFontPadding: false,
   },
   subtitle: {
     fontSize: BaseTypography.sizes.xs,
+    flexShrink: 1,
     color: BaseColors.gray500,
     marginTop: 2,
     lineHeight: 16,
@@ -198,16 +201,19 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 10,
+    flexShrink: 1,
     color: BaseColors.accent,
     fontWeight: BaseTypography.weights.bold,
   },
   rightContainer: {
     flexDirection: 'row',
+    flexShrink: 1,
     alignItems: 'center',
     gap: 6,
   },
   trailingText: {
     fontSize: BaseTypography.sizes.sm,
+    flexShrink: 1,
     fontWeight: BaseTypography.weights.semiBold,
     color: BaseColors.gray700,
   },
