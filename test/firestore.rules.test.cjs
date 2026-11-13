@@ -130,3 +130,100 @@ test('Provider presence: provider can publish own presence with server timestamp
   }));
 });
 
+
+// ── Certificados de garantía verificables (QR) ──
+const { Timestamp, collection, getDocs } = require('firebase/firestore');
+const CERT = 'ABCDEFGHJKMNPQRS';
+const publicDb = () => env.unauthenticatedContext().firestore();
+const certRef = (database, id = CERT) => doc(database, `warranty_certificates/${id}`);
+const newCert = (overrides = {}) => {
+  const from = Date.now();
+  return {
+    code: CERT, requestId: 'job', serviceLabel: 'Pintura', clientMasked: 'Ros*** Qui***',
+    issuedAt: serverTimestamp(), validFrom: Timestamp.fromMillis(from), validUntil: Timestamp.fromMillis(from + 30 * 86400000),
+    status: 'ACTIVE', issuedBy: 'operator', ...overrides,
+  };
+};
+const seedCertificate = async () => env.withSecurityRulesDisabled(async (context) => {
+  const from = Date.now();
+  await setDoc(doc(context.firestore(), `warranty_certificates/${CERT}`), {
+    code: CERT, requestId: 'job', serviceLabel: 'Pintura', clientMasked: 'Ros*** Qui***', issuedAt: Timestamp.now(),
+    validFrom: Timestamp.fromMillis(from), validUntil: Timestamp.fromMillis(from + 30 * 86400000), status: 'ACTIVE', issuedBy: 'operator',
+  });
+});
+const dayKey = () => { const d = new Date(); return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`; };
+const scan = (overrides = {}) => ({ certificateId: CERT, at: serverTimestamp(), expireAt: Timestamp.fromMillis(Date.now() + 365 * 86400000), ...overrides });
+
+test('Certificates: anyone can read one by its code but nobody anonymous can list them', async () => {
+  await seedCertificate();
+  await assertSucceeds(getDoc(certRef(publicDb())));
+  await assertFails(getDocs(collection(publicDb(), 'warranty_certificates')));
+  await assertSucceeds(getDocs(collection(db('operator'), 'warranty_certificates')));
+  await assertFails(getDocs(collection(db('client'), 'warranty_certificates')));
+});
+
+test('Certificates: only the central issues, with a valid code, exact 30 days and no extra data', async () => {
+  await assertSucceeds(setDoc(certRef(db('operator')), newCert()));
+  await assertFails(setDoc(certRef(db('client'), 'BBBBBBBBBBBBBBBB'), newCert({ code: 'BBBBBBBBBBBBBBBB', issuedBy: 'client' })));
+  await assertFails(setDoc(certRef(publicDb(), 'CCCCCCCCCCCCCCCC'), newCert({ code: 'CCCCCCCCCCCCCCCC' })));
+  await assertFails(setDoc(certRef(db('operator'), 'abc'), newCert({ code: 'abc' })));
+  await assertFails(setDoc(certRef(db('operator'), 'DDDDDDDDDDDDDDDD'), newCert({ code: 'DDDDDDDDDDDDDDDD', clientPhone: '999' })));
+  await assertFails(setDoc(certRef(db('operator'), 'EEEEEEEEEEEEEEEE'), newCert({ code: 'EEEEEEEEEEEEEEEE', validUntil: Timestamp.fromMillis(Date.now() + 90 * 86400000) })));
+  await assertFails(setDoc(certRef(db('operator'), 'FFFFFFFFFFFFFFFF'), newCert({ code: 'FFFFFFFFFFFFFFFF', status: 'REVOKED' })));
+});
+
+test('Certificates: the only edit is a one-way revocation by the central; reason stays private', async () => {
+  await seedCertificate();
+  await assertFails(updateDoc(certRef(db('client')), { status: 'REVOKED', revokedAt: serverTimestamp(), revokedBy: 'client' }));
+  await assertFails(updateDoc(certRef(db('operator')), { serviceLabel: 'Otro' }));
+  await assertFails(updateDoc(certRef(db('operator')), { validUntil: Timestamp.fromMillis(Date.now() + 999 * 86400000) }));
+  const batch = writeBatch(db('operator'));
+  batch.update(certRef(db('operator')), { status: 'REVOKED', revokedAt: serverTimestamp(), revokedBy: 'operator' });
+  batch.set(doc(db('operator'), `warranty_certificates/${CERT}/admin/revocation`), { reason: 'Servicio reabierto por reclamo', revokedAt: serverTimestamp(), revokedBy: 'operator' });
+  await assertSucceeds(batch.commit());
+  await assertFails(updateDoc(certRef(db('operator')), { status: 'ACTIVE' }));
+  await assertFails(getDoc(doc(publicDb(), `warranty_certificates/${CERT}/admin/revocation`)));
+  await assertSucceeds(getDoc(doc(db('operator'), `warranty_certificates/${CERT}/admin/revocation`)));
+});
+
+test('Certificates: never deletable, not even by the central', async () => {
+  await seedCertificate();
+  await assertFails(require('firebase/firestore').deleteDoc(certRef(db('operator'))));
+});
+
+test('Scans: anyone may log one scan per certificate per day, only for existing certificates', async () => {
+  await seedCertificate();
+  const ok = doc(publicDb(), `warranty_scans/${CERT}_${dayKey()}`);
+  await assertSucceeds(setDoc(ok, scan()));
+  await assertFails(setDoc(ok, scan()), 'a second scan the same day cannot overwrite');
+  await assertFails(setDoc(doc(publicDb(), 'warranty_scans/aleatorio'), scan()));
+  await assertFails(setDoc(doc(publicDb(), `warranty_scans/ZZZZZZZZZZZZZZZZ_${dayKey()}`), scan({ certificateId: 'ZZZZZZZZZZZZZZZZ' })));
+  await assertFails(setDoc(doc(publicDb(), `warranty_scans/${CERT}_20200101`), scan()));
+});
+
+test('Scans: schema is strict, retention is 12 months, and only the central can read them', async () => {
+  await seedCertificate();
+  const ref = doc(publicDb(), `warranty_scans/${CERT}_${dayKey()}`);
+  await assertFails(setDoc(ref, scan({ ip: '1.2.3.4' })));
+  await assertFails(setDoc(ref, scan({ expireAt: Timestamp.fromMillis(Date.now() + 5 * 365 * 86400000) })));
+  await assertFails(setDoc(ref, scan({ expireAt: Timestamp.fromMillis(Date.now() + 86400000) })));
+  await assertFails(setDoc(ref, scan({ at: Timestamp.now() })));
+  await assertSucceeds(setDoc(ref, scan()));
+  await assertFails(getDoc(ref));
+  await assertSucceeds(getDoc(doc(db('operator'), `warranty_scans/${CERT}_${dayKey()}`)));
+  await assertFails(updateDoc(doc(db('operator'), `warranty_scans/${CERT}_${dayKey()}`), { certificateId: CERT }));
+});
+
+test('Scans: the central can purge only records older than 12 months', async () => {
+  await seedCertificate();
+  await env.withSecurityRulesDisabled(async (context) => {
+    const database = context.firestore();
+    await setDoc(doc(database, `warranty_scans/${CERT}_20240101`), { certificateId: CERT, at: Timestamp.fromMillis(Date.now() - 800 * 86400000), expireAt: Timestamp.fromMillis(Date.now() - 435 * 86400000) });
+    await setDoc(doc(database, `warranty_scans/${CERT}_20990101`), { certificateId: CERT, at: Timestamp.now(), expireAt: Timestamp.fromMillis(Date.now() + 300 * 86400000) });
+  });
+  const { deleteDoc } = require('firebase/firestore');
+  await assertFails(deleteDoc(doc(publicDb(), `warranty_scans/${CERT}_20240101`)));
+  await assertFails(deleteDoc(doc(db('client'), `warranty_scans/${CERT}_20240101`)));
+  await assertFails(deleteDoc(doc(db('operator'), `warranty_scans/${CERT}_20990101`)));
+  await assertSucceeds(deleteDoc(doc(db('operator'), `warranty_scans/${CERT}_20240101`)));
+});

@@ -1,43 +1,44 @@
-import React from 'react';
-import type { ServiceRequest, IntakeChannel } from '../../types';
-import { StatusBadge } from '../StatusBadge';
-import { SlaTrafficBadge } from '../SlaTrafficBadge';
+import React, { useMemo, useState } from 'react';
+import type { ServiceRequest } from '../../types';
 import {
-  Eye,
-  FileText,
-  MessageSquare,
-  Navigation,
-  ShieldCheck,
-  ShieldAlert,
-  UserCheck,
-  PhoneCall,
-  Phone,
-  MessageCircle,
-  RefreshCw,
   AlertCircle,
-  Hash,
-  Clock,
-  User,
-  Wrench,
-  Receipt,
-  Activity,
-  Zap,
-  Paintbrush,
-  Hammer,
-  KeyRound,
-  HardHat,
-  Smartphone,
-  Globe,
-  Mail,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  AlertTriangle,
-  Calendar,
+  Eye,
+  FileText,
+  Hammer,
+  HardHat,
+  KeyRound,
+  ListChecks,
+  MapPin,
+  MessageCircle,
+  MessageSquare,
+  Navigation,
+  Paintbrush,
+  ShieldCheck,
+  UserCheck,
+  Wrench,
+  Zap,
 } from 'lucide-react';
-import { resolveRequestCanonicalPricing } from '../../services/pricingPolicyService';
+import { StatusBadge } from '../StatusBadge';
+import { RowActionsMenu, type RowAction } from './RowActionsMenu';
+import { StatusCell } from './StatusCell';
+import { StatusDetailModal } from './StatusDetailModal';
+import {
+  CHANNEL_LABELS,
+  canAssign,
+  explainStage,
+  formatDateTime,
+  getDisplayPrice,
+  isClosed,
+} from './requestPresentation';
 
 interface RequestsTableProps {
   loading: boolean;
+  /** Hay filtros aplicados: cambia el mensaje del estado vacío. */
+  hasActiveFilters?: boolean;
+  onClearFilters?: () => void;
   requests: ServiceRequest[];
   totalFiltered: number;
   currentPage: number;
@@ -53,8 +54,34 @@ interface RequestsTableProps {
   onSelectAssign: (request: ServiceRequest) => void;
 }
 
+const SPECIALTY_ICONS: { match: string; icon: React.ReactNode }[] = [
+  { match: 'gasf', icon: <Wrench size={14} /> },
+  { match: 'elec', icon: <Zap size={14} /> },
+  { match: 'pint', icon: <Paintbrush size={14} /> },
+  { match: 'carp', icon: <Hammer size={14} /> },
+  { match: 'cerr', icon: <KeyRound size={14} /> },
+  { match: 'alba', icon: <HardHat size={14} /> },
+];
+
+function specialtyIcon(specialty?: string): React.ReactNode {
+  const text = (specialty || '').toLowerCase();
+  return SPECIALTY_ICONS.find((item) => text.includes(item.match))?.icon ?? <Wrench size={14} />;
+}
+
+function zoneLabel(zone?: string): string {
+  return zone ? zone.replace('LIMA_', '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+}
+
+function whatsappLink(request: ServiceRequest): string {
+  const phone = (request.clientPhone || '').replace(/\D/g, '');
+  const text = `Hola ${request.clientName || ''}, te saludamos de la Central de Maestro a Domicilio respecto a tu solicitud ${request.code || ''}.`;
+  return `https://wa.me/51${phone}?text=${encodeURIComponent(text)}`;
+}
+
 export const RequestsTable: React.FC<RequestsTableProps> = ({
   loading,
+  hasActiveFilters = false,
+  onClearFilters,
   requests,
   totalFiltered,
   currentPage,
@@ -69,308 +96,176 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({
   onSelectChat,
   onSelectAssign,
 }) => {
-  const formatDateTime = (val: any) => {
-    if (!val) return { date: '—', time: '' };
-    const date = val.toDate ? val.toDate() : new Date(val);
-    if (isNaN(date.getTime())) return { date: '—', time: '' };
-    const d = date.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: '2-digit' });
-    const t = date.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
-    return { date: d, time: t };
-  };
+  const [statusRequestId, setStatusRequestId] = useState<string | null>(null);
+  const [statusSnapshot, setStatusSnapshot] = useState<ServiceRequest | null>(null);
+  // El detalle se mantiene al día con los cambios en tiempo real mientras la fila siga en la página.
+  const statusRequest = useMemo(
+    () => requests.find((item) => item.id === statusRequestId) ?? statusSnapshot,
+    [requests, statusRequestId, statusSnapshot],
+  );
+  const openStatus = (request: ServiceRequest) => { setStatusRequestId(request.id); setStatusSnapshot(request); };
+  const closeStatus = () => { setStatusRequestId(null); setStatusSnapshot(null); };
 
-  const getDisplayPrice = (req: ServiceRequest) => {
-    if (req.price_agreed && req.price_agreed.trim().length > 0) {
-      const match = req.price_agreed.match(/(\d+(?:\.\d{1,2})?)/);
-      if (match) {
-        return `S/ ${parseFloat(match[1]).toFixed(2)}`;
-      }
-      return req.price_agreed;
+  const buildActions = (request: ServiceRequest): RowAction[] => {
+    const actions: RowAction[] = [
+      { key: 'detail', label: 'Ver ficha completa', icon: <Eye size={16} />, onSelect: () => onSelectDetail(request) },
+      { key: 'status', label: 'Estado y seguimiento', icon: <ListChecks size={16} />, onSelect: () => openStatus(request) },
+    ];
+    if (canAssign(request)) {
+      actions.push({
+        key: 'assign',
+        label: request.status === 'REQUIRES_REASSIGNMENT' ? 'Reasignar técnico' : 'Asignar técnico',
+        icon: <UserCheck size={16} />,
+        onSelect: () => onSelectAssign(request),
+      });
     }
-    const pricing = resolveRequestCanonicalPricing(req);
-    return `S/ ${pricing.fee.toFixed(2)}`;
-  };
-
-  const getSpecialtyIcon = (specialty?: string) => {
-    const s = (specialty || '').toLowerCase();
-    if (s.includes('gasf')) return <Wrench size={13} color="#0369a1" />;
-    if (s.includes('elec')) return <Zap size={13} color="#d97706" />;
-    if (s.includes('pint')) return <Paintbrush size={13} color="#7c3aed" />;
-    if (s.includes('carp')) return <Hammer size={13} color="#b45309" />;
-    if (s.includes('cerr')) return <KeyRound size={13} color="#059669" />;
-    if (s.includes('alba')) return <HardHat size={13} color="#475569" />;
-    return <Wrench size={13} color="#0369a1" />;
-  };
-
-  const getChannelBadge = (channel?: IntakeChannel) => {
-    switch (channel) {
-      case 'WHATSAPP':
-        return { icon: <MessageSquare size={11} color="#16a34a" />, label: 'WhatsApp', cls: 'channel-badge-whatsapp' };
-      case 'PHONE':
-        return { icon: <Phone size={11} color="#0369a1" />, label: 'Llamada', cls: 'channel-badge-phone' };
-      case 'EMAIL':
-        return { icon: <Mail size={11} color="#64748b" />, label: 'Correo', cls: 'channel-badge-email' };
-      case 'WEB':
-        return { icon: <Globe size={11} color="#0284c7" />, label: 'Web', cls: 'channel-badge-web' };
-      case 'APP':
-      default:
-        return { icon: <Smartphone size={11} color="#0369a1" />, label: 'App', cls: 'channel-badge-app' };
+    actions.push(
+      { key: 'quote', label: 'Cotización (proforma)', icon: <FileText size={16} />, onSelect: () => onSelectQuote(request) },
+      { key: 'tracking', label: 'Seguimiento en mapa', icon: <Navigation size={16} />, onSelect: () => onSelectTracking(request) },
+      { key: 'chat', label: 'Chat con cliente o técnico', icon: <MessageSquare size={16} />, onSelect: () => onSelectChat(request) },
+    );
+    if (isClosed(request)) {
+      actions.push({ key: 'warranty', label: 'Certificado de garantía', icon: <ShieldCheck size={16} />, onSelect: () => onSelectWarranty(request) });
     }
+    return actions;
   };
 
-  const getWarrantyStatus = (req: ServiceRequest) => {
-    if (!['COMPLETED', 'VALIDATED'].includes(req.status)) return null;
-    const base = req.validatedAt || req.finishedAt || req.createdAt;
-    if (!base) return { active: true, label: 'Garantía 30d' };
-    const d = base.toDate ? base.toDate() : new Date(base);
-    const exp = new Date(d.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const isActive = Date.now() <= exp.getTime();
-    return {
-      active: isActive,
-      label: isActive ? 'Garantía Activa' : 'Garantía Vencida',
-      expiryDate: exp.toLocaleDateString('es-PE', { dateStyle: 'short' }),
-    };
-  };
+  // Función de render (no componente): evita remontar el botón en cada actualización en tiempo real.
+  /** Una sola acción principal por fila: asignar cuando la central debe actuar; si no, ver la ficha. */
+  const renderPrimaryAction = (request: ServiceRequest) =>
+    canAssign(request) ? (
+      <button type="button" className="rq-btn rq-btn-primary" onClick={(e) => { e.stopPropagation(); onSelectAssign(request); }}>
+        <UserCheck size={15} aria-hidden="true" />
+        {request.status === 'REQUIRES_REASSIGNMENT' ? 'Reasignar' : 'Asignar'}
+      </button>
+    ) : (
+      <button type="button" className="rq-btn rq-btn-secondary" onClick={(e) => { e.stopPropagation(); onSelectDetail(request); }}>
+        <Eye size={15} aria-hidden="true" />
+        Ver ficha
+      </button>
+    );
 
   return (
     <section className="table-card-container" aria-label="Bandeja operativa de despacho">
       {loading ? (
-        <div className="table-loading" role="status">
-          <RefreshCw size={22} className="spinner" />
-          <span>Cargando servicios en tiempo real desde Firestore...</span>
+        <div className="table-skeleton" role="status" aria-label="Cargando servicios">
+          <span className="sr-only">Cargando servicios en tiempo real…</span>
+          {Array.from({ length: 8 }).map((_, row) => (
+            <div className="skeleton-row" key={row} aria-hidden="true">
+              {Array.from({ length: 7 }).map((__, cell) => (
+                <span key={cell} className={`skeleton-cell${cell % 3 === 2 ? ' short' : ''}`} />
+              ))}
+            </div>
+          ))}
         </div>
       ) : totalFiltered === 0 ? (
         <div className="table-empty">
-          <AlertCircle size={32} color="#94a3b8" />
-          <p className="table-empty-title">No se encontraron servicios</p>
+          {hasActiveFilters ? <AlertCircle size={32} color="#94a3b8" /> : <CheckCircle2 size={32} color="#16a34a" />}
+          <p className="table-empty-title">{hasActiveFilters ? 'No hay servicios con estos filtros' : 'Bandeja al día'}</p>
           <p className="table-empty-subtitle">
-            Ajusta los filtros de estado o zona, o limpia el término de búsqueda para ver más registros.
+            {hasActiveFilters
+              ? 'Ajusta el estado, la zona o la búsqueda para ver más registros.'
+              : 'No hay solicitudes pendientes de asignación en este momento.'}
           </p>
+          {hasActiveFilters && onClearFilters ? (
+            <button type="button" className="btn btn-secondary table-empty-action" onClick={onClearFilters}>
+              Limpiar filtros
+            </button>
+          ) : null}
         </div>
       ) : (
         <>
-          {/* 1. Vista de Tabla Fluida para Escritorio — Ajuste al 100% sin scroll horizontal */}
-          <div className="table-auto-fit-wrap">
-            <table className="compact-work-table">
+          {/* Tabla de escritorio: 7 columnas, una idea por columna, una acción principal por fila */}
+          <div className="rq-table-wrap">
+            <table className="rq-table">
+              <caption className="sr-only">Solicitudes de servicio. Cada fila tiene un botón principal y un menú de más acciones.</caption>
               <thead>
                 <tr>
-                  <th className="th-code"><Hash size={12} /> Solicitud</th>
-                  <th className="th-date"><Clock size={12} /> Ingreso</th>
-                  <th className="th-client"><User size={12} /> Cliente / Contacto</th>
-                  <th className="th-service"><Wrench size={12} /> Servicio & Zona</th>
-                  <th className="th-fee"><Receipt size={12} /> Tarifa</th>
-                  <th className="th-status"><Activity size={12} /> Estado & SLA</th>
-                  <th className="th-tech"><UserCheck size={12} /> Técnico</th>
-                  <th className="th-actions">Acciones</th>
+                  <th scope="col" className="rq-col-code">Solicitud</th>
+                  <th scope="col" className="rq-col-client">Cliente</th>
+                  <th scope="col" className="rq-col-service">Servicio</th>
+                  <th scope="col" className="rq-col-fee">Tarifa</th>
+                  <th scope="col" className="rq-col-status">Estado</th>
+                  <th scope="col" className="rq-col-tech">Técnico</th>
+                  <th scope="col" className="rq-col-actions"><span className="sr-only">Acciones</span></th>
                 </tr>
               </thead>
               <tbody>
-                {requests.map((req) => {
-                  const warrantyInfo = getWarrantyStatus(req);
-                  const isReassign = req.status === 'REQUIRES_REASSIGNMENT';
-                  const ch = getChannelBadge(req.intakeChannel);
-
+                {requests.map((request) => {
+                  const when = formatDateTime(request.createdAt);
+                  const stage = explainStage(request);
                   return (
                     <tr
-                      key={req.id}
-                      className={`work-row ${isReassign ? 'work-row-urgent' : ''}`}
-                      onClick={() => onSelectDetail(req)}
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') onSelectDetail(req);
-                      }}
-                      role="button"
-                      aria-label={`Ver detalle del servicio ${req.code || req.id}`}
+                      key={request.id}
+                      className={`rq-row${request.status === 'REQUIRES_REASSIGNMENT' ? ' is-urgent' : stage.needsAction ? ' needs-action' : ''}`}
+                      onClick={() => onSelectDetail(request)}
                     >
-                      {/* Col 1: Solicitud (Código + Canal integrado) */}
-                      <td className="td-code">
-                        <div className="code-channel-combo">
-                          <span className="code-pill mono-tabular">
-                            {req.code || 'SOL-PEND'}
-                          </span>
-                          <span className={`channel-pill-inline ${ch.cls}`}>
-                            {ch.icon}
-                            <span>{ch.label}</span>
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Col 2: Fecha de Ingreso (Hora debajo de la Fecha) */}
-                      <td className="td-date">
-                        {(() => {
-                          const { date, time } = formatDateTime(req.createdAt);
-                          return (
-                            <div className="date-cell-stacked mono-tabular">
-                              <span className="date-main">{date}</span>
-                              {time && <span className="date-time">{time}</span>}
-                            </div>
-                          );
-                        })()}
-                      </td>
-
-                      {/* Col 3: Cliente / Contacto */}
-                      <td className="td-client" onClick={(e) => e.stopPropagation()}>
-                        <div className="client-cell-compact">
-                          <span className="client-title" title={req.clientName || 'Cliente Particular'}>
-                            {req.clientName || 'Cliente Particular'}
-                          </span>
-                          {req.clientPhone ? (
-                            <a
-                              href={`https://wa.me/51${req.clientPhone.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(
-                                req.clientName || ''
-                              )},%20te%20saludamos%20de%20la%20Central%20de%20Maestro%20a%20Domicilio%20respecto%20a%20tu%20solicitud%20${encodeURIComponent(
-                                req.code || ''
-                              )}.`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="client-whatsapp-pill mono-tabular"
-                              title="Contactar al cliente por WhatsApp"
-                            >
-                              <MessageCircle size={10} color="#16a34a" />
-                              <span>{req.clientPhone}</span>
-                            </a>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn-missing-phone"
-                              onClick={() => onSelectDetail(req)}
-                              title="Hacer clic para registrar teléfono del cliente"
-                            >
-                              <PhoneCall size={10} />
-                              <span>Registrar tel.</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Col 4: Especialidad & Distrito */}
-                      <td className="td-service">
-                        <div className="service-cell-compact">
-                          <div className="service-title-row">
-                            {getSpecialtyIcon(req.serviceLabel || req.specialty)}
-                            <span className="service-title-text">{req.serviceLabel || req.specialty}</span>
-                          </div>
-                          <span className="service-location-text">
-                            {req.district || 'Lima'} {req.zone ? `· ${req.zone.replace('LIMA_', '')}` : ''}
-                          </span>
-                          {req.urgency === 'NOW' ? (
-                            <span className="urgency-pill-now">
-                              <AlertTriangle size={10} /> Urgente
-                            </span>
-                          ) : req.urgency === 'TODAY' ? (
-                            <span className="urgency-pill-today">
-                              <Calendar size={10} /> Hoy
-                            </span>
-                          ) : req.urgency === 'SCHEDULED' ? (
-                            <span className="urgency-pill-scheduled">
-                              <Clock size={10} /> Programado
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-
-                      {/* Col 5: Cotización / Tarifa */}
-                      <td className="td-fee">
-                        <div className="fee-cell-compact">
-                          <span className="fee-amount mono-tabular">
-                            {getDisplayPrice(req)}
-                          </span>
-                          <span className="fee-subtitle">
-                            {req.price_agreed ? 'Acordada' : 'Visita deducible'}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Col 6: Estado & Semáforo SLA */}
-                      <td className="td-status">
-                        <div className="status-cell-compact">
-                          <StatusBadge status={req.status} size="sm" />
-                          <SlaTrafficBadge request={req} />
-                          {warrantyInfo && (
-                            <span
-                              className={`warranty-pill-tag ${warrantyInfo.active ? 'warranty-tag-active' : 'warranty-tag-expired'}`}
-                              title={warrantyInfo.active ? `Garantía activa hasta el ${warrantyInfo.expiryDate}` : `Garantía expirada el ${warrantyInfo.expiryDate}`}
-                            >
-                              {warrantyInfo.active ? <ShieldCheck size={10} /> : <ShieldAlert size={10} />}
-                              <span>{warrantyInfo.label}</span>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Col 7: Técnico Asignado */}
-                      <td className="td-tech">
-                        <span className={`tech-cell-text ${req.providerName ? 'has-tech' : 'unassigned'}`}>
-                          {req.providerName || (req.providerId ? 'Técnico Asignado' : 'Sin Asignar')}
+                      <td className="rq-col-code">
+                        <span className="rq-code mono-tabular">{request.code || 'SOL-PEND'}</span>
+                        <span className="rq-sub" title={`Ingresó el ${when.date} a las ${when.time}`}>
+                          {CHANNEL_LABELS[request.intakeChannel || 'APP']} · {when.date}
                         </span>
                       </td>
 
-                      {/* Col 8: Barra Compacta de Acciones */}
-                      <td className="td-actions" onClick={(e) => e.stopPropagation()}>
-                        <div className="action-buttons-toolbar">
-                          {/* Botón Principal: Ver Ficha Técnica */}
+                      <td className="rq-col-client">
+                        <span className="rq-main" title={request.clientName || 'Cliente particular'}>
+                          {request.clientName || 'Cliente particular'}
+                        </span>
+                        {request.clientPhone ? (
+                          <a
+                            className="rq-link mono-tabular"
+                            href={whatsappLink(request)}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Escribir por WhatsApp al ${request.clientPhone}`}
+                          >
+                            <MessageCircle size={12} aria-hidden="true" /> {request.clientPhone}
+                          </a>
+                        ) : (
                           <button
                             type="button"
-                            className="btn-action-primary"
-                            onClick={() => onSelectDetail(req)}
-                            title="Abrir ficha técnica y trazabilidad completa"
+                            className="rq-link rq-link-muted"
+                            onClick={(e) => { e.stopPropagation(); onSelectDetail(request); }}
                           >
-                            <Eye size={15} />
-                            <span>Ver</span>
+                            Sin teléfono · agregar
                           </button>
+                        )}
+                      </td>
 
-                          {/* Botón Icono: Cotizar */}
-                          <button
-                            type="button"
-                            className="btn-action-icon"
-                            onClick={() => onSelectQuote(req)}
-                            title="Generar e imprimir proforma de cotización"
-                          >
-                            <FileText size={15} />
-                          </button>
+                      <td className="rq-col-service">
+                        <span className="rq-main rq-with-icon">
+                          {specialtyIcon(request.serviceLabel || request.specialty)}
+                          <span title={request.serviceLabel || request.specialty}>{request.serviceLabel || request.specialty || 'Servicio'}</span>
+                          {request.urgency === 'NOW' ? <span className="rq-tag-urgent">Urgente</span> : null}
+                        </span>
+                        <span className="rq-sub rq-with-icon">
+                          <MapPin size={12} aria-hidden="true" />
+                          {[request.district || 'Lima', zoneLabel(request.zone)].filter(Boolean).join(' · ')}
+                        </span>
+                      </td>
 
-                          {/* Botón Icono: Ruta GPS */}
-                          <button
-                            type="button"
-                            className="btn-action-icon"
-                            onClick={() => onSelectTracking(req)}
-                            title="Ver monitoreo en ruta y telemetría GPS"
-                          >
-                            <Navigation size={15} />
-                          </button>
+                      <td className="rq-col-fee">
+                        <span className="rq-fee mono-tabular">{getDisplayPrice(request)}</span>
+                        <span className="rq-sub">{request.price_agreed ? 'Acordada' : 'Visita deducible'}</span>
+                      </td>
 
-                          {/* Botón Icono: Chat */}
-                          <button
-                            type="button"
-                            className="btn-action-icon btn-action-chat"
-                            onClick={() => onSelectChat(req)}
-                            title="Chat en vivo con cliente o técnico"
-                          >
-                            <MessageSquare size={15} />
-                          </button>
+                      <td className="rq-col-status">
+                        <StatusCell request={request} onOpen={openStatus} />
+                      </td>
 
-                          {/* Botón Icono: Garantía (Si completado) */}
-                          {['COMPLETED', 'VALIDATED'].includes(req.status) && (
-                            <button
-                              type="button"
-                              className="btn-action-icon btn-action-warranty"
-                              onClick={() => onSelectWarranty(req)}
-                              title="Emitir certificado de garantía de 30 días"
-                            >
-                              <ShieldCheck size={15} />
-                            </button>
-                          )}
+                      <td className="rq-col-tech">
+                        {request.providerName ? (
+                          <span className="rq-main" title={request.providerName}>{request.providerName}</span>
+                        ) : (
+                          <span className="rq-unassigned">{request.providerId ? 'Técnico asignado' : 'Sin asignar'}</span>
+                        )}
+                      </td>
 
-                          {/* Botón Icono: Asignar (Si pendiente) */}
-                          {['PENDING_ASSIGNMENT', 'PENDING', 'REQUIRES_REASSIGNMENT'].includes(req.status) && (
-                            <button
-                              type="button"
-                              className="btn-action-icon btn-action-assign"
-                              onClick={() => onSelectAssign(req)}
-                              title="Asignar técnico de cuadrilla propia"
-                            >
-                              <UserCheck size={15} />
-                            </button>
-                          )}
+                      <td className="rq-col-actions" onClick={(e) => e.stopPropagation()}>
+                        <div className="rq-actions">
+                          {renderPrimaryAction(request)}
+                          <RowActionsMenu label={`Más acciones de ${request.code || request.id}`} actions={buildActions(request)} />
                         </div>
                       </td>
                     </tr>
@@ -380,91 +275,50 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({
             </table>
           </div>
 
-          {/* 2. Vista de Tarjetas Responsiva para Móvil (<768px) */}
+          {/* Tarjetas para pantallas pequeñas */}
           <div className="mobile-cards-list">
-            {requests.map((req) => {
-              const warrantyInfo = getWarrantyStatus(req);
-              const isReassign = req.status === 'REQUIRES_REASSIGNMENT';
-
-              return (
-                <article
-                  key={req.id}
-                  className={`mobile-request-card ${isReassign ? 'card-reassign-urgent' : ''}`}
-                  onClick={() => onSelectDetail(req)}
-                  tabIndex={0}
-                >
-                  <div className="mobile-card-header">
-                    <span className="code-pill mono-tabular">{req.code || 'SOL-PEND'}</span>
-                    <StatusBadge status={req.status} size="sm" />
-                  </div>
-
-                  <div className="mobile-card-body">
-                    <div className="mobile-card-row">
-                      <strong className="mobile-client-name">{req.clientName || 'Cliente Particular'}</strong>
-                      <span className="fee-amount mono-tabular">{getDisplayPrice(req)}</span>
-                    </div>
-
-                    <p className="mobile-service-line">
-                      {req.serviceLabel || req.specialty} · {req.district || 'Lima'}
-                    </p>
-
-                    <div className="mobile-card-meta">
-                      <SlaTrafficBadge request={req} />
-                      <span className="mobile-tech-name">
-                        {req.providerName || 'Sin técnico'}
-                      </span>
-                    </div>
-
-                    {warrantyInfo && (
-                      <div style={{ marginTop: 6 }}>
-                        <span className={`warranty-pill-tag ${warrantyInfo.active ? 'warranty-tag-active' : 'warranty-tag-expired'}`}>
-                          {warrantyInfo.active ? <ShieldCheck size={10} /> : <ShieldAlert size={10} />}
-                          <span>{warrantyInfo.label}</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mobile-card-actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="btn-action-primary"
-                      onClick={() => onSelectDetail(req)}
-                    >
-                      <Eye size={13} />
-                      <span>Ver Ficha</span>
-                    </button>
-
-                    {['PENDING_ASSIGNMENT', 'REQUIRES_REASSIGNMENT'].includes(req.status) && (
-                      <button
-                        type="button"
-                        className="btn-action-icon btn-action-assign"
-                        onClick={() => onSelectAssign(req)}
-                        title="Asignar cuadrilla"
-                      >
-                        <UserCheck size={13} />
-                      </button>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
+            {requests.map((request) => (
+              <article
+                key={request.id}
+                className={`rq-card${request.status === 'REQUIRES_REASSIGNMENT' ? ' is-urgent' : ''}`}
+                onClick={() => onSelectDetail(request)}
+              >
+                <div className="rq-card-head">
+                  <span className="rq-code mono-tabular">{request.code || 'SOL-PEND'}</span>
+                  <StatusBadge status={request.status} size="sm" />
+                </div>
+                <div className="rq-card-row">
+                  <strong className="rq-main">{request.clientName || 'Cliente particular'}</strong>
+                  <span className="rq-fee mono-tabular">{getDisplayPrice(request)}</span>
+                </div>
+                <p className="rq-sub">
+                  {request.serviceLabel || request.specialty} · {request.district || 'Lima'} · {request.providerName || 'Sin técnico'}
+                </p>
+                <div className="rq-actions" onClick={(e) => e.stopPropagation()}>
+                  {renderPrimaryAction(request)}
+                  <button type="button" className="rq-btn rq-btn-ghost" onClick={() => openStatus(request)}>
+                    Ver estado
+                  </button>
+                  <RowActionsMenu label={`Más acciones de ${request.code || request.id}`} actions={buildActions(request)} />
+                </div>
+              </article>
+            ))}
           </div>
 
-          {/* Paginación Estandarizada */}
+          {/* Paginación */}
           <div className="table-pagination-bar">
             <div className="pagination-count">
               <span>
                 Mostrando <strong>{(currentPage - 1) * pageSize + 1}</strong> -{' '}
-                <strong>{Math.min(currentPage * pageSize, totalFiltered)}</strong> de{' '}
-                <strong>{totalFiltered}</strong> solicitudes
+                <strong>{Math.min(currentPage * pageSize, totalFiltered)}</strong> de <strong>{totalFiltered}</strong> solicitudes
               </span>
             </div>
 
             <div className="pagination-controls">
               <div className="page-size-selector">
-                <span>Por página:</span>
+                <label htmlFor="rq-page-size">Por página:</label>
                 <select
+                  id="rq-page-size"
                   value={pageSize}
                   onChange={(e) => onPageSizeChange(Number(e.target.value))}
                   className="page-select"
@@ -476,27 +330,11 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({
               </div>
 
               <div className="pagination-nav-buttons">
-                <button
-                  type="button"
-                  className="btn-page-nav"
-                  onClick={() => onPageChange(currentPage - 1)}
-                  disabled={currentPage <= 1}
-                  title="Página anterior"
-                >
+                <button type="button" className="btn-page-nav" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage <= 1} aria-label="Página anterior">
                   <ChevronLeft size={15} />
                 </button>
-
-                <span className="page-current-indicator mono-tabular">
-                  {currentPage} / {totalPages || 1}
-                </span>
-
-                <button
-                  type="button"
-                  className="btn-page-nav"
-                  onClick={() => onPageChange(currentPage + 1)}
-                  disabled={currentPage >= totalPages}
-                  title="Página siguiente"
-                >
+                <span className="page-current-indicator mono-tabular">{currentPage} / {totalPages || 1}</span>
+                <button type="button" className="btn-page-nav" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages} aria-label="Página siguiente">
                   <ChevronRight size={15} />
                 </button>
               </div>
@@ -504,6 +342,10 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({
           </div>
         </>
       )}
+
+      {statusRequest ? (
+        <StatusDetailModal request={statusRequest} onClose={closeStatus} onOpenDetail={onSelectDetail} onAssign={onSelectAssign} />
+      ) : null}
     </section>
   );
 };

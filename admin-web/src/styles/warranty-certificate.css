@@ -1,0 +1,80 @@
+/*
+ * Certificado de garantía: datos legibles (etiqueta arriba, valor abajo) y pie con verificación y firma.
+ * Se imprime igual que se ve; los colores del papel no dependen del tema.
+ */
+
+.cert-grid { gap: 16px 24px; }
+.cert-grid-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cert-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.cert-value { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+[data-theme="dark"] .cert-label { color: #94a3b8; }
+@media (max-width: 560px) { .cert-grid { grid-template-columns: 1fr; } }
+
+/* Pie: verificación a la izquierda, firma a la derecha, ambos con el mismo ancho visual */
+.cert-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: end;
+  padding-top: 20px;
+}
+@media (max-width: 560px) { .cert-footer { grid-template-columns: 1fr; } }
+
+.cert-verify { display: flex; flex-direction: column; gap: 4px; }
+.cert-verify-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.cert-verify-code { font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
+.cert-verify-help { font-size: 11px; line-height: 1.4; color: #64748b; max-width: 240px; }
+
+.cert-signature { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; }
+.cert-signature-space { height: 56px; }
+.cert-signature-line { width: 100%; max-width: 260px; border-top: 1px solid #64748b; margin-bottom: 6px; }
+.cert-signature-name { font-size: 13px; font-weight: 600; }
+.cert-signature-company { font-size: 12px; color: #64748b; }
+.cert-signature-date { font-size: 11px; color: #64748b; }
+[data-theme="dark"] .cert-verify-label,
+[data-theme="dark"] .cert-verify-help,
+[data-theme="dark"] .cert-signature-company,
+[data-theme="dark"] .cert-signature-date { color: #94a3b8; }
+[data-theme="dark"] .cert-signature-line { border-top-color: #94a3b8; }
+
+@media print {
+  .cert-label, .cert-verify-label, .cert-verify-help, .cert-signature-company, .cert-signature-date { color: #475569 !important; }
+  .cert-footer { break-inside: avoid; }
+}
+
+/* ── Certificado verificable: QR, estado y anulación ── */
+.cert-verify-qr { display: flex; align-items: center; gap: 12px; }
+.cert-verify-qr img { flex: 0 0 auto; border: 1px solid #cbd5e1; border-radius: 6px; background: #ffffff; padding: 4px; }
+.cert-verify-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cert-verify-code { overflow-wrap: anywhere; }
+
+.cert-alert { display: flex; align-items: center; gap: 10px; margin: 0 20px 8px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid; font-size: 13px; }
+.cert-alert.is-error { background: var(--status-danger-bg); border-color: var(--status-danger-border); color: var(--status-danger-fg); }
+.cert-alert.is-revoked { background: var(--status-danger-bg); border-color: var(--status-danger-border); color: var(--status-danger-fg); }
+.cert-alert.is-revoked span { flex: 1; }
+
+.cert-status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 0 20px 8px; font-size: 13px; }
+.cert-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+.cert-chip.is-active { background: var(--status-completed-bg); color: var(--status-completed-fg); border: 1px solid var(--status-completed-border); }
+.cert-scan-count { color: var(--text-secondary); }
+.cert-link-danger { margin-left: auto; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--status-danger-fg); text-decoration: underline; cursor: pointer; }
+
+.cert-revoke { display: flex; flex-direction: column; gap: 6px; margin: 0 20px 8px; padding: 12px; border: 1px solid var(--status-danger-border); border-radius: var(--radius); background: var(--bg-card); }
+.cert-revoke label { font-size: 13px; font-weight: 600; }
+.cert-revoke textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); color: var(--text-main); font: inherit; resize: vertical; }
+.cert-revoke-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.btn-danger { background: var(--status-danger-fg); color: #fff; border: 1px solid transparent; }
+[data-theme="dark"] .btn-danger { color: #0b1329; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -189,6 +189,71 @@ service cloud.firestore {
       allow delete: if isOperator() || (signedIn() && request.auth.uid == providerId);
     }
 
+    // Certificados de garantía verificables (QR). Cualquiera puede LEER un documento si conoce su código
+    // aleatorio de 16 caracteres, pero nadie puede listar la colección: el código no se puede recorrer.
+    // El documento público no incluye datos personales completos. Solo la central emite y anula.
+    match /warranty_certificates/{certId} {
+      function validNewCertificate(data) {
+        return certId.matches('^[A-HJKMNP-TV-Z2-9]{16}$')
+          && data.keys().hasOnly(['code', 'requestId', 'serviceLabel', 'clientMasked', 'issuedAt', 'validFrom', 'validUntil', 'status', 'issuedBy'])
+          && data.keys().hasAll(['code', 'requestId', 'serviceLabel', 'clientMasked', 'issuedAt', 'validFrom', 'validUntil', 'status', 'issuedBy'])
+          && data.code == certId
+          && data.requestId is string && data.requestId.size() > 0 && data.requestId.size() <= 64
+          && data.serviceLabel is string && data.serviceLabel.size() <= 80
+          && data.clientMasked is string && data.clientMasked.size() <= 80
+          && data.status == 'ACTIVE'
+          && data.issuedAt == request.time
+          && data.issuedBy == request.auth.uid
+          && data.validFrom is timestamp
+          && data.validUntil is timestamp
+          && data.validUntil == data.validFrom + duration.value(30, 'd');
+      }
+
+      allow get: if true;
+      allow list: if isOperator();
+      allow create: if isOperator() && validNewCertificate(request.resource.data);
+      // La única modificación posible es anular, una sola vez y sin tocar ningún otro dato.
+      allow update: if isOperator()
+        && resource.data.status == 'ACTIVE'
+        && request.resource.data.status == 'REVOKED'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt', 'revokedBy'])
+        && request.resource.data.revokedAt == request.time
+        && request.resource.data.revokedBy == request.auth.uid;
+      allow delete: if false;
+
+      // Motivo de la anulación: solo para la central, nunca público.
+      match /admin/{adminDocId} {
+        allow read: if isOperator();
+        allow create: if isOperator()
+          && adminDocId == 'revocation'
+          && request.resource.data.keys().hasOnly(['reason', 'revokedAt', 'revokedBy'])
+          && request.resource.data.reason is string
+          && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 300
+          && request.resource.data.revokedAt == request.time
+          && request.resource.data.revokedBy == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // Registro de escaneos del QR. Un documento por certificado y día (el id lo impone la regla), así que
+    // nadie puede inflar las escrituras: máximo (certificados × días). Solo la central lo lee.
+    // Retención de 12 meses: cada registro trae expireAt. La central limpia los vencidos desde el panel
+    // (no se usa TTL de Firestore porque exige facturación). Solo se pueden borrar registros ya vencidos.
+    match /warranty_scans/{scanId} {
+      allow read: if isOperator();
+      allow create: if request.resource.data.keys().hasOnly(['certificateId', 'at', 'expireAt'])
+        && request.resource.data.certificateId is string
+        && request.resource.data.certificateId.matches('^[A-HJKMNP-TV-Z2-9]{16}$')
+        && exists(/databases/$(database)/documents/warranty_certificates/$(request.resource.data.certificateId))
+        && scanId == request.resource.data.certificateId + '_' + string(request.time.year() * 10000 + request.time.month() * 100 + request.time.day())
+        && request.resource.data.at == request.time
+        && request.resource.data.expireAt is timestamp
+        && request.resource.data.expireAt > request.time + duration.value(364, 'd')
+        && request.resource.data.expireAt < request.time + duration.value(366, 'd');
+      allow update: if false;
+      allow delete: if isOperator() && resource.data.expireAt < request.time;
+    }
+
     // Colección heredada: se conserva para no romper conversaciones antiguas.
     match /chats/{chatId} {
       allow read, write: if signedIn();

@@ -252,12 +252,12 @@ export const AnalyticsChartsComponent = ({ requests }: Props) => {
     });
 
     return [
-      { metrica: '1. Contacto (T_RSP)', minutos: rspCount ? Number((rspSum / rspCount).toFixed(1)) : 0, color: '#0369a1' },
-      { metrica: '2. Asignación (T_ASG)', minutos: asgCount ? Number((asgSum / asgCount).toFixed(1)) : 0, color: '#0284c7' },
-      { metrica: '3. Traslado (T_LLE)', minutos: lleCount ? Number((lleSum / lleCount).toFixed(1)) : 0, color: '#d97706' },
-      { metrica: '4. Ejecución (T_EJE)', minutos: ejeCount ? Number((ejeSum / ejeCount).toFixed(1)) : 0, color: '#166534' },
-      { metrica: '5. Cierre (T_VAL)', minutos: valCount ? Number((valSum / valCount).toFixed(1)) : 0, color: '#475569' },
-      { metrica: 'Ciclo Total (T_TOT)', minutos: totCount ? Number((totSum / totCount).toFixed(1)) : 0, color: '#0f172a' },
+      { metrica: '1. Respuesta de la central', minutos: rspCount ? Number((rspSum / rspCount).toFixed(1)) : 0, color: '#0369a1' },
+      { metrica: '2. Asignación de técnico', minutos: asgCount ? Number((asgSum / asgCount).toFixed(1)) : 0, color: '#0284c7' },
+      { metrica: '3. Traslado al domicilio', minutos: lleCount ? Number((lleSum / lleCount).toFixed(1)) : 0, color: '#d97706' },
+      { metrica: '4. Trabajo en el domicilio', minutos: ejeCount ? Number((ejeSum / ejeCount).toFixed(1)) : 0, color: '#166534' },
+      { metrica: '5. Validación del cierre', minutos: valCount ? Number((valSum / valCount).toFixed(1)) : 0, color: '#475569' },
+      { metrica: 'Tiempo total', minutos: totCount ? Number((totSum / totCount).toFixed(1)) : 0, color: '#0f172a' },
     ];
   }, [requests]);
 

@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { Loader2 } from 'lucide-react';
+import { VerifyCertificatePage } from './components/VerifyCertificatePage';
 import './index.css';
 
 const MainApp = () => {
@@ -21,6 +22,16 @@ const MainApp = () => {
 };
 
 export const App = () => {
+  // Página pública del QR: no pasa por el inicio de sesión de la central.
+  const verify = window.location.pathname.match(/^\/verificar\/?([^/]*)/);
+  if (verify) {
+    return (
+      <ThemeProvider>
+        <VerifyCertificatePage rawCode={decodeURIComponent(verify[1] || '')} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <AuthProvider>

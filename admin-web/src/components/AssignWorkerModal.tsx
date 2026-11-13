@@ -9,7 +9,8 @@ import { useNetworkStatus } from '../hooks/useNetworkStatus';
 interface Props {
   request: ServiceRequest | null;
   onClose: () => void;
-  onAssigned?: () => void;
+  /** Se llama tras despachar, con el nombre del técnico, para confirmar con un aviso. */
+  onAssigned?: (info: { workerName: string }) => void;
   initialProviderId?: string | null;
 }
 
@@ -187,7 +188,7 @@ export const AssignWorkerModal = ({ request, onClose, onAssigned, initialProvide
         console.warn('No se pudo actualizar activeRequestId del técnico:', userErr);
       }
 
-      if (onAssigned) onAssigned();
+      if (onAssigned) onAssigned({ workerName });
       onClose();
     } catch (err: any) {
       console.error('Error al asignar trabajador:', err);

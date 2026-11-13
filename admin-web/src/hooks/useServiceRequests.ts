@@ -1,22 +1,26 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ServiceRequest, OperationalZone } from '../types';
 import { getZoneByDistrict } from '../types/canonical';
 import { serviceRequestRepository } from '../repositories/serviceRequestRepository';
+import { computeDashboardStats, type DashboardStats } from '../utils/dashboardStats';
 
-export interface DashboardStats {
-  total: number;
-  pending: number;
-  inProgress: number;
-  completed: number;
-  completionRate: string;
-  photoEvidences: number;
-  auditRate: string;
+export type { DashboardStats };
+
+interface UseServiceRequestsOptions {
+  /** Se invoca cuando una solicitud entra a "requiere reasignación" después de la carga inicial. */
+  onNewReassignments?: (requests: ServiceRequest[]) => void;
 }
 
-export function useServiceRequests() {
+export function useServiceRequests(options: UseServiceRequestsOptions = {}) {
+  const reassignmentsCallback = useRef(options.onNewReassignments);
+  useEffect(() => { reassignmentsCallback.current = options.onNewReassignments; });
+  // Ids ya vistos en reasignación; null hasta recibir la primera lista para no avisar por lo que ya estaba.
+  const knownReassignments = useRef<Set<string> | null>(null);
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Cada intento de reconexión vuelve a abrir la suscripción en tiempo real.
+  const [attempt, setAttempt] = useState(0);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -59,6 +63,13 @@ export function useServiceRequests() {
   useEffect(() => {
     const unsubscribe = serviceRequestRepository.subscribeAll(
       (list) => {
+        const current = list.filter((r) => r.status === 'REQUIRES_REASSIGNMENT');
+        const known = knownReassignments.current;
+        if (known) {
+          const fresh = current.filter((r) => !known.has(r.id));
+          if (fresh.length > 0) reassignmentsCallback.current?.(fresh);
+        }
+        knownReassignments.current = new Set(current.map((r) => r.id));
         setRequests(list);
         setLoading(false);
       },
@@ -69,29 +80,16 @@ export function useServiceRequests() {
     );
 
     return () => unsubscribe();
+  }, [attempt]);
+
+  const retry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    setAttempt((value) => value + 1);
   }, []);
 
-  // Compute aggregated KPI stats
-  const stats: DashboardStats = useMemo(() => {
-    const total = requests.length;
-    const pending = requests.filter((r) =>
-      ['PENDING_ASSIGNMENT', 'QUOTED', 'REQUIRES_REASSIGNMENT'].includes(r.status)
-    ).length;
-    const inProgress = requests.filter((r) =>
-      ['PENDING', 'ACCEPTED', 'IN_PROGRESS'].includes(r.status)
-    ).length;
-    const completed = requests.filter((r) =>
-      ['COMPLETED', 'VALIDATED'].includes(r.status)
-    ).length;
-    const completionRate = total > 0 ? ((completed / total) * 100).toFixed(0) : '0';
-
-    const photoEvidences = requests.filter(
-      (r) => r.issuePhoto || r.evidencePhoto || (r as unknown as Record<string, unknown>).evidence_photo
-    ).length;
-    const auditRate = total > 0 ? ((photoEvidences / total) * 100).toFixed(0) : '0';
-
-    return { total, pending, inProgress, completed, completionRate, photoEvidences, auditRate };
-  }, [requests]);
+  // Indicadores operativos (cálculo puro, probado en test/dashboardStats.test.mjs)
+  const stats: DashboardStats = useMemo(() => computeDashboardStats(requests), [requests]);
 
   // Filtered and sorted requests list
   const filteredRequests = useMemo(() => {
@@ -197,6 +195,18 @@ export function useServiceRequests() {
     });
   }, [requests, statusFilter, channelFilter, zoneFilter, districtFilter, searchTerm]);
 
+  const hasActiveFilters =
+    searchTerm.trim() !== '' || statusFilter !== 'ALL' || channelFilter !== 'ALL' || zoneFilter !== 'ALL' || districtFilter !== 'ALL';
+
+  const clearFilters = useCallback(() => {
+    setSearchTerm('');
+    setStatusFilter('ALL');
+    setChannelFilter('ALL');
+    setZoneFilter('ALL');
+    setDistrictFilter('ALL');
+    setCurrentPage(1);
+  }, []);
+
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
   const paginatedRequests = useMemo(() => {
@@ -210,7 +220,10 @@ export function useServiceRequests() {
     paginatedRequests,
     loading,
     error,
+    retry,
     stats,
+    hasActiveFilters,
+    clearFilters,
     filters: {
       searchTerm,
       setSearchTerm: updateSearchTerm,

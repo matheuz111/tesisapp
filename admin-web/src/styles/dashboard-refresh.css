@@ -1,0 +1,125 @@
+/*
+ * Refinamientos de la central de despacho (Documento Maestro UI/UX, secciones 4, 5.4 y 7).
+ * Se carga después de index.css: usa sus variables y solo agrega o ajusta lo necesario.
+ */
+
+/* ── Tarjetas KPI: el número de columnas lo define el componente (4 o 5) ── */
+.kpi-cards-grid {
+  grid-template-columns: repeat(var(--kpi-cols, 4), minmax(0, 1fr));
+}
+@media (max-width: 1100px) {
+  .kpi-cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .kpi-cards-grid { grid-template-columns: 1fr; }
+}
+
+.kpi-card-icon.icon-red { background: var(--status-danger-bg); color: var(--status-danger-fg); }
+.kpi-card-pill.pill-red { background: var(--status-danger-bg); color: var(--status-danger-fg); border-color: var(--status-danger-border); }
+.kpi-card-pill.pill-blue { background: var(--status-intransit-bg); color: var(--status-intransit-fg); border-color: var(--status-intransit-border); }
+.text-red { color: var(--status-danger-fg); }
+.text-blue { color: var(--status-intransit-fg); }
+
+/* ── Franja de telemetría ── */
+.telemetry-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 8px 20px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+.telemetry-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--status-completed-fg);
+}
+.telemetry-metric strong { color: var(--text-main); margin-left: 4px; }
+.telemetry-alert {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: default;
+}
+.telemetry-alert.is-active {
+  cursor: pointer;
+  color: var(--status-danger-fg);
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+}
+.telemetry-alert.is-active:hover { filter: brightness(0.97); }
+.telemetry-offline {
+  gap: 10px;
+  justify-content: center;
+  color: var(--status-danger-fg);
+  background: var(--status-danger-bg);
+  border-bottom-color: var(--status-danger-border);
+}
+
+/* ── Esqueleto de la bandeja: 8 filas con el alto real, sin saltos de maquetación ── */
+.table-skeleton { padding: 8px 16px 16px; }
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.2fr 1.4fr 0.8fr 1.2fr 1fr 1fr;
+  gap: 16px;
+  align-items: center;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+}
+.skeleton-cell {
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.skeleton-cell.short { width: 60%; }
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* ── Estado vacío ── */
+.table-empty-action { margin-top: 12px; }
+
+/* ── Error de conexión con la base de datos ── */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-fg);
+}
+.error-banner-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.error-banner-text strong { font-weight: 600; }
+
+/* ── Accesibilidad ── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-cell { animation: none; }
+}

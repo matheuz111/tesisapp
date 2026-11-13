@@ -2651,31 +2651,31 @@ body {
 }
 
 .chat-avatar.avatar-client {
-  background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+  background: #bae6fd;
   color: #0284c7;
   border: 1px solid #7dd3fc;
 }
 
 [data-theme="dark"] .chat-avatar.avatar-client {
-  background: linear-gradient(135deg, #075985 0%, #0369a1 100%);
+  background: #0369a1;
   color: #e0f2fe;
   border-color: #0284c7;
 }
 
 .chat-avatar.avatar-worker {
-  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  background: #bbf7d0;
   color: #059669;
   border: 1px solid #86efac;
 }
 
 [data-theme="dark"] .chat-avatar.avatar-worker {
-  background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+  background: #047857;
   color: #d1fae5;
   border-color: #10b981;
 }
 
 .chat-avatar.avatar-operator {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  background: #0369a1;
   color: #ffffff;
   border: 1px solid #38bdf8;
 }
@@ -2836,7 +2836,7 @@ body {
 
 /* ── 3. Burbuja Operador / Central (Figma Theme 1 / You Outgoing) ── */
 .bubble-operator {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  background: #0369a1;
   color: #ffffff;
   border: 1px solid rgba(56, 189, 248, 0.35);
   border-radius: 18px 18px 4px 18px;
@@ -2844,7 +2844,7 @@ body {
 }
 
 [data-theme="dark"] .bubble-operator {
-  background: linear-gradient(135deg, #0284c7 0%, #075985 100%);
+  background: #075985;
   border-color: rgba(56, 189, 248, 0.25);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
@@ -2902,7 +2902,6 @@ body {
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 6px;
-  backdrop-filter: blur(4px);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -3018,7 +3017,7 @@ body {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  background: #0369a1;
   color: #ffffff;
   border: none;
   display: flex;
@@ -6918,7 +6917,6 @@ button:not(:disabled):active,
   position: fixed;
   inset: 0;
   background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(4px);
   z-index: 1100;
   display: flex;
   align-items: center;
@@ -7484,7 +7482,6 @@ button:not(:disabled):active,
   position: fixed !important;
   inset: 0 !important;
   background: rgba(0, 0, 0, 0.8) !important;
-  backdrop-filter: blur(6px) !important;
   z-index: 2500 !important;
   display: flex !important;
   align-items: center !important;

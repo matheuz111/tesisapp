@@ -1,90 +1,95 @@
 import React from 'react';
-import { Layers, Clock, Wrench, CheckCircle2, Camera } from 'lucide-react';
-import type { DashboardStats } from '../../hooks/useServiceRequests';
+import { Camera, CheckCircle2, Clock, Navigation, Wrench } from 'lucide-react';
+import type { DashboardStats } from '../../utils/dashboardStats';
 
 interface SummaryCardsProps {
   stats: DashboardStats;
+  /** Agrega la tarjeta de auditoría fotográfica (útil en la vista analítica). */
+  showAudit?: boolean;
 }
 
+interface CardProps {
+  icon: React.ReactNode;
+  iconTone: 'blue' | 'amber' | 'purple' | 'green' | 'cyan' | 'red';
+  label: string;
+  value: number;
+  pill: string;
+  pillTone: 'neutral' | 'amber' | 'purple' | 'green' | 'cyan' | 'red' | 'blue';
+  valueTone?: 'amber' | 'purple' | 'green' | 'red' | 'blue';
+}
+
+const KpiCard: React.FC<CardProps> = ({ icon, iconTone, label, value, pill, pillTone, valueTone }) => (
+  <div className="kpi-card-item">
+    <div className={`kpi-card-icon icon-${iconTone}`} aria-hidden="true">{icon}</div>
+    <div className="kpi-card-body">
+      <span className="kpi-card-label">{label}</span>
+      <div className="kpi-card-data-row">
+        <span className={`kpi-card-number mono-tabular${valueTone ? ` text-${valueTone}` : ''}`}>{value}</span>
+        <span className={`kpi-card-pill pill-${pillTone}`}>{pill}</span>
+      </div>
+    </div>
+  </div>
+);
+
 /**
- * SummaryCards — Tarjetas ejecutivas de KPIs operativos
- * - Grid responsivo de 5 tarjetas con elevación sutil y bordes redondeados.
- * - Cifras destacadas en monoespaciado tabular (`IBM Plex Mono`).
- * - Iconos en contenedores con fondo suave temático.
- * - Etiquetas y badges de estado con espaciado garantizado.
+ * Indicadores clave de la central. Cada tarjeta responde una pregunta operativa y usa el mismo color
+ * semántico que los estados de la bandeja y de la app móvil:
+ * por asignar (ámbar; rojo si hay reasignaciones), en ruta (azul), en ejecución (violeta) y concluidas hoy (verde).
  */
-export const SummaryCards: React.FC<SummaryCardsProps> = ({ stats }) => {
+export const SummaryCards: React.FC<SummaryCardsProps> = ({ stats, showAudit = false }) => {
+  const hasReassign = stats.reassign > 0;
   return (
-    <section className="kpi-cards-grid" aria-label="Indicadores operativos clave">
-      {/* 1. Total Solicitudes */}
-      <div className="kpi-card-item">
-        <div className="kpi-card-icon icon-blue">
-          <Layers size={18} />
-        </div>
-        <div className="kpi-card-body">
-          <span className="kpi-card-label">Total Solicitudes</span>
-          <div className="kpi-card-data-row">
-            <span className="kpi-card-number mono-tabular">{stats.total}</span>
-            <span className="kpi-card-pill pill-neutral">Base activa</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Por Atender / Pendientes */}
-      <div className="kpi-card-item">
-        <div className="kpi-card-icon icon-amber">
-          <Clock size={18} />
-        </div>
-        <div className="kpi-card-body">
-          <span className="kpi-card-label">Por Atender</span>
-          <div className="kpi-card-data-row">
-            <span className="kpi-card-number mono-tabular text-amber">{stats.pending}</span>
-            <span className="kpi-card-pill pill-amber">Despacho</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. En Ejecución */}
-      <div className="kpi-card-item">
-        <div className="kpi-card-icon icon-purple">
-          <Wrench size={18} />
-        </div>
-        <div className="kpi-card-body">
-          <span className="kpi-card-label">En Ejecución</span>
-          <div className="kpi-card-data-row">
-            <span className="kpi-card-number mono-tabular text-purple">{stats.inProgress}</span>
-            <span className="kpi-card-pill pill-purple">En campo</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Culminadas */}
-      <div className="kpi-card-item">
-        <div className="kpi-card-icon icon-green">
-          <CheckCircle2 size={18} />
-        </div>
-        <div className="kpi-card-body">
-          <span className="kpi-card-label">Culminadas</span>
-          <div className="kpi-card-data-row">
-            <span className="kpi-card-number mono-tabular text-green">{stats.completed}</span>
-            <span className="kpi-card-pill pill-green">{stats.completionRate}% éxito</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 5. Auditoría de Fotos */}
-      <div className="kpi-card-item">
-        <div className="kpi-card-icon icon-cyan">
-          <Camera size={18} />
-        </div>
-        <div className="kpi-card-body">
-          <span className="kpi-card-label">Auditoría Fotos</span>
-          <div className="kpi-card-data-row">
-            <span className="kpi-card-number mono-tabular">{stats.photoEvidences}</span>
-            <span className="kpi-card-pill pill-cyan">{stats.auditRate}% cobertura</span>
-          </div>
-        </div>
-      </div>
+    <section
+      className="kpi-cards-grid"
+      aria-label="Indicadores operativos clave"
+      style={{ '--kpi-cols': showAudit ? 5 : 4 } as React.CSSProperties}
+    >
+      <KpiCard
+        icon={<Clock size={18} />}
+        iconTone={hasReassign ? 'red' : 'amber'}
+        label="Por asignar"
+        value={stats.toAssign}
+        valueTone={hasReassign ? 'red' : 'amber'}
+        pill={hasReassign ? `${stats.reassign} por reasignar` : 'Esperando despacho'}
+        pillTone={hasReassign ? 'red' : 'amber'}
+      />
+      <KpiCard
+        icon={<Navigation size={18} />}
+        iconTone="blue"
+        label="Técnicos en ruta"
+        value={stats.inTransit}
+        valueTone="blue"
+        pill="Hacia el domicilio"
+        pillTone="blue"
+      />
+      <KpiCard
+        icon={<Wrench size={18} />}
+        iconTone="purple"
+        label="En ejecución"
+        value={stats.executing}
+        valueTone="purple"
+        pill="En el predio"
+        pillTone="purple"
+      />
+      <KpiCard
+        icon={<CheckCircle2 size={18} />}
+        iconTone="green"
+        label="Concluidas hoy"
+        value={stats.completedToday}
+        valueTone="green"
+        pill={`${stats.completionRate}% de éxito`}
+        pillTone="green"
+      />
+      {showAudit ? (
+        <KpiCard
+          icon={<Camera size={18} />}
+          iconTone="cyan"
+          label="Auditoría de fotos"
+          value={stats.photoEvidences}
+          pill={`${stats.auditRate}% de cobertura`}
+          pillTone="cyan"
+        />
+      ) : null}
     </section>
   );
 };

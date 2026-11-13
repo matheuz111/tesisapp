@@ -1,4 +1,5 @@
 import type { ServiceRequest } from '../types';
+import { formatCertificateCode } from '../services/warrantyCertificateModel';
 import logoImg from '../assets/logo-maestro.png';
 
 export interface QuotePDFData {
@@ -246,7 +247,14 @@ export const generateProformaPDF = async (data: QuotePDFData) => {
 /**
  * Genera y descarga un PDF vectorial oficial para el Certificado de Garantía 30 Días con logo
  */
-export const generateWarrantyPDF = async (request: ServiceRequest) => {
+/** Certificado emitido: su código y el QR ya generado que apunta a la página pública de verificación. */
+export interface WarrantyVerification {
+  code: string;
+  url: string;
+  qrDataUrl: string;
+}
+
+export const generateWarrantyPDF = async (request: ServiceRequest, verification?: WarrantyVerification) => {
   const { default: jsPDF } = await import('jspdf');
 
   const doc = new jsPDF({
@@ -295,7 +303,7 @@ export const generateWarrantyPDF = async (request: ServiceRequest) => {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(2, 132, 199);
-  doc.text(`SELLO DE CONFORMIDAD: GAR-${request.code ? request.code.replace('SOL-POST-', '') : '2026'}-30D`, 105, 54, { align: 'center' });
+  doc.text(`SELLO DE CONFORMIDAD: ${verification ? formatCertificateCode(verification.code) : 'PENDIENTE DE EMISIÓN'}`, 105, 54, { align: 'center' });
 
   // Declaración
   doc.setFont('helvetica', 'normal');
@@ -369,28 +377,44 @@ export const generateWarrantyPDF = async (request: ServiceRequest) => {
     currentY += splitCl.length * 5 + 3;
   });
 
-  // Firmas y QR simulado
-  doc.setDrawColor(15, 23, 42);
-  doc.setLineWidth(1);
-  doc.rect(30, 225, 28, 28);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.text('QR VERIFICACIÓN', 44, 237, { align: 'center' });
-  doc.setFontSize(8);
-  doc.text(request.code || 'OFICIAL', 44, 243, { align: 'center' });
+  // Bloque de verificación y firma
+  const sealCode = verification ? formatCertificateCode(verification.code) : 'SIN EMITIR';
+  // Con QR, el texto se corre a la derecha de la imagen.
+  const verifyX = verification ? 62 : 25;
+  if (verification) {
+    doc.addImage(verification.qrDataUrl, 'PNG', 25, 226, 32, 32);
+  }
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.line(25, 222, 185, 222);
 
-  doc.setDrawColor(100, 116, 139);
-  doc.setLineWidth(0.5);
-  doc.line(115, 240, 175, 240);
-
+  // Izquierda: código de verificación
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(verification ? 'VERIFICACIÓN' : 'CÓDIGO DE VERIFICACIÓN', verifyX, 232);
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(verification ? 10 : 12);
   doc.setTextColor(15, 23, 42);
-  doc.text('Gerencia Técnica de Calidad', 145, 245, { align: 'center' });
+  doc.text(sealCode, verifyX, 240);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
-  doc.text('Maestro a Domicilio S.A.C.', 145, 249, { align: 'center' });
+  doc.text(doc.splitTextToSize(verification ? 'Escanea el código QR para confirmar que este certificado es auténtico.' : 'Al emitir el certificado se genera un código QR verificable.', verification ? 52 : 62), verifyX, 246);
+
+  // Derecha: firma centrada, con espacio para firmar sobre la línea
+  doc.setDrawColor(100, 116, 139);
+  doc.setLineWidth(0.5);
+  doc.line(118, 248, 180, 248);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(15, 23, 42);
+  doc.text('Gerencia Técnica de Operaciones', 149, 253, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Maestro a Domicilio S.A.C.', 149, 257.5, { align: 'center' });
+  doc.text(`Emitido el ${new Date().toLocaleDateString('es-PE', { dateStyle: 'long' })}`, 149, 262, { align: 'center' });
 
   const fileName = `Certificado_Garantia_${request.code || '30D'}.pdf`;
   doc.save(fileName);

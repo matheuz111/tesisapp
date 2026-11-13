@@ -16,6 +16,7 @@ import {
   ClipboardCopy,
   ChevronDown,
   LayoutGrid,
+  AlertCircle,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -60,10 +61,11 @@ const GoogleSheetsModal = lazy(() =>
 );
 
 import { useServiceRequests } from '../hooks/useServiceRequests';
+import { purgeExpiredScans } from '../services/warrantyCertificateService';
 import { SummaryCards } from './dashboard/SummaryCards';
 import { RequestFilters } from './dashboard/RequestFilters';
 import { RequestsTable } from './dashboard/RequestsTable';
-import { OfflineBanner } from './OfflineBanner';
+import { TelemetryBar } from './dashboard/TelemetryBar';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 
 type ActiveTab = 'OPERATION' | 'ANALYTICS';
@@ -79,10 +81,17 @@ export const Dashboard = () => {
     filteredRequests,
     paginatedRequests,
     loading,
+    error,
+    retry,
+    hasActiveFilters,
+    clearFilters,
     stats,
     filters,
     pagination,
-  } = useServiceRequests();
+  } = useServiceRequests({ onNewReassignments: (list) => notifyReassignments(list) });
+
+  // Mantenimiento diario sin intervención: borra registros de escaneo con más de 12 meses.
+  useEffect(() => { void purgeExpiredScans(); }, []);
 
   // Pestaña principal de navegación
   const [activeTab, setActiveTab] = useState<ActiveTab>('OPERATION');
@@ -96,6 +105,18 @@ export const Dashboard = () => {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  /** Aviso inmediato cuando un técnico rechaza o devuelve una solicitud. */
+  function notifyReassignments(list: ServiceRequest[]) {
+    for (const req of list.slice(0, 3)) {
+      const reason = req.rejectionReasonText || req.rejectionReason;
+      addToast(
+        'error',
+        'Reasignación necesaria',
+        `ALERTA: el técnico rechazó la solicitud ${req.code || req.id}${reason ? ` (${reason})` : ''}. Reasignar de inmediato.`,
+      );
+    }
+  }
 
   // Modales
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -180,7 +201,6 @@ export const Dashboard = () => {
 
   return (
     <div className="dashboard-layout">
-      <OfflineBanner />
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
 
       {/* Barra de Navegación Priority+ con Identidad de Marca y Pestañas */}
@@ -326,6 +346,17 @@ export const Dashboard = () => {
             </kbd>
           </button>
 
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+            title={theme === 'dark' ? 'Tema claro' : 'Tema oscuro'}
+            style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 8px' }}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+
           {/* Menú Más Acciones en Pantallas Pequeñas */}
           <div className="nav-more-menu-container" ref={moreMenuRef}>
             <button
@@ -467,12 +498,31 @@ export const Dashboard = () => {
         </div>
       </header>
 
+      <TelemetryBar
+        stats={stats}
+        isOnline={isOnline}
+        onShowReassign={() => { filters.setStatusFilter('PENDING'); setActiveTab('OPERATION'); }}
+      />
+
       {/* Contenedor Principal Centrado con Restricción de Ancho Máximo */}
       <main className="dashboard-content app-container">
         {/* VISTA 1: OPERACIÓN (Bandeja de Despacho Prioritaria) */}
         {activeTab === 'OPERATION' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Ribbon Compacto de Métricas Operativas */}
+            {error ? (
+              <div className="error-banner" role="alert">
+                <AlertCircle size={20} aria-hidden="true" />
+                <div className="error-banner-text">
+                  <strong>Se perdió la conexión con la base de datos</strong>
+                  <span>{error}</span>
+                </div>
+                <button type="button" className="btn btn-primary" onClick={retry}>
+                  Reconectar ahora
+                </button>
+              </div>
+            ) : null}
+
+            {/* Indicadores operativos clave */}
             <SummaryCards stats={stats} />
 
             {/* Barra de Filtros, Zonas y Búsqueda Inmediata */}
@@ -492,6 +542,8 @@ export const Dashboard = () => {
             {/* Tabla de Trabajo Visible de Inmediato sin Scroll Forzado */}
             <RequestsTable
               loading={loading}
+              hasActiveFilters={hasActiveFilters}
+              onClearFilters={clearFilters}
               requests={paginatedRequests}
               totalFiltered={filteredRequests.length}
               currentPage={pagination.currentPage}
@@ -512,7 +564,7 @@ export const Dashboard = () => {
         {/* VISTA 2: ANALÍTICA (Panel Analítico Dedicado) */}
         {activeTab === 'ANALYTICS' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <SummaryCards stats={stats} />
+            <SummaryCards stats={stats} showAudit />
             <Suspense fallback={<div className="charts-loading-banner">Cargando métricas analíticas...</div>}>
               <AnalyticsCharts requests={requests} />
             </Suspense>
@@ -571,6 +623,10 @@ export const Dashboard = () => {
           <AssignWorkerModal
             request={assigningRequest}
             initialProviderId={assigningProviderId}
+            onAssigned={({ workerName }) => {
+              const zone = assigningRequest.zone ? ` (${String(assigningRequest.zone).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())})` : '';
+              addToast('success', 'Asignación confirmada', `${assigningRequest.code || assigningRequest.id} despachada a técnico ${workerName}${zone}.`);
+            }}
             onClose={() => {
               setAssigningRequest(null);
               setAssigningProviderId(null);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { actorLabel, describeTransition, formatDuration, formatReason, type HistoryTone } from '../utils/historyPresentation';
 import { collection, onSnapshot, orderBy, query, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import type { ServiceRequest, StatusHistoryItem } from '../types';
@@ -51,6 +52,14 @@ interface Props {
 }
 
 type DetailTab = 'resumen' | 'trazabilidad' | 'evidencias' | 'cotizacion';
+
+/** Colores del punto y del título en la línea de tiempo, de las mismas variables que usan los estados. */
+const HISTORY_TONE_COLORS: Record<HistoryTone, string> = {
+  primary: 'var(--primary)',
+  success: 'var(--status-completed-fg)',
+  warning: 'var(--status-pending-fg)',
+  danger: 'var(--status-danger-fg)',
+};
 
 export const ServiceDetailModal = ({ request, onClose }: Props) => {
   const [activeTab, setActiveTab] = useState<DetailTab>('resumen');
@@ -150,9 +159,8 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
   const tVal = toDate(request.validatedAt);
 
   const getDeltaMin = (end: Date | null, start: Date | null) => {
-    if (!end || !start) return '—';
-    const diff = (end.getTime() - start.getTime()) / 60000;
-    return diff >= 0 ? `${diff.toFixed(1)} min` : '—';
+    if (!end || !start) return 'Aún no';
+    return formatDuration(end.getTime() - start.getTime()) ?? 'Aún no';
   };
 
   const canonicalPricing = resolveRequestCanonicalPricing(request);
@@ -289,18 +297,18 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
             <div className="diagnostic-cancel-card">
               <div className="diagnostic-cancel-header">
                 <AlertTriangle size={16} />
-                <span>Diagnóstico de Cancelación Operativa</span>
+                <span>Por qué se canceló</span>
               </div>
               <p className="diagnostic-cancel-text">
-                <strong>Motivo Reportado:</strong> {request.cancelReason || request.rejectionReason || request.rejectionReasonText || 'Sin motivo especificado al cancelar'}<br />
+                <strong>Motivo reportado:</strong> {formatReason(request.cancelReason || request.rejectionReasonText || request.rejectionReason) || 'Sin motivo especificado al cancelar'}<br />
                 {request.quoteRejectionReason && (
-                  <><strong>Rechazo de Cotización:</strong> {request.quoteRejectionReason}<br /></>
+                  <><strong>Rechazo de cotización:</strong> {formatReason(request.quoteRejectionReason)}<br /></>
                 )}
                 {request.providerRejectionReason && (
-                  <><strong>Rechazo por Técnico:</strong> {request.providerRejectionReason}<br /></>
+                  <><strong>Rechazo del técnico:</strong> {formatReason(request.providerRejectionReason)}<br /></>
                 )}
                 {request.notes && (
-                  <><strong>Notas de Auditoría:</strong> {request.notes}</>
+                  <><strong>Notas de auditoría:</strong> {request.notes}</>
                 )}
               </p>
             </div>
@@ -528,35 +536,35 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
           {/* Tarjetas de Deltas de Tiempo Tesis */}
           <div className="sidepanel-card">
             <h4 className="sidepanel-card-title">
-              <Clock size={15} /> Tiempos por Etapa (Métricas SPSS)
+              <Clock size={15} /> Tiempos por etapa
             </h4>
             <div className="sidepanel-prop-grid">
               <div className="sidepanel-prop-item">
-                <span className="sidepanel-prop-label">1. Contacto (T_RSP)</span>
+                <span className="sidepanel-prop-label" title="Métrica T_RSP">1. Respuesta de la central</span>
                 <span className="sidepanel-prop-value mono-tabular font-semibold">
                   {getDeltaMin(tResp, tCrea)}
                 </span>
               </div>
               <div className="sidepanel-prop-item">
-                <span className="sidepanel-prop-label">2. Asignación (T_ASG)</span>
+                <span className="sidepanel-prop-label" title="Métrica T_ASG">2. Asignación de técnico</span>
                 <span className="sidepanel-prop-value mono-tabular font-semibold">
                   {getDeltaMin(tAsig, tResp || tCrea)}
                 </span>
               </div>
               <div className="sidepanel-prop-item">
-                <span className="sidepanel-prop-label">3. Traslado (T_LLE)</span>
+                <span className="sidepanel-prop-label" title="Métrica T_LLE">3. Traslado al domicilio</span>
                 <span className="sidepanel-prop-value mono-tabular font-semibold">
                   {getDeltaMin(tInic, tAsig || tCrea)}
                 </span>
               </div>
               <div className="sidepanel-prop-item">
-                <span className="sidepanel-prop-label">4. Ejecución (T_EJE)</span>
+                <span className="sidepanel-prop-label" title="Métrica T_EJE">4. Trabajo en el domicilio</span>
                 <span className="sidepanel-prop-value mono-tabular font-semibold">
                   {getDeltaMin(tFin, tInic || tCrea)}
                 </span>
               </div>
               <div className="sidepanel-prop-item" style={{ gridColumn: '1 / -1' }}>
-                <span className="sidepanel-prop-label">Ciclo Total (T_TOT)</span>
+                <span className="sidepanel-prop-label" title="Métrica T_TOT">Tiempo total del servicio</span>
                 <span className="sidepanel-prop-value mono-tabular font-bold" style={{ color: 'var(--primary)' }}>
                   {getDeltaMin(tVal || tFin, tCrea)}
                 </span>
@@ -567,16 +575,18 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
           {/* Línea de tiempo status_history */}
           <div className="sidepanel-card">
             <h4 className="sidepanel-card-title">
-              <FileSpreadsheet size={15} /> Eventos de Estado (status_history)
+              <FileSpreadsheet size={15} /> Historial del servicio
             </h4>
 
             {loadingHistory ? (
-              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Cargando eventos de trazabilidad...</p>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Cargando el historial del servicio…</p>
             ) : history.length === 0 ? (
-              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No se han registrado transiciones de estado.</p>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Todavía no hay cambios de estado registrados.</p>
             ) : (
               <div className="timeline-container" style={{ marginTop: 8 }}>
-                {history.map((item, idx) => (
+                {history.map((item, idx) => {
+                  const step = describeTransition(item);
+                  return (
                   <div key={item.id || idx} className="timeline-item">
                     <div className="timeline-bullet">
                       <div
@@ -584,17 +594,17 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
                           width: 8,
                           height: 8,
                           borderRadius: '50%',
-                          backgroundColor: 'var(--primary)',
+                          backgroundColor: HISTORY_TONE_COLORS[step.tone],
                         }}
                       />
                     </div>
                     <div className="timeline-content">
                       <div className="timeline-top">
-                        <span className="timeline-state font-semibold">{item.toStatus}</span>
+                        <span className="timeline-state font-semibold" style={{ color: HISTORY_TONE_COLORS[step.tone] }}>{step.title}</span>
                         <span className="timeline-date mono-tabular">{formatDate(item.timestamp)}</span>
                       </div>
-                      <p className="timeline-meta" style={{ fontSize: 11, color: 'var(--text-muted)', margin: '2px 0 0' }}>
-                        Rol: <strong>{item.actorRole}</strong> · Actor: <code>{item.actorId?.slice(0, 8)}</code>
+                      <p className="timeline-meta" style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                        Registrado por <strong>{actorLabel(item, { clientName: request.clientName, providerName: request.providerName })}</strong>
                       </p>
                       {item.notes && (
                         <p className="timeline-note" style={{ fontSize: 12, marginTop: 4 }}>
@@ -603,7 +613,8 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -615,12 +626,12 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
         <div className="sidepanel-content-pane">
           <div className="sidepanel-card">
             <h4 className="sidepanel-card-title">
-              <ImageIcon size={15} /> Auditoría Fotográfica (EVID_INI / EVID_FIN)
+              <ImageIcon size={15} /> Fotos del servicio
             </h4>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <span className="sidepanel-prop-label">Foto Inicial del Problema (EVID_INI)</span>
+                <span className="sidepanel-prop-label" title="Evidencia EVID_INI">Foto inicial del problema</span>
                 {request.issuePhoto ? (
                   <div
                     className="evidence-img-container"
@@ -646,7 +657,7 @@ export const ServiceDetailModal = ({ request, onClose }: Props) => {
               </div>
 
               <div>
-                <span className="sidepanel-prop-label">Evidencia de Culminación (EVID_FIN)</span>
+                <span className="sidepanel-prop-label" title="Evidencia EVID_FIN">Foto del trabajo terminado</span>
                 {request.evidencePhoto ? (
                   <div
                     className="evidence-img-container"
