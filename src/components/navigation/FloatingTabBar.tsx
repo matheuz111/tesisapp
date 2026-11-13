@@ -6,6 +6,7 @@ import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanim
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSession } from '../../context/SessionContext';
 import { useTheme } from '../../context/ThemeContext';
+import { runWhenIdle } from '../../utils/idle';
 import { BlurBackdrop } from './blur';
 import { TAB_ORDER, TABS, TAB_ROUTES, tabForPath, type TabId } from './tabs';
 
@@ -15,7 +16,8 @@ const TOP_PADDING = 8;
 const MIN_BOTTOM_PADDING = 10;
 // Texto blanco sobre este azul: 5.9:1 (AA) en claro y oscuro.
 const ACTIVE_TILE = '#0369A1';
-const INACTIVE_ICON = '#94A3B8';
+// Iconos inactivos: AA sobre la píldora de cada tema (oscuro: 5.2:1 sobre navy; claro: 4.8:1 sobre blanco).
+const INACTIVE_ICON = { dark: '#94A3B8', light: '#64748B' } as const;
 
 /** Alto que las pantallas con barra deben reservar al final de su contenido para que nada quede tapado. */
 export function useTabBarClearance(): number {
@@ -44,6 +46,14 @@ export function FloatingTabBar({ blurTarget }: Props) {
   const role = profile?.role;
   const active = tabForPath(pathname);
 
+  // Monta en segundo plano las otras pestañas del rol: al tocarlas ya están listas y la transición no espera al montaje.
+  useEffect(() => {
+    if (role !== 'CLIENT' && role !== 'PROVIDER') return;
+    return runWhenIdle(() => {
+      for (const id of TAB_ORDER) router.prefetch(TAB_ROUTES[role][id] as Href);
+    }, 1500);
+  }, [role, router]);
+
   const goTo = useCallback((id: TabId) => {
     if (!role || (role !== 'CLIENT' && role !== 'PROVIDER') || id === active) return;
     router.navigate(TAB_ROUTES[role][id] as Href);
@@ -66,10 +76,10 @@ export function FloatingTabBar({ blurTarget }: Props) {
       <View style={{ paddingHorizontal: SIDE_MARGIN, paddingTop: TOP_PADDING, paddingBottom: bottomPadding }}>
         <View
           accessibilityRole="tablist"
-          style={[styles.bar, { backgroundColor: isDark ? colors.card : '#0F172A', borderColor: isDark ? colors.border : '#1E293B' }]}
+          style={[styles.bar, { backgroundColor: colors.card, borderColor: colors.border }, isDark ? styles.barShadowDark : styles.barShadowLight]}
         >
           {TAB_ORDER.map((id) => (
-            <TabItem key={id} id={id} active={id === active} onPress={goTo} />
+            <TabItem key={id} id={id} active={id === active} inactiveColor={INACTIVE_ICON[isDark ? 'dark' : 'light']} onPress={goTo} />
           ))}
         </View>
       </View>
@@ -77,9 +87,9 @@ export function FloatingTabBar({ blurTarget }: Props) {
   );
 }
 
-type TabItemProps = { id: TabId; active: boolean; onPress: (id: TabId) => void };
+type TabItemProps = { id: TabId; active: boolean; inactiveColor: string; onPress: (id: TabId) => void };
 
-const TabItem = memo(function TabItem({ id, active, onPress }: TabItemProps) {
+const TabItem = memo(function TabItem({ id, active, inactiveColor, onPress }: TabItemProps) {
   const tab = TABS[id];
   return (
     <Animated.View
@@ -94,7 +104,7 @@ const TabItem = memo(function TabItem({ id, active, onPress }: TabItemProps) {
         hitSlop={{ top: 6, bottom: 6 }}
         style={[styles.item, active && styles.itemActive]}
       >
-        <Ionicons name={active ? tab.activeIcon : tab.icon} size={22} color={active ? '#FFFFFF' : INACTIVE_ICON} />
+        <Ionicons name={active ? tab.activeIcon : tab.icon} size={22} color={active ? '#FFFFFF' : inactiveColor} />
         {active ? (
           <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(80)} numberOfLines={1} style={styles.label}>
             {tab.label}
@@ -128,10 +138,11 @@ const styles = StyleSheet.create({
     gap: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 10,
   },
+  barShadowDark: { shadowOpacity: 0.35 },
+  barShadowLight: { shadowOpacity: 0.14 },
   slot: { height: '100%' },
   slotActive: { flex: 1.7 },
   slotIdle: { flex: 1 },

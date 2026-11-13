@@ -3,7 +3,7 @@ import { useTabBarClearance } from '../../../src/components/navigation/FloatingT
 import { useFocusEffect, useRouter } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
-import React, { useMemo, useCallback, useEffect, useState } from 'react';
+import React, { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -26,6 +26,9 @@ import {
 import { ListSkeleton } from '../../../src/components/Skeleton';
 import { useBaseColors, type BaseColorSet } from '../../../src/components/base/useBaseColors';
 
+/** Evita una segunda lectura inmediata cuando la carga de montaje coincide con el primer foco. */
+const FOCUS_REFRESH_MIN_MS = 3000;
+
 export default function ProviderHistoryScreen() {
   const tabBarClearance = useTabBarClearance();
   const BaseColors = useBaseColors();
@@ -43,7 +46,9 @@ export default function ProviderHistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const lastLoadRef = useRef(0);
   const loadDashboard = useCallback(async () => {
+    lastLoadRef.current = Date.now();
     if (!user) return;
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -81,10 +86,13 @@ export default function ProviderHistoryScreen() {
     }
   }, [user]);
 
-  // Las pestañas permanecen montadas: se recarga cada vez que la pantalla recupera el foco.
-  useFocusEffect(useCallback(() => {
+  // Carga al montar (también cuando la pestaña se precarga) y refresca en silencio al recuperar el foco.
+  useEffect(() => {
     if (user) void loadDashboard();
-  }, [user, loadDashboard]));
+  }, [loadDashboard]);
+  useFocusEffect(useCallback(() => {
+    if (Date.now() - lastLoadRef.current > FOCUS_REFRESH_MIN_MS) if (user) void loadDashboard();
+  }, [loadDashboard]));
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

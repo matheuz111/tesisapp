@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTabBarClearance } from '../../../src/components/navigation/FloatingTabBar';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -39,6 +39,9 @@ const RATING_LABELS: Record<number, string> = {
   5: '¡Excelente servicio!',
 };
 
+/** Evita una segunda lectura inmediata cuando la carga de montaje coincide con el primer foco. */
+const FOCUS_REFRESH_MIN_MS = 3000;
+
 export default function ClientHistory() {
   const tabBarClearance = useTabBarClearance();
   const BaseColors = useBaseColors();
@@ -56,7 +59,9 @@ export default function ClientHistory() {
   const [reviewComment, setReviewComment] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
 
+  const lastLoadRef = useRef(0);
   const loadHistory = useCallback(async () => {
+    lastLoadRef.current = Date.now();
     if (!user) {
       setLoading(false);
       return;
@@ -80,9 +85,12 @@ export default function ClientHistory() {
     }
   }, [user]);
 
-  // Las pestañas permanecen montadas: se recarga cada vez que la pantalla recupera el foco.
-  useFocusEffect(useCallback(() => {
+  // Carga al montar (también cuando la pestaña se precarga) y refresca en silencio al recuperar el foco.
+  useEffect(() => {
     void loadHistory();
+  }, [loadHistory]);
+  useFocusEffect(useCallback(() => {
+    if (Date.now() - lastLoadRef.current > FOCUS_REFRESH_MIN_MS) void loadHistory();
   }, [loadHistory]));
 
   const openRatingModal = (item: any) => {

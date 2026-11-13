@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import React, { useRef } from 'react';
 import { View } from 'react-native';
+import { useTheme } from '../../src/context/ThemeContext';
 import { BlurTarget } from '../../src/components/navigation/blur';
 import { FloatingTabBar } from '../../src/components/navigation/FloatingTabBar';
 
@@ -12,14 +13,21 @@ import { FloatingTabBar } from '../../src/components/navigation/FloatingTabBar';
  */
 export default function MainLayout() {
   const blurTarget = useRef<View | null>(null);
+  const { colors } = useTheme();
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <BlurTarget targetRef={blurTarget} style={{ flex: 1 }}>
         <Tabs
           backBehavior="history"
           tabBar={() => null}
-          screenOptions={{ headerShown: false, animation: 'shift', lazy: true, freezeOnBlur: true }}
+          screenOptions={{
+            headerShown: false,
+            animation: 'shift',
+            lazy: true,
+            freezeOnBlur: true,
+            sceneStyle: { backgroundColor: colors.background },
+          }}
         >
           <Tabs.Screen name="client/home" />
           <Tabs.Screen name="client/history" />
