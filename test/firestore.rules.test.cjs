@@ -227,3 +227,48 @@ test('Scans: the central can purge only records older than 12 months', async () 
   await assertFails(deleteDoc(doc(db('operator'), `warranty_scans/${CERT}_20990101`)));
   await assertSucceeds(deleteDoc(doc(db('operator'), `warranty_scans/${CERT}_20240101`)));
 });
+
+// ── Entrada de solicitudes por WhatsApp (intake_requests) ──
+const intakeRef = (database, id = 'gs_abc_2_1700000000000') => doc(database, `intake_requests/${id}`);
+const validIntake = (overrides = {}) => ({
+  source: 'GOOGLE_FORM', channel: 'WHATSAPP', status: 'NEW', submittedBy: 'intake', createdAt: serverTimestamp(),
+  clientName: 'Carlos Mendoza', clientPhone: '+51999888777', specialty: 'Gasfitería', district: 'Miraflores',
+  address: 'Av. Larco 450 Dpto 302', description: 'Fuga de agua en tubería de cocina', urgency: 'NOW', sourceRow: 2, ...overrides,
+});
+const seedIntakeUser = () => env.withSecurityRulesDisabled(async (context) => {
+  await setDoc(doc(context.firestore(), 'users/intake'), { role: 'INTAKE', is_verified: true });
+});
+
+test('Intake: el usuario INTAKE solo puede crear entradas válidas con estado NEW', async () => {
+  await seedIntakeUser();
+  await assertSucceeds(setDoc(intakeRef(db('intake')), validIntake()));
+  await assertFails(setDoc(intakeRef(db('intake'), 'x1'), validIntake({ status: 'PROCESSED' })));
+  await assertFails(setDoc(intakeRef(db('intake'), 'x2'), validIntake({ submittedBy: 'otro' })));
+  await assertFails(setDoc(intakeRef(db('intake'), 'x3'), validIntake({ channel: 'APP' })));
+  await assertFails(setDoc(intakeRef(db('intake'), 'x4'), validIntake({ isAdmin: true })));
+  await assertFails(setDoc(intakeRef(db('intake'), 'x5'), validIntake({ description: 'x'.repeat(2000) })));
+  await assertFails(setDoc(intakeRef(db('intake'), 'x6'), validIntake({ createdAt: Timestamp.fromMillis(1) })));
+});
+
+test('Intake: nadie más puede crear entradas y nadie sin sesión puede leerlas', async () => {
+  await seedIntakeUser();
+  await assertFails(setDoc(intakeRef(db('client'), 'y1'), validIntake({ submittedBy: 'client' })));
+  await assertFails(setDoc(intakeRef(db('worker'), 'y2'), validIntake({ submittedBy: 'worker' })));
+  await assertFails(setDoc(intakeRef(publicDb(), 'y3'), validIntake()));
+  await assertSucceeds(setDoc(intakeRef(db('intake')), validIntake()));
+  await assertFails(getDoc(intakeRef(db('intake'))));
+  await assertFails(getDoc(intakeRef(db('client'))));
+  await assertFails(getDoc(intakeRef(publicDb())));
+  await assertSucceeds(getDoc(intakeRef(db('operator'))));
+});
+
+test('Intake: la central cierra la entrada una sola vez y no puede alterar lo recibido', async () => {
+  await seedIntakeUser();
+  await assertSucceeds(setDoc(intakeRef(db('intake')), validIntake()));
+  await assertFails(updateDoc(intakeRef(db('operator')), { clientName: 'Otro' }));
+  await assertFails(updateDoc(intakeRef(db('client')), { status: 'PROCESSED' }));
+  await assertFails(updateDoc(intakeRef(db('operator')), { status: 'NEW' }));
+  await assertSucceeds(updateDoc(intakeRef(db('operator')), { status: 'PROCESSED', requestId: 'r1', requestCode: 'SOL-POST-0001', processedBy: 'operator', processedAt: serverTimestamp() }));
+  await assertFails(updateDoc(intakeRef(db('operator')), { status: 'REJECTED', processedBy: 'operator' }), 'ya cerrada: no se reabre ni se vuelve a cerrar');
+  await assertFails(require('firebase/firestore').deleteDoc(intakeRef(db('operator'))));
+});

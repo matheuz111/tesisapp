@@ -254,6 +254,47 @@ service cloud.firestore {
       allow delete: if isOperator() && resource.data.expireAt < request.time;
     }
 
+    // Entrada de solicitudes por WhatsApp (Google Forms → Google Sheets → Apps Script).
+    // El script inicia sesión como un usuario de Firebase con rol INTAKE, que NO puede hacer nada más:
+    // solo CREA documentos aquí, con un esquema fijo y estado NEW. La central los valida y los convierte
+    // en solicitudes oficiales (con correlativo y PIN) desde el panel; así no se abren las reglas de service_requests.
+    match /intake_requests/{intakeId} {
+      function isIntake() {
+        return signedIn()
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'INTAKE';
+      }
+
+      function validIntake(data) {
+        return data.keys().hasOnly(['source', 'channel', 'clientName', 'clientPhone', 'specialty', 'district', 'address', 'addressReference', 'description', 'urgency', 'preferredDate', 'preferredTime', 'sourceRow', 'status', 'createdAt', 'submittedBy'])
+          && data.keys().hasAll(['source', 'channel', 'clientName', 'clientPhone', 'specialty', 'district', 'address', 'description', 'urgency', 'status', 'createdAt', 'submittedBy'])
+          && data.source == 'GOOGLE_FORM'
+          && data.channel == 'WHATSAPP'
+          && data.status == 'NEW'
+          && data.createdAt == request.time
+          && data.submittedBy == request.auth.uid
+          && data.clientName is string && data.clientName.size() <= 200
+          && data.clientPhone is string && data.clientPhone.size() <= 60
+          && data.specialty is string && data.specialty.size() <= 120
+          && data.district is string && data.district.size() <= 120
+          && data.address is string && data.address.size() <= 300
+          && (!('addressReference' in data) || (data.addressReference is string && data.addressReference.size() <= 300))
+          && data.description is string && data.description.size() <= 1500
+          && data.urgency is string && data.urgency.size() <= 80
+          && (!('preferredDate' in data) || (data.preferredDate is string && data.preferredDate.size() <= 30))
+          && (!('preferredTime' in data) || (data.preferredTime is string && data.preferredTime.size() <= 30))
+          && (!('sourceRow' in data) || data.sourceRow is number);
+      }
+
+      allow create: if isIntake() && validIntake(request.resource.data);
+      allow read: if isOperator();
+      // La central solo puede cerrar la entrada una vez (NEW → PROCESSED o REJECTED), sin tocar los datos recibidos.
+      allow update: if isOperator()
+        && resource.data.status == 'NEW'
+        && request.resource.data.status in ['PROCESSED', 'REJECTED']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'requestId', 'requestCode', 'processedBy', 'processedAt', 'errors']);
+      allow delete: if false;
+    }
+
     // Colección heredada: se conserva para no romper conversaciones antiguas.
     match /chats/{chatId} {
       allow read, write: if signedIn();

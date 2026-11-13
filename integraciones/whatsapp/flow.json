@@ -1,0 +1,62 @@
+{
+  "version": "3.1",
+  "screens": [
+    {
+      "id": "SERVICE_FORM",
+      "title": "Solicitud de Servicio a Domicilio",
+      "terminal": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextInput", "name": "client_name", "label": "Nombre y Apellidos", "required": true },
+          {
+            "type": "Dropdown",
+            "name": "specialty",
+            "label": "Tipo de Especialista",
+            "required": true,
+            "data-source": [
+              { "id": "Gasfitero", "title": "Gasfitería y Plomería" },
+              { "id": "Electricista", "title": "Electricidad e Iluminación" },
+              { "id": "Pintor", "title": "Pintura y Acabados" },
+              { "id": "Carpintero", "title": "Carpintería y Muebles" },
+              { "id": "Cerrajero", "title": "Cerrajería y Puertas" },
+              { "id": "Tecnico", "title": "Línea Blanca / Electrodomésticos" }
+            ]
+          },
+          { "type": "TextInput", "name": "district", "label": "Distrito (ej. Miraflores, Surco, etc.)", "required": true },
+          { "type": "TextInput", "name": "address", "label": "Dirección exacta (Av / Jr / Nro / Dpto)", "required": true },
+          { "type": "TextInput", "name": "address_reference", "label": "Referencia de llegada", "required": false },
+          { "type": "TextArea", "name": "description", "label": "Describe el problema o trabajo", "required": true },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "urgency",
+            "label": "Nivel de Urgencia",
+            "required": true,
+            "data-source": [
+              { "id": "NOW", "title": "Urgente (Lo antes posible)" },
+              { "id": "TODAY", "title": "Atención hoy" },
+              { "id": "SCHEDULED", "title": "Coordinar fecha posterior" }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Registrar Solicitud",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "client_name": "${form.client_name}",
+                "specialty": "${form.specialty}",
+                "district": "${form.district}",
+                "address": "${form.address}",
+                "address_reference": "${form.address_reference}",
+                "description": "${form.description}",
+                "urgency": "${form.urgency}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

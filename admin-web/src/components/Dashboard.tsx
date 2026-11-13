@@ -61,6 +61,9 @@ const GoogleSheetsModal = lazy(() =>
 );
 
 import { useServiceRequests } from '../hooks/useServiceRequests';
+import { useWhatsappIntake } from '../hooks/useWhatsappIntake';
+import { useProviderSignal } from '../hooks/useProviderSignal';
+import { playAlertSound } from '../utils/alertSound';
 import { purgeExpiredScans } from '../services/warrantyCertificateService';
 import { SummaryCards } from './dashboard/SummaryCards';
 import { RequestFilters } from './dashboard/RequestFilters';
@@ -71,7 +74,7 @@ import { useNetworkStatus } from '../hooks/useNetworkStatus';
 type ActiveTab = 'OPERATION' | 'ANALYTICS';
 
 export const Dashboard = () => {
-  const { userName, role, logout } = useAuth();
+  const { user, userName, role, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const isOnline = useNetworkStatus();
 
@@ -117,6 +120,26 @@ export const Dashboard = () => {
       );
     }
   }
+
+  // Técnicos conectados que dejaron de reportar su ubicación en horario laboral.
+  const staleProviders = useProviderSignal(isOnline);
+
+  // Solicitudes que llegan por WhatsApp (formulario → hoja → Firestore): se registran solas mientras el panel está abierto.
+  const { pending: whatsappPending } = useWhatsappIntake({
+    operator: user ? { uid: user.uid, name: userName || 'Central' } : null,
+    enabled: isOnline,
+    onCreated: (result) => {
+      playAlertSound();
+      addToast(
+        result.urgent ? 'warning' : 'success',
+        'Nueva solicitud por WhatsApp',
+        `${result.code} · ${result.clientName} (${result.district})${result.urgent ? ' · URGENTE' : ''}`,
+      );
+    },
+    onRejected: (result) => {
+      addToast('error', 'Solicitud de WhatsApp rechazada', `${result.clientName || 'Un cliente'}: ${result.errors.join(' ')} Revisa la hoja de respuestas.`);
+    },
+  });
 
   // Modales
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -501,6 +524,8 @@ export const Dashboard = () => {
       <TelemetryBar
         stats={stats}
         isOnline={isOnline}
+        whatsappPending={whatsappPending}
+        staleProviders={staleProviders}
         onShowReassign={() => { filters.setStatusFilter('PENDING'); setActiveTab('OPERATION'); }}
       />
 

@@ -123,3 +123,42 @@
 @media (prefers-reduced-motion: reduce) {
   .skeleton-cell { animation: none; }
 }
+
+.telemetry-whatsapp { display: inline-flex; align-items: center; gap: 6px; color: var(--status-completed-fg); }
+
+/* ── Técnicos sin ubicación (control de ubicación en horario laboral) ── */
+.telemetry-signal { position: relative; }
+.telemetry-signal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-pending-border);
+  background: var(--status-pending-bg);
+  color: var(--status-pending-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.telemetry-signal-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: min(380px, 90vw);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-main);
+}
+.telemetry-signal-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.telemetry-signal-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.telemetry-signal-list li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.telemetry-signal-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.telemetry-signal-time { color: var(--status-pending-fg); font-size: 12px; }
+.telemetry-signal-call { color: var(--primary); font-size: 12px; text-decoration: none; }
+.telemetry-signal-call:hover { text-decoration: underline; }
+.telemetry-signal-help { margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); }
